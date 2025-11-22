@@ -3,6 +3,8 @@
 package main
 
 import (
+	"time"
+
 	"github.com/fosrl/windows/ui"
 	"github.com/fosrl/windows/version"
 
@@ -33,6 +35,15 @@ func main() {
 	if err := ui.SetupTray(mw); err != nil {
 		logger.Fatal("Failed to setup tray: %v", err)
 	}
+
+	// Start background update checker after app starts running
+	// We need to wait for app.Run() to start the message loop before
+	// the background checker can safely use walk.App().Synchronize()
+	go func() {
+		// Wait a moment for app.Run() to start processing messages
+		time.Sleep(10 * time.Second)
+		ui.StartBackgroundUpdateChecker(mw, 6*time.Hour)
+	}()
 
 	// Run the application
 	app.Run()

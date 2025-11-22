@@ -7,6 +7,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sync"
+	"time"
 	"unsafe"
 
 	"github.com/fosrl/windows/config"
@@ -18,7 +20,19 @@ import (
 	"github.com/tailscale/win"
 )
 
-var trayIcon *walk.NotifyIcon
+var (
+	trayIcon        *walk.NotifyIcon
+	contextMenu     *walk.Menu
+	mainWindow      *walk.MainWindow
+	availableUpdate *updater.UpdateFound
+	updateMutex     sync.RWMutex
+	updateAction    *walk.Action // Action for "Update Available" menu item
+	labelAction     *walk.Action
+	loginAction     *walk.Action
+	connectAction   *walk.Action
+	moreAction      *walk.Action
+	quitAction      *walk.Action
+)
 
 // setTrayIcon updates the tray icon based on connection status
 // connected: true for orange icon, false for gray icon
@@ -54,6 +68,9 @@ func setTrayIcon(connected bool) {
 }
 
 func SetupTray(mw *walk.MainWindow) error {
+	// Store references for update menu management
+	mainWindow = mw
+
 	// Create NotifyIcon
 	ni, err := walk.NewNotifyIcon()
 	if err != nil {
@@ -68,19 +85,19 @@ func SetupTray(mw *walk.MainWindow) error {
 	ni.SetToolTip(config.AppName)
 
 	// Create grayed out label action
-	labelAction := walk.NewAction()
+	labelAction = walk.NewAction()
 	labelAction.SetText("milo@pangolin.net")
 	labelAction.SetEnabled(false) // Gray out the text
 
 	// Create Login action
-	loginAction := walk.NewAction()
+	loginAction = walk.NewAction()
 	loginAction.SetText("Login")
 	loginAction.Triggered().Attach(func() {
 		ShowLoginDialog(mw)
 	})
 
 	// Create Connect action (toggle button with checkmark)
-	connectAction := walk.NewAction()
+	connectAction = walk.NewAction()
 	var isConnected bool
 	connectAction.SetText("Connect")
 	connectAction.SetChecked(false) // Initially unchecked
@@ -243,23 +260,29 @@ func SetupTray(mw *walk.MainWindow) error {
 			}
 		}()
 	})
+	moreMenu.Actions().Add(updateAction)
 
-	moreAction := walk.NewMenuAction(moreMenu)
+	// Add version info at the bottom, grayed out
+	versionAction := walk.NewAction()
+	versionAction.SetText(fmt.Sprintf("Version %s", version.Number))
+	versionAction.SetEnabled(false) // Gray out the text
+	moreMenu.Actions().Add(versionAction)
+
+	moreAction = walk.NewMenuAction(moreMenu)
 	moreAction.SetText("More")
 
 	// Create Quit action
-	quitAction := walk.NewAction()
+	quitAction = walk.NewAction()
 	quitAction.SetText("Quit")
 	quitAction.Triggered().Attach(func() {
 		walk.App().Exit(0)
 	})
 
-	// Add actions to context menu (works for right-click)
-	contextMenu := ni.ContextMenu()
+	// Initialize context menu and add all initial actions
+	contextMenu = ni.ContextMenu()
 	contextMenu.Actions().Add(labelAction) // Add label first (grayed out)
 	contextMenu.Actions().Add(loginAction) // Add Login button
 	contextMenu.Actions().Add(connectAction)
-	contextMenu.Actions().Add(updateAction) // Add Check for Updates
 	contextMenu.Actions().Add(moreAction)
 	contextMenu.Actions().Add(quitAction)
 
@@ -299,4 +322,201 @@ func SetupTray(mw *walk.MainWindow) error {
 	ni.SetVisible(true)
 
 	return nil
+}
+
+// updateMenuWithAvailableUpdate adds or removes the "Update Available" menu item
+// based on whether an update is available. Uses Insert/Remove like WireGuard does.
+func updateMenuWithAvailableUpdate() {
+	if contextMenu == nil {
+		return
+	}
+
+	// Safely get the app instance - it might not be ready yet
+	app := walk.App()
+	if app == nil {
+		logger.Error("Cannot update menu: walk.App() is nil (app not initialized)")
+		return
+	}
+
+	updateMutex.RLock()
+	hasUpdate := availableUpdate != nil
+	updateMutex.RUnlock()
+
+	// Use defer/recover to catch any panics from Synchronize
+	defer func() {
+		if r := recover(); r != nil {
+			logger.Error("Panic in updateMenuWithAvailableUpdate: %v", r)
+		}
+	}()
+
+	app.Synchronize(func() {
+		// Recover from any panics that occur on the UI thread
+		defer func() {
+			if r := recover(); r != nil {
+				logger.Error("Panic in Synchronize callback (UI thread): %v", r)
+			}
+		}()
+
+		actions := contextMenu.Actions()
+
+		// Check if update action is already in the menu
+		updateActionInMenu := false
+		if updateAction != nil {
+			for i := 0; i < actions.Len(); i++ {
+				if actions.At(i) == updateAction {
+					updateActionInMenu = true
+					break
+				}
+			}
+		}
+
+		if hasUpdate {
+			// Create update menu item if it doesn't exist
+			if updateAction == nil {
+				updateAction = walk.NewAction()
+				updateAction.SetText("Update available")
+				updateAction.Triggered().Attach(func() {
+					// Run in goroutine to avoid blocking the UI thread
+					go func() {
+						updateMutex.RLock()
+						update := availableUpdate
+						updateMutex.RUnlock()
+						if update == nil {
+							return
+						}
+
+						// Show confirmation dialog
+						userAcceptedChan := make(chan bool, 1)
+						walk.App().Synchronize(func() {
+							td := walk.NewTaskDialog()
+							opts := walk.TaskDialogOpts{
+								Owner:         mainWindow,
+								Title:         "Update Available",
+								Content:       fmt.Sprintf("A new version is available: %s\n\nWould you like to download and install it now?", update.Name()),
+								IconSystem:    walk.TaskDialogSystemIconInformation,
+								CommonButtons: win.TDCBF_YES_BUTTON | win.TDCBF_NO_BUTTON,
+								DefaultButton: walk.TaskDialogDefaultButtonYes,
+							}
+							opts.CommonButtonClicked(win.TDCBF_YES_BUTTON).Attach(func() bool {
+								userAcceptedChan <- true
+								return true
+							})
+							opts.CommonButtonClicked(win.TDCBF_NO_BUTTON).Attach(func() bool {
+								userAcceptedChan <- false
+								return true
+							})
+							_, _ = td.Show(opts)
+						})
+
+						userAccepted := <-userAcceptedChan
+						if !userAccepted {
+							logger.Info("User declined update")
+							return
+						}
+
+						// Start download and installation
+						logger.Info("Starting update download...")
+						progress := updater.DownloadVerifyAndExecute(0) // 0 = use SYSTEM token
+
+						for dp := range progress {
+							if dp.Error != nil {
+								logger.Error("Update error: %v", dp.Error)
+								walk.App().Synchronize(func() {
+									td := walk.NewTaskDialog()
+									_, _ = td.Show(walk.TaskDialogOpts{
+										Owner:         mainWindow,
+										Title:         "Update Failed",
+										Content:       fmt.Sprintf("Update failed: %v", dp.Error),
+										IconSystem:    walk.TaskDialogSystemIconError,
+										CommonButtons: win.TDCBF_OK_BUTTON,
+									})
+								})
+								return
+							}
+
+							if len(dp.Activity) > 0 {
+								logger.Info("Update: %s", dp.Activity)
+							}
+
+							if dp.BytesTotal > 0 {
+								percent := float64(dp.BytesDownloaded) / float64(dp.BytesTotal) * 100
+								logger.Info("Download progress: %.1f%% (%d/%d bytes)", percent, dp.BytesDownloaded, dp.BytesTotal)
+							}
+
+							if dp.Complete {
+								logger.Info("Update complete! The application will restart.")
+								walk.App().Synchronize(func() {
+									td := walk.NewTaskDialog()
+									_, _ = td.Show(walk.TaskDialogOpts{
+										Owner:         mainWindow,
+										Title:         "Update Complete",
+										Content:       "The update has been installed successfully. The application will now restart.",
+										IconSystem:    walk.TaskDialogSystemIconInformation,
+										CommonButtons: win.TDCBF_OK_BUTTON,
+									})
+								})
+								// Clear the update after installation starts
+								updateMutex.Lock()
+								availableUpdate = nil
+								updateMutex.Unlock()
+								updateMenuWithAvailableUpdate()
+								// The MSI installer will handle the restart
+								return
+							}
+						}
+					}()
+				})
+			} else {
+				// Update the text if action already exists (keep it simple)
+				updateAction.SetText("Update available")
+			}
+
+			// Insert update action if it's not already in the menu
+			// Insert after connectAction (before moreAction)
+			if !updateActionInMenu {
+				// Find the index of moreAction to insert before it
+				moreActionIndex := -1
+				for i := 0; i < actions.Len(); i++ {
+					if actions.At(i) == moreAction {
+						moreActionIndex = i
+						break
+					}
+				}
+				if moreActionIndex >= 0 {
+					actions.Insert(moreActionIndex, updateAction)
+				} else {
+					// Fallback: just add it
+					actions.Add(updateAction)
+				}
+			}
+		} else {
+			// Remove update action if it exists in the menu
+			if updateActionInMenu && updateAction != nil {
+				actions.Remove(updateAction)
+			}
+			// Note: We don't set updateAction to nil here because we want to keep
+			// the action object for potential reuse, just remove it from the menu
+		}
+	})
+}
+
+// StartBackgroundUpdateChecker starts a background update checker that periodically
+// checks for updates and updates the menu when an update is found.
+func StartBackgroundUpdateChecker(mw *walk.MainWindow, interval time.Duration) {
+	updater.StartBackgroundUpdateChecker(interval, func(update *updater.UpdateFound) {
+		// Use defer/recover to catch any panics
+		defer func() {
+			if r := recover(); r != nil {
+				logger.Error("Panic in update callback: %v", r)
+			}
+		}()
+
+		// Store the update
+		updateMutex.Lock()
+		availableUpdate = update
+		updateMutex.Unlock()
+
+		// Update the menu to show the update item
+		updateMenuWithAvailableUpdate()
+	})
 }

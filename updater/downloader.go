@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"sync/atomic"
+	"time"
 
 	"golang.org/x/crypto/blake2b"
 	"golang.org/x/sys/windows"
@@ -315,4 +316,42 @@ func DownloadVerifyAndExecute(userToken uintptr) (progress chan DownloadProgress
 	}
 
 	return progress
+}
+
+// UpdateFoundCallback is a function type that gets called when an update is found
+type UpdateFoundCallback func(update *UpdateFound)
+
+// StartBackgroundUpdateChecker starts a background goroutine that checks for updates
+// at the specified interval. When an update is found, it calls the provided callback.
+// The function performs an initial check after a 30 second delay, then checks at
+// the specified interval thereafter.
+func StartBackgroundUpdateChecker(interval time.Duration, callback UpdateFoundCallback) {
+	go func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+
+		// Perform initial check after a short delay
+		time.Sleep(30 * time.Second)
+
+		for {
+			// Check for updates
+			logger.Info("Background update check: checking for updates...")
+			update, err := CheckForUpdate()
+			if err != nil {
+				logger.Error("Background update check failed: %v", err)
+				// Don't call callback for errors, just log
+			} else if update != nil {
+				logger.Info("Background update check: update found: %s", update.Name())
+				// Call the callback to notify about the update
+				if callback != nil {
+					callback(update)
+				}
+			} else {
+				logger.Info("Background update check: no update available")
+			}
+
+			// Wait for next tick
+			<-ticker.C
+		}
+	}()
 }
