@@ -33,6 +33,8 @@ type LogWindow struct {
 	tabWidget      *walk.TabWidget
 	logView        *walk.TableView
 	olmStatusEdit  *walk.TextEdit
+	clearButton    *walk.PushButton
+	saveButton     *walk.PushButton
 	model          *logModel
 	tunnelManager  *tunnel.Manager
 	olmStatusQuit  chan bool
@@ -192,6 +194,10 @@ func NewLogWindow(owner walk.Form, tm *tunnel.Manager) (*LogWindow, error) {
 	lw.logView.SetModel(lw.model)
 	setSelectionStatus()
 
+	// Add log tab to tab widget first
+	lw.tabWidget.Pages().Add(logTabPage)
+
+	// Create buttons container after tab is added
 	buttonsContainer, err := walk.NewComposite(logTabPage)
 	if err != nil {
 		return nil, err
@@ -201,15 +207,17 @@ func NewLogWindow(owner walk.Form, tm *tunnel.Manager) (*LogWindow, error) {
 
 	walk.NewHSpacer(buttonsContainer)
 
-	saveButton, err := walk.NewPushButton(buttonsContainer)
-	if err != nil {
+	if lw.clearButton, err = walk.NewPushButton(buttonsContainer); err != nil {
 		return nil, err
 	}
-	saveButton.SetText("&Save")
-	saveButton.Clicked().Attach(lw.onSave)
+	lw.clearButton.SetText("&Clear")
+	lw.clearButton.Clicked().Attach(lw.onClear)
 
-	// Add log tab to tab widget
-	lw.tabWidget.Pages().Add(logTabPage)
+	if lw.saveButton, err = walk.NewPushButton(buttonsContainer); err != nil {
+		return nil, err
+	}
+	lw.saveButton.SetText("&Save")
+	lw.saveButton.Clicked().Attach(lw.onSave)
 
 	// Create second tab for OLM status
 	olmTabPage, err := walk.NewTabPage()
@@ -363,6 +371,18 @@ func (lw *LogWindow) onSelectAll() {
 	lw.logView.SetSelectedIndexes([]int{-1})
 }
 
+func (lw *LogWindow) onClear() {
+	// Clear all log items from the model
+	lw.model.mu.Lock()
+	lw.model.items = lw.model.items[:0]
+	lw.model.mu.Unlock()
+
+	// Update the UI
+	walk.App().Synchronize(func() {
+		lw.model.PublishRowsReset()
+	})
+}
+
 func (lw *LogWindow) onSave() {
 	fd := walk.FileDialog{
 		Filter:   "Text Files (*.txt)|*.txt|All Files (*.*)|*.*",
@@ -370,9 +390,8 @@ func (lw *LogWindow) onSave() {
 		Title:    "Export log to file",
 	}
 
-	form := lw.Form()
-
-	if ok, _ := fd.ShowSave(form); !ok {
+	// Pass the dialog directly since Dialog implements Form
+	if ok, _ := fd.ShowSave(lw); !ok {
 		return
 	}
 
@@ -380,7 +399,7 @@ func (lw *LogWindow) onSave() {
 		fd.FilePath = fd.FilePath + ".txt"
 	}
 
-	writeFileWithOverwriteHandling(form, fd.FilePath, func(file *os.File) error {
+	writeFileWithOverwriteHandling(lw, fd.FilePath, func(file *os.File) error {
 		for _, item := range lw.model.items {
 			line := fmt.Sprintf("%s [%s] %s\r\n",
 				item.Stamp.Format("2006-01-02 15:04:05.000"),
