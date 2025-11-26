@@ -469,6 +469,28 @@ func setupMenu() error {
 	})
 	moreMenu.Actions().Add(checkUpdateAction)
 
+	// View Logs action
+	viewLogsAction := walk.NewAction()
+	viewLogsAction.SetText("View Logs")
+	viewLogsAction.Triggered().Attach(func() {
+		go func() {
+			walk.App().Synchronize(func() {
+				if err := ShowLogWindow(mainWindow); err != nil {
+					logger.Error("Failed to show log window: %v", err)
+					td := walk.NewTaskDialog()
+					_, _ = td.Show(walk.TaskDialogOpts{
+						Owner:         mainWindow,
+						Title:         "Error",
+						Content:       fmt.Sprintf("Failed to open log window: %v", err),
+						IconSystem:    walk.TaskDialogSystemIconError,
+						CommonButtons: win.TDCBF_OK_BUTTON,
+					})
+				}
+			})
+		}()
+	})
+	moreMenu.Actions().Add(viewLogsAction)
+
 	moreAction = walk.NewMenuAction(moreMenu)
 	moreAction.SetText("More")
 	actions.Add(moreAction)
