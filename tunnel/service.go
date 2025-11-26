@@ -7,6 +7,8 @@ import (
 	"sync"
 
 	"github.com/fosrl/newt/logger"
+
+	olmpkg "github.com/fosrl/olm/olm"
 )
 
 var (
@@ -79,16 +81,18 @@ func (s State) String() string {
 type Config struct {
 	Name string `json:"name"` // for Windows service name
 
-	Endpoint            string `json:"endpoint"`
-	ID                  string `json:"id"`
-	Secret              string `json:"secret"`
-	MTU                 int    `json:"mtu"`
-	DNS                 string `json:"dns"`
-	Holepunch           bool   `json:"holepunch"`
-	PingIntervalSeconds int    `json:"pingIntervalSeconds"`
-	PingTimeoutSeconds  int    `json:"pingTimeoutSeconds"`
-	UserToken           string `json:"userToken"`
-	OrgID               string `json:"orgId"`
+	Endpoint            string   `json:"endpoint"`
+	ID                  string   `json:"id"`
+	Secret              string   `json:"secret"`
+	MTU                 int      `json:"mtu"`
+	DNS                 string   `json:"dns"`
+	Holepunch           bool     `json:"holepunch"`
+	PingIntervalSeconds int      `json:"pingIntervalSeconds"`
+	PingTimeoutSeconds  int      `json:"pingTimeoutSeconds"`
+	UserToken           string   `json:"userToken"`
+	OrgID               string   `json:"orgId"`
+	InterfaceName       string   `json:"interfaceName"`
+	UpstreamDNS         []string `json:"upstreamDns"`
 }
 
 func StartTunnel(config Config) error {
@@ -239,4 +243,14 @@ func uninstallTunnelFromManager(name string) error {
 		return nil // Stub - will be set by managers package
 	}
 	return uninstallTunnelFunc(name)
+}
+
+func SwitchOrg(orgID string) error {
+	logger.Info("Tunnel: SwitchOrg called with orgID: %s", orgID)
+
+	// Call olmpkg.SwitchOrg
+	olmpkg.SwitchOrg(orgID)
+
+	logger.Info("Tunnel: SwitchOrg completed")
+	return nil
 }

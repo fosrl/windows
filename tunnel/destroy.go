@@ -12,6 +12,7 @@ import (
 func destroyTunnel(config Config) {
 	logger.Debug("Destroy tunnel called")
 
+	olmpkg.StopApi()
 	olmpkg.StopTunnel()
 
 	logger.Debug("Destroy tunnel completed successfully")

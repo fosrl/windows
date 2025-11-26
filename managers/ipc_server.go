@@ -155,6 +155,10 @@ func (s *ManagerService) StopTunnel() error {
 	return nil
 }
 
+func (s *ManagerService) SwitchOrg(orgID string) error {
+	return tunnel.SwitchOrg(orgID)
+}
+
 func (s *ManagerService) ServeConn(reader io.Reader, writer io.Writer) {
 	decoder := gob.NewDecoder(reader)
 	encoder := gob.NewEncoder(writer)
@@ -201,6 +205,17 @@ func (s *ManagerService) ServeConn(reader io.Reader, writer io.Writer) {
 			}
 		case StopTunnelMethodType:
 			retErr := s.StopTunnel()
+			err = encoder.Encode(errToString(retErr))
+			if err != nil {
+				return
+			}
+		case SwitchOrgMethodType:
+			var orgID string
+			err := decoder.Decode(&orgID)
+			if err != nil {
+				return
+			}
+			retErr := s.SwitchOrg(orgID)
 			err = encoder.Encode(errToString(retErr))
 			if err != nil {
 				return

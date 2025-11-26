@@ -21,7 +21,7 @@ func buildTunnel(config Config) error {
 	// Create OLM GlobalConfig with hardcoded values from Swift
 	olmInitConfig := olmpkg.GlobalConfig{
 		LogLevel:   "debug",
-		EnableAPI:  false,
+		EnableAPI:  true,
 		SocketPath: "/var/run/olm.sock",
 		Version:    "1",
 		OnConnected: func() {
@@ -36,16 +36,16 @@ func buildTunnel(config Config) error {
 			SetState(StateRegistered)
 			notifyStateChange(StateRegistered)
 		},
-		// OnTerminated: func() {
-		// 	logger.Info("OLM terminated")
-		// 	// Force tunnel to disconnected state
-		// 	SetState(StateStopped)
-		// 	notifyStateChange(StateStopped)
-		// 	// This will uninstall the Windows service
-		// 	if err := StopTunnel(); err != nil {
-		// 		logger.Error("Failed to stop tunnel after OLM termination: %v", err)
-		// 	}
-		// },
+		OnTerminated: func() {
+			logger.Info("OLM terminated")
+			// Force tunnel to disconnected state
+			SetState(StateStopped)
+			notifyStateChange(StateStopped)
+			// This will uninstall the Windows service
+			if err := StopTunnel(); err != nil {
+				logger.Error("Failed to stop tunnel after OLM termination: %v", err)
+			}
+		},
 	}
 
 	// Initialize OLM with context and GlobalConfig
@@ -62,6 +62,8 @@ func buildTunnel(config Config) error {
 		PingTimeoutDuration:  time.Duration(config.PingTimeoutSeconds) * time.Second,
 		UserToken:            config.UserToken,
 		OrgID:                config.OrgID,
+		InterfaceName:        config.InterfaceName,
+		UpstreamDNS:          config.UpstreamDNS,
 	}
 
 	logger.Info("Starting OLM tunnel...")

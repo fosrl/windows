@@ -31,6 +31,8 @@ var (
 	mainWindow         *walk.MainWindow
 	hasUpdate          bool
 	updateMutex        sync.RWMutex
+	startupDialogShown bool
+	startupDialogMutex sync.Mutex
 	updateAction       *walk.Action
 	loadingAction      *walk.Action
 	statusAction       *walk.Action
@@ -176,6 +178,15 @@ func setupMenu() error {
 	}
 
 	actions := contextMenu.Actions()
+
+	// Create update action (initially hidden)
+	updateAction = walk.NewAction()
+	updateAction.SetText("Update available")
+	updateAction.SetVisible(false) // Hidden initially
+	updateAction.Triggered().Attach(func() {
+		go triggerUpdate(mainWindow)
+	})
+	actions.Add(updateAction)
 
 	// Create loading action
 	loadingAction = walk.NewAction()
@@ -332,15 +343,6 @@ func setupMenu() error {
 	})
 	actions.Add(loginAction)
 
-	// Create update action (initially hidden)
-	updateAction = walk.NewAction()
-	updateAction.SetText("Update available")
-	updateAction.SetVisible(false) // Hidden initially
-	updateAction.Triggered().Attach(func() {
-		go triggerUpdate(mainWindow)
-	})
-	actions.Add(updateAction)
-
 	// Separator before More
 	actions.Add(walk.NewSeparatorAction())
 
@@ -357,23 +359,11 @@ func setupMenu() error {
 	logoutAction.SetVisible(false) // Hidden initially
 	logoutAction.Triggered().Attach(func() {
 		go func() {
-			// Stop tunnel before logout
-			if tunnelManager != nil && tunnelManager.IsConnected() {
-				logger.Info("Stopping tunnel before logout")
-				if err := tunnelManager.Disconnect(); err != nil {
-					logger.Error("Failed to stop tunnel before logout: %v", err)
-					// Show error dialog to user
-					walk.App().Synchronize(func() {
-						td := walk.NewTaskDialog()
-						_, _ = td.Show(walk.TaskDialogOpts{
-							Owner:         mainWindow,
-							Title:         "Disconnect Failed",
-							Content:       fmt.Sprintf("Failed to disconnect tunnel: %v", err),
-							IconSystem:    walk.TaskDialogSystemIconError,
-							CommonButtons: win.TDCBF_OK_BUTTON,
-						})
-					})
-				}
+			// Always stop any running tunnel before logout
+			logger.Info("Stopping tunnel before logout")
+			if err := managers.IPCClientStopTunnel(); err != nil {
+				logger.Error("Failed to stop tunnel before logout: %v", err)
+				// Continue with logout even if stopping tunnel fails
 			}
 
 			if err := authManager.Logout(); err != nil {
@@ -841,6 +831,23 @@ func updateOrganizations() {
 						})
 					} else {
 						updateMenu()
+
+						if tunnelManager.IsConnected() {
+							if err := tunnelManager.SwitchOrg(orgCopy.Id); err != nil {
+								logger.Error("Failed to switch tunnel organization: %v", err)
+								// Show error dialog to user
+								walk.App().Synchronize(func() {
+									td := walk.NewTaskDialog()
+									_, _ = td.Show(walk.TaskDialogOpts{
+										Owner:         mainWindow,
+										Title:         "Tunnel Organization Switch Failed",
+										Content:       fmt.Sprintf("Failed to switch tunnel organization: %v", err),
+										IconSystem:    walk.TaskDialogSystemIconError,
+										CommonButtons: win.TDCBF_OK_BUTTON,
+									})
+								})
+							}
+						}
 					}
 				}()
 			})
@@ -1053,14 +1060,46 @@ func SetupTray(mw *walk.MainWindow, am *auth.AuthManager, cm *config.ConfigManag
 		}
 	})
 
-	// Check initial update state
+	// Check initial update state on startup
+	// If an update is found on startup, show a dialog prompting the user to update
+	// This only happens on startup - later checks via callback will only update the menu
 	go func() {
+		// Check immediately first (in case update was already found)
 		updateState, err := managers.IPCClientUpdateState()
 		if err == nil && updateState == managers.UpdateStateFoundUpdate {
 			updateMutex.Lock()
 			hasUpdate = true
 			updateMutex.Unlock()
 			updateMenu()
+			// Show dialog on startup if update is available (only once)
+			startupDialogMutex.Lock()
+			if !startupDialogShown {
+				startupDialogShown = true
+				startupDialogMutex.Unlock()
+				triggerUpdate(mainWindow)
+			} else {
+				startupDialogMutex.Unlock()
+			}
+			return
+		}
+		// If no update found yet, wait a bit for the initial check to complete
+		// (the manager service's checkForUpdates might still be running)
+		time.Sleep(3 * time.Second)
+		updateState, err = managers.IPCClientUpdateState()
+		if err == nil && updateState == managers.UpdateStateFoundUpdate {
+			updateMutex.Lock()
+			hasUpdate = true
+			updateMutex.Unlock()
+			updateMenu()
+			// Show dialog on startup if update is available (only once)
+			startupDialogMutex.Lock()
+			if !startupDialogShown {
+				startupDialogShown = true
+				startupDialogMutex.Unlock()
+				triggerUpdate(mainWindow)
+			} else {
+				startupDialogMutex.Unlock()
+			}
 		}
 	}()
 

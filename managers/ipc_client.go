@@ -32,6 +32,7 @@ const (
 	UpdateMethodType
 	StartTunnelMethodType
 	StopTunnelMethodType
+	SwitchOrgMethodType
 )
 
 var (
@@ -180,6 +181,10 @@ func IPCClientUpdateState() (updateState UpdateState, err error) {
 }
 
 func IPCClientUpdate() error {
+	// Always stop any running tunnel services first
+	// Ignore errors from StopTunnel as it's safe to call even if no tunnel is running
+	_ = IPCClientStopTunnel()
+
 	rpcMutex.Lock()
 	defer rpcMutex.Unlock()
 
@@ -237,6 +242,22 @@ func IPCClientStopTunnel() error {
 	defer rpcMutex.Unlock()
 
 	err := rpcEncoder.Encode(StopTunnelMethodType)
+	if err != nil {
+		return err
+	}
+	err = rpcDecodeError()
+	return err
+}
+
+func IPCClientSwitchOrg(orgID string) error {
+	rpcMutex.Lock()
+	defer rpcMutex.Unlock()
+
+	err := rpcEncoder.Encode(SwitchOrgMethodType)
+	if err != nil {
+		return err
+	}
+	err = rpcEncoder.Encode(orgID)
 	if err != nil {
 		return err
 	}

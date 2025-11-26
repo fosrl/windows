@@ -2,7 +2,7 @@
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
   <Package Name="Pangolin" 
            Language="1033" 
-           Version="1.0.28" 
+           Version="1.0.31" 
            Manufacturer="Fossorial" 
            UpgradeCode="165F13D3-9A2F-4AF7-9C68-474A8256B274"
            Compressed="yes">
@@ -19,16 +19,32 @@
                 Source="$(var.BuildDir)/Pangolin.exe" 
                 KeyPath="yes" />
         </Component>
+        <Component Id="WintunDll" Guid="A8B9C0D1-E2F3-4A5B-8C9D-0E1F2A3B4C5D">
+          <File Id="WintunDll" 
+                Source="$(var.ProjectDir)/dll/wintun.dll" 
+                KeyPath="yes" />
+        </Component>
         <!-- Icons in the same directory as the executable -->
         <Directory Id="IconsFolder" Name="icons">
           <Component Id="IconOrange" Guid="DBF8097D-9CBE-434A-AC8D-E1A3CF62022C">
             <File Id="IconOrange" 
                   Source="$(var.ProjectDir)/icons/icon-orange.ico" 
                   KeyPath="yes" />
+            <RemoveFolder Id="IconsFolder" On="uninstall" />
           </Component>
           <Component Id="IconGray" Guid="BFA27572-3602-469B-A8B3-90B5C0AA833E">
             <File Id="IconGray" 
                   Source="$(var.ProjectDir)/icons/icon-gray.ico" 
+                  KeyPath="yes" />
+          </Component>
+          <Component Id="WordMarkBlack" Guid="C3D4E5F6-A7B8-5C6D-9E0F-1A2B3C4D5E6F">
+            <File Id="WordMarkBlack" 
+                  Source="$(var.ProjectDir)/icons/word_mark_black.png" 
+                  KeyPath="yes" />
+          </Component>
+          <Component Id="WordMarkWhite" Guid="D4E5F6A7-B8C9-6D7E-0F1A-2B3C4D5E6F7A">
+            <File Id="WordMarkWhite" 
+                  Source="$(var.ProjectDir)/icons/word_mark_white.png" 
                   KeyPath="yes" />
           </Component>
         </Directory>
@@ -75,8 +91,11 @@
     <!-- Feature required by WiX - all components must be referenced by a feature -->
     <Feature Id="ProductFeature" Title="Pangolin" Level="1">
       <ComponentRef Id="PangolinExe" />
+      <ComponentRef Id="WintunDll" />
       <ComponentRef Id="IconOrange" />
       <ComponentRef Id="IconGray" />
+      <ComponentRef Id="WordMarkBlack" />
+      <ComponentRef Id="WordMarkWhite" />
       <ComponentRef Id="DesktopShortcut" />
       <ComponentRef Id="StartMenuShortcut" />
     </Feature>

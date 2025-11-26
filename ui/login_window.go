@@ -3,16 +3,20 @@
 package ui
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 	"unsafe"
 
 	"github.com/fosrl/windows/api"
 	"github.com/fosrl/windows/auth"
 	"github.com/fosrl/windows/config"
+	"github.com/fosrl/windows/managers"
 	"github.com/fosrl/windows/tunnel"
 
 	"github.com/fosrl/newt/logger"
@@ -38,6 +42,11 @@ const (
 	stateReadyToLogin
 	stateDeviceAuthCode
 	stateSuccess
+)
+
+var (
+	openLoginDialog      *walk.Dialog
+	openLoginDialogMutex sync.Mutex
 )
 
 // Checks relative to executable first, then falls back to installed location
@@ -86,6 +95,23 @@ func isDarkMode() bool {
 
 // ShowLoginDialog shows the login dialog with full authentication flow
 func ShowLoginDialog(parent walk.Form, authManager *auth.AuthManager, configManager *config.ConfigManager, apiClient *api.APIClient, tunnelManager *tunnel.Manager) {
+	// Check if a login dialog is already open
+	openLoginDialogMutex.Lock()
+	if openLoginDialog != nil {
+		// Check if the dialog is still valid (not closed)
+		if openLoginDialog.Handle() != 0 {
+			// Focus the existing dialog using Windows API
+			hwnd := openLoginDialog.Handle()
+			win.ShowWindow(hwnd, win.SW_RESTORE)
+			win.SetForegroundWindow(hwnd)
+			openLoginDialogMutex.Unlock()
+			return
+		}
+		// Dialog was closed, clear the reference
+		openLoginDialog = nil
+	}
+	openLoginDialogMutex.Unlock()
+
 	var dlg *walk.Dialog
 	var contentComposite *walk.Composite
 	var buttonComposite *walk.Composite
@@ -96,8 +122,13 @@ func ShowLoginDialog(parent walk.Form, authManager *auth.AuthManager, configMana
 	selfHostedURL := ""
 	isLoggingIn := false
 	hasAutoOpenedBrowser := false
+	loginSucceeded := false
 	// Initialize temporary hostname from config (will be used for login flow, only persisted after successful login)
 	temporaryHostname := configManager.GetHostname()
+
+	// Context for canceling polling goroutine and login operation
+	pollCtx, cancelPoll := context.WithCancel(context.Background())
+	loginCtx, cancelLogin := context.WithCancel(context.Background())
 
 	// UI components
 	var cloudButton, selfHostedButton *walk.PushButton
@@ -244,8 +275,16 @@ func ShowLoginDialog(parent walk.Form, authManager *auth.AuthManager, configMana
 		}
 
 		// Pass temporary hostname to login (it will use a temporary API client internally)
-		err := authManager.LoginWithDeviceAuth(&temporaryHostname)
+		err := authManager.LoginWithDeviceAuth(loginCtx, &temporaryHostname)
 		if err != nil {
+			// Don't show error dialog if context was canceled (user closed dialog)
+			if errors.Is(err, context.Canceled) {
+				walk.App().Synchronize(func() {
+					isLoggingIn = false
+					updateUI()
+				})
+				return
+			}
 			walk.App().Synchronize(func() {
 				isLoggingIn = false
 				errorMsg := err.Error()
@@ -279,17 +318,16 @@ func ShowLoginDialog(parent walk.Form, authManager *auth.AuthManager, configMana
 			apiClient.UpdateBaseURL(hostnameToSave)
 		}
 
-		// Success - stop tunnel if running, then close
-		if tunnelManager != nil && tunnelManager.IsConnected() {
-			logger.Info("Stopping tunnel after successful login")
-			if err := tunnelManager.Disconnect(); err != nil {
-				logger.Error("Failed to stop tunnel after login: %v", err)
-				// Still close the dialog even if disconnect fails
-			}
+		// Success - always stop any running tunnel after login, then close
+		logger.Info("Stopping tunnel after successful login")
+		if err := managers.IPCClientStopTunnel(); err != nil {
+			logger.Error("Failed to stop tunnel after login: %v", err)
+			// Still close the dialog even if stopping tunnel fails
 		}
 
 		walk.App().Synchronize(func() {
 			isLoggingIn = false
+			loginSucceeded = true
 			dlg.Accept()
 		})
 	}
@@ -550,22 +588,56 @@ func ShowLoginDialog(parent walk.Form, authManager *auth.AuthManager, configMana
 	// Initial UI update
 	updateUI()
 
+	// Store the dialog reference
+	openLoginDialogMutex.Lock()
+	openLoginDialog = dlg
+	openLoginDialogMutex.Unlock()
+
+	// Clear the dialog reference and cleanup state when it closes
+	defer func() {
+		// Cancel login operation and polling goroutine
+		cancelLogin()
+		cancelPoll()
+
+		// Clear device auth state if login didn't succeed
+		if !loginSucceeded {
+			authManager.ClearDeviceAuth()
+			logger.Info("Cleared device auth state after dialog close")
+		}
+
+		// Clear dialog reference
+		openLoginDialogMutex.Lock()
+		if openLoginDialog == dlg {
+			openLoginDialog = nil
+		}
+		openLoginDialogMutex.Unlock()
+		logger.Info("Login dialog closed")
+	}()
+
 	// Poll for device auth code updates
 	go func() {
+		ticker := time.NewTicker(500 * time.Millisecond)
+		defer ticker.Stop()
+
 		for {
-			time.Sleep(500 * time.Millisecond)
-			if currentState == stateDeviceAuthCode {
-				code := authManager.DeviceAuthCode()
-				if code != nil {
-					updateCodeDisplay()
-				} else if !isLoggingIn {
-					// Code was cleared, go back
-					walk.App().Synchronize(func() {
-						currentState = stateHostingSelection
-						hostingOpt = hostingNone
-						hasAutoOpenedBrowser = false
-						updateUI()
-					})
+			select {
+			case <-pollCtx.Done():
+				// Dialog closed, stop polling
+				return
+			case <-ticker.C:
+				if currentState == stateDeviceAuthCode {
+					code := authManager.DeviceAuthCode()
+					if code != nil {
+						updateCodeDisplay()
+					} else if !isLoggingIn {
+						// Code was cleared, go back
+						walk.App().Synchronize(func() {
+							currentState = stateHostingSelection
+							hostingOpt = hostingNone
+							hasAutoOpenedBrowser = false
+							updateUI()
+						})
+					}
 				}
 			}
 		}

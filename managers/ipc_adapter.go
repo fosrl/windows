@@ -33,3 +33,7 @@ func (a *IPCAdapter) RegisterStateChangeCallback(cb func(tunnel.State)) func() {
 	}
 }
 
+// SwitchOrg switches the organization for the running tunnel
+func (a *IPCAdapter) SwitchOrg(orgID string) error {
+	return IPCClientSwitchOrg(orgID)
+}

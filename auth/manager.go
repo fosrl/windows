@@ -3,6 +3,7 @@
 package auth
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -155,8 +156,8 @@ func (am *AuthManager) LoginWithCredentials(email, password string, code *string
 }
 
 // LoginWithDeviceAuth authenticates using device authentication flow
-// If hostnameOverride is provided, it will be used for the login flow instead of the API client's base URL
-func (am *AuthManager) LoginWithDeviceAuth(hostnameOverride *string) error {
+// The context can be used to cancel the polling operation
+func (am *AuthManager) LoginWithDeviceAuth(ctx context.Context, hostnameOverride *string) error {
 	// Use temporary API client if hostname override is provided
 	var loginClient *api.APIClient
 	if hostnameOverride != nil && *hostnameOverride != "" {
@@ -202,28 +203,39 @@ func (am *AuthManager) LoginWithDeviceAuth(hostnameOverride *string) error {
 	verified := false
 	var sessionToken *string
 
+	ticker := time.NewTicker(3 * time.Second)
+	defer ticker.Stop()
+
 	for !verified && time.Now().Before(expiresAt) {
-		time.Sleep(3 * time.Second)
-
-		pollResponse, token, err := loginClient.PollDeviceAuth(code)
-		if err != nil {
-			// Continue polling on error
-			continue
-		}
-
-		if pollResponse.Verified {
-			verified = true
-			if token != nil {
-				sessionToken = token
+		select {
+		case <-ctx.Done():
+			// Context canceled, clear state and return
+			am.mu.Lock()
+			am.deviceAuthCode = nil
+			am.deviceAuthLoginURL = nil
+			am.mu.Unlock()
+			return ctx.Err()
+		case <-ticker.C:
+			pollResponse, token, err := loginClient.PollDeviceAuth(code)
+			if err != nil {
+				// Continue polling on error
+				continue
 			}
-		} else if pollResponse.Message != nil {
-			message := *pollResponse.Message
-			if contains(message, "expired") || contains(message, "not found") {
-				am.mu.Lock()
-				am.deviceAuthCode = nil
-				am.deviceAuthLoginURL = nil
-				am.mu.Unlock()
-				return &AuthError{Type: AuthErrorDeviceCodeExpired}
+
+			if pollResponse.Verified {
+				verified = true
+				if token != nil {
+					sessionToken = token
+				}
+			} else if pollResponse.Message != nil {
+				message := *pollResponse.Message
+				if contains(message, "expired") || contains(message, "not found") {
+					am.mu.Lock()
+					am.deviceAuthCode = nil
+					am.deviceAuthLoginURL = nil
+					am.mu.Unlock()
+					return &AuthError{Type: AuthErrorDeviceCodeExpired}
+				}
 			}
 		}
 	}
@@ -611,8 +623,6 @@ func (am *AuthManager) SelectOrganization(org *api.Org) error {
 	cfg.OrgId = &org.Id
 	am.configManager.Save(cfg)
 
-	// Note: Tunnel manager switching is omitted as requested
-
 	return nil
 }
 
@@ -733,6 +743,14 @@ func (am *AuthManager) DeviceAuthLoginURL() *string {
 	am.mu.RLock()
 	defer am.mu.RUnlock()
 	return am.deviceAuthLoginURL
+}
+
+// ClearDeviceAuth clears the device authentication code and URL
+func (am *AuthManager) ClearDeviceAuth() {
+	am.mu.Lock()
+	defer am.mu.Unlock()
+	am.deviceAuthCode = nil
+	am.deviceAuthLoginURL = nil
 }
 
 // UpdateCurrentUser updates the current user (used for session verification)

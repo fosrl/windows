@@ -18,6 +18,7 @@ import (
 type IPCClient interface {
 	StartTunnel(config Config) error
 	StopTunnel() error
+	SwitchOrg(orgID string) error
 	RegisterStateChangeCallback(cb func(State)) func() // Returns unregister function
 }
 
@@ -138,6 +139,8 @@ func (tm *Manager) buildConfig() (Config, error) {
 		Endpoint:            tm.configManager.GetHostname(),
 		DNS:                 "8.8.8.8",
 		OrgID:               currentOrg.Id,
+		InterfaceName:       "olm",
+		UpstreamDNS:         []string{"8.8.8.8:53"},
 	}
 
 	return config, nil
@@ -316,6 +319,31 @@ func (tm *Manager) Disconnect() error {
 	err := tm.ipcClient.StopTunnel()
 	if err != nil {
 		logger.Error("Failed to stop tunnel: %v", err)
+		return err
+	}
+
+	return nil
+}
+
+// SwitchOrg switches the organization for the running tunnel
+func (tm *Manager) SwitchOrg(orgID string) error {
+	tm.mu.RLock()
+	currentState := tm.currentState
+	tm.mu.RUnlock()
+
+	// Only allow switching org if tunnel is running
+	if currentState != StateRunning {
+		logger.Info("Tunnel is not running, cannot switch organization")
+		return fmt.Errorf("tunnel is not running")
+	}
+
+	logger.Info("Switching tunnel organization to: %s", orgID)
+	if tm.ipcClient == nil {
+		return fmt.Errorf("IPC client not initialized")
+	}
+	err := tm.ipcClient.SwitchOrg(orgID)
+	if err != nil {
+		logger.Error("Failed to switch organization: %v", err)
 		return err
 	}
 
