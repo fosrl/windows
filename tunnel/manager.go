@@ -3,9 +3,17 @@
 package tunnel
 
 import (
+	"bytes"
+	"context"
+	"encoding/json"
 	"fmt"
+	"io"
+	"net"
+	"net/http"
 	"sync"
+	"time"
 
+	"github.com/Microsoft/go-winio"
 	"github.com/fosrl/windows/auth"
 	"github.com/fosrl/windows/config"
 	"github.com/fosrl/windows/secrets"
@@ -34,6 +42,10 @@ type Manager struct {
 	authManager   *auth.AuthManager
 	configManager *config.ConfigManager
 	secretManager *secrets.SecretManager
+	// Status polling fields
+	pollCtx       context.Context
+	pollCancel    context.CancelFunc
+	pollingActive bool
 }
 
 // NewManager creates a new Manager instance
@@ -75,6 +87,14 @@ func NewManager(am *auth.AuthManager, cm *config.ConfigManager, sm *secrets.Secr
 func (tm *Manager) Close() {
 	tm.mu.Lock()
 	defer tm.mu.Unlock()
+
+	// Stop status polling if active
+	if tm.pollingActive && tm.pollCancel != nil {
+		tm.pollCancel()
+		tm.pollingActive = false
+		tm.pollCancel = nil
+		tm.pollCtx = nil
+	}
 
 	if tm.unregisterCb != nil {
 		tm.unregisterCb()
@@ -293,6 +313,9 @@ func (tm *Manager) Connect() error {
 		)
 	}
 
+	logger.Info("Starting status polling")
+	tm.StartStatusPolling()
+
 	return nil
 }
 
@@ -321,6 +344,9 @@ func (tm *Manager) Disconnect() error {
 		logger.Error("Failed to stop tunnel: %v", err)
 		return err
 	}
+
+	tm.StopStatusPolling()
+	logger.Info("Disconnected tunnel")
 
 	return nil
 }
@@ -377,5 +403,227 @@ func (tm *Manager) GetStatusDisplayText() string {
 		return "Error"
 	default:
 		return "Unknown"
+	}
+}
+
+// OLMStatusResponse represents the status response from OLM API
+type OLMStatusResponse struct {
+	Connected       bool                   `json:"connected"`
+	Registered      bool                   `json:"registered"`
+	Version         string                 `json:"version,omitempty"`
+	OrgID           string                 `json:"orgId,omitempty"`
+	PeerStatuses    map[int]*OLMPeerStatus `json:"peers,omitempty"`
+	NetworkSettings map[string]interface{} `json:"networkSettings,omitempty"`
+}
+
+// OLMPeerStatus represents the status of a peer connection
+type OLMPeerStatus struct {
+	SiteID    int           `json:"siteId"`
+	Connected bool          `json:"connected"`
+	RTT       time.Duration `json:"rtt"`
+	LastSeen  time.Time     `json:"lastSeen"`
+	Endpoint  string        `json:"endpoint,omitempty"`
+	IsRelay   bool          `json:"isRelay"`
+	PeerIP    string        `json:"peerAddress,omitempty"`
+}
+
+// SwitchOrgRequest represents the request body for switching organizations
+type SwitchOrgRequest struct {
+	OrgID string `json:"orgId"`
+}
+
+// getOLMPipePath returns the Windows named pipe path for OLM
+func getOLMPipePath() string {
+	// Windows named pipes are virtual objects in NPFS, not filesystem paths
+	// Use a simple, Windows-idiomatic name
+	return `\\.\pipe\pangolin-olm`
+}
+
+// createOLMHTTPClient creates an HTTP client that can connect to OLM via named pipe
+func createOLMHTTPClient() (*http.Client, error) {
+	pipePath := getOLMPipePath()
+
+	// Create a custom transport that dials the named pipe
+	transport := &http.Transport{
+		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+			// Ignore network and addr, we're connecting to a named pipe
+			return winio.DialPipe(pipePath, nil)
+		},
+		DisableKeepAlives: false,
+		MaxIdleConns:      1,
+		IdleConnTimeout:   30 * time.Second,
+	}
+
+	client := &http.Client{
+		Transport: transport,
+		Timeout:   10 * time.Second,
+	}
+
+	return client, nil
+}
+
+// GetOLMStatus retrieves the status from OLM via the named pipe API
+func (tm *Manager) GetOLMStatus() (*OLMStatusResponse, error) {
+	client, err := createOLMHTTPClient()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create OLM HTTP client: %w", err)
+	}
+
+	// Make GET request to /status endpoint
+	// Use a dummy URL since we're connecting via named pipe
+	req, err := http.NewRequest("GET", "http://localhost/status", nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to OLM: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("OLM API returned status %d: %s", resp.StatusCode, string(body))
+	}
+
+	var statusResp OLMStatusResponse
+	if err := json.NewDecoder(resp.Body).Decode(&statusResp); err != nil {
+		return nil, fmt.Errorf("failed to decode OLM status response: %w", err)
+	}
+
+	return &statusResp, nil
+}
+
+// SwitchOLMOrg switches the organization in OLM via the named pipe API
+func (tm *Manager) SwitchOLMOrg(orgID string) error {
+	if orgID == "" {
+		return fmt.Errorf("orgID cannot be empty")
+	}
+
+	client, err := createOLMHTTPClient()
+	if err != nil {
+		return fmt.Errorf("failed to create OLM HTTP client: %w", err)
+	}
+
+	// Create request body
+	reqBody := SwitchOrgRequest{
+		OrgID: orgID,
+	}
+	jsonData, err := json.Marshal(reqBody)
+	if err != nil {
+		return fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	// Make POST request to /switch-org endpoint
+	req, err := http.NewRequest("POST", "http://localhost/switch-org", bytes.NewBuffer(jsonData))
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to connect to OLM: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("OLM API returned status %d: %s", resp.StatusCode, string(body))
+	}
+
+	logger.Info("Successfully switched OLM organization to: %s", orgID)
+	return nil
+}
+
+// StartStatusPolling starts polling the OLM status endpoint every 1 second
+func (tm *Manager) StartStatusPolling() {
+	tm.mu.Lock()
+	defer tm.mu.Unlock()
+
+	// If already polling, stop the previous polling first
+	if tm.pollingActive && tm.pollCancel != nil {
+		tm.pollCancel()
+	}
+
+	// Create new context for polling
+	tm.pollCtx, tm.pollCancel = context.WithCancel(context.Background())
+	tm.pollingActive = true
+
+	// Start polling goroutine
+	// Capture context to avoid race conditions
+	pollCtx := tm.pollCtx
+	go func() {
+		ticker := time.NewTicker(1 * time.Second)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-pollCtx.Done():
+				logger.Info("Status polling stopped")
+				tm.mu.Lock()
+				tm.pollingActive = false
+				tm.mu.Unlock()
+				return
+			case <-ticker.C:
+				// Poll the status
+				status, err := tm.GetOLMStatus()
+				if err != nil {
+					logger.Error("Failed to poll OLM status: %v", err)
+					continue
+				}
+
+				// Update tunnel state based on OLM status
+				// Connected takes precedence over Registered
+				var newState State
+				if status.Connected {
+					newState = StateRunning
+				} else if status.Registered {
+					newState = StateRegistered
+				} else {
+					// If neither connected nor registered, don't update state
+					// (keep current state)
+					continue
+				}
+
+				// Update the global tunnel state (for consistency with GetState())
+				SetState(newState)
+
+				// Update Manager's internal state and trigger callback (this notifies the UI)
+				tm.mu.Lock()
+				oldState := tm.currentState
+				tm.currentState = newState
+				tm.isConnected = (newState == StateRunning)
+				callback := tm.stateCallback
+				tm.mu.Unlock()
+
+				// Only trigger callback if state actually changed
+				if oldState != newState && callback != nil {
+					callback(newState)
+				}
+			}
+		}
+	}()
+
+	logger.Info("Started OLM status polling (every 1 second)")
+}
+
+// StopStatusPolling stops the status polling
+func (tm *Manager) StopStatusPolling() {
+	tm.mu.Lock()
+	defer tm.mu.Unlock()
+
+	if !tm.pollingActive {
+		logger.Info("Status polling is not active")
+		return
+	}
+
+	if tm.pollCancel != nil {
+		tm.pollCancel()
+		tm.pollCancel = nil
+		tm.pollCtx = nil
+		tm.pollingActive = false
+		logger.Info("Stopped OLM status polling")
 	}
 }

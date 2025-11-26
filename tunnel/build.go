@@ -22,29 +22,16 @@ func buildTunnel(config Config) error {
 	olmInitConfig := olmpkg.GlobalConfig{
 		LogLevel:   "debug",
 		EnableAPI:  true,
-		SocketPath: "/var/run/olm.sock",
+		SocketPath: `\\.\pipe\pangolin-olm`,
 		Version:    "1",
 		OnConnected: func() {
-			logger.Info("OLM connected")
-			// Update state to running when OLM connects
-			SetState(StateRunning)
-			notifyStateChange(StateRunning)
+			logger.Info("Tunnel: OLM connected")
 		},
 		OnRegistered: func() {
-			logger.Info("OLM registered")
-			// Update state to registered when OLM registers
-			SetState(StateRegistered)
-			notifyStateChange(StateRegistered)
+			logger.Info("Tunnel: OLM registered")
 		},
 		OnTerminated: func() {
-			logger.Info("OLM terminated")
-			// Force tunnel to disconnected state
-			SetState(StateStopped)
-			notifyStateChange(StateStopped)
-			// This will uninstall the Windows service
-			if err := StopTunnel(); err != nil {
-				logger.Error("Failed to stop tunnel after OLM termination: %v", err)
-			}
+			logger.Info("Tunnel: OLM terminated")
 		},
 	}
 
@@ -65,6 +52,8 @@ func buildTunnel(config Config) error {
 		InterfaceName:        config.InterfaceName,
 		UpstreamDNS:          config.UpstreamDNS,
 	}
+
+	olmpkg.StartApi()
 
 	logger.Info("Starting OLM tunnel...")
 	go func() {
