@@ -318,7 +318,7 @@ func (lw *LogWindow) pollOLMStatus() {
 			status, err := lw.tunnelManager.GetOLMStatus()
 			if err != nil {
 				walk.App().Synchronize(func() {
-					lw.olmStatusEdit.SetText("Unable to get status via pipe. Is the tunnel connected?")
+					lw.olmStatusEdit.SetText("Unable to get status via pipe. Is the tunnel service running?")
 				})
 				continue
 			}
