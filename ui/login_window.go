@@ -140,6 +140,8 @@ func ShowLoginDialog(parent walk.Form, authManager *auth.AuthManager, configMana
 	var progressBar *walk.ProgressBar
 	var backButton, cancelButton, loginButton *walk.PushButton
 	var logoContainer *walk.Composite
+	var termsLabel, termsLinkLabel, andLabel, privacyLinkLabel *walk.Label
+	var termsComposite *walk.Composite
 
 	isReadyToLogin := func() bool {
 		switch hostingOpt {
@@ -211,6 +213,11 @@ func ShowLoginDialog(parent walk.Form, authManager *auth.AuthManager, configMana
 			}
 			if progressBar != nil {
 				progressBar.SetVisible(showDeviceAuthCode)
+			}
+
+			// Show terms notice only on hosting selection page
+			if termsComposite != nil {
+				termsComposite.SetVisible(showHostingSelection)
 			}
 
 			// Update buttons
@@ -457,6 +464,41 @@ func ShowLoginDialog(parent walk.Form, authManager *auth.AuthManager, configMana
 					},
 				},
 			},
+			// Terms and Privacy notice
+			Composite{
+				AssignTo: &termsComposite,
+				Layout:   HBox{MarginsZero: true, Alignment: AlignHCenterVCenter, Spacing: 0},
+				Children: []Widget{
+					Label{
+						AssignTo:  &termsLabel,
+						Text:      "By continuing, you agree to our ",
+						Font:      Font{PointSize: 8},
+						Alignment: AlignHNearVCenter,
+						TextColor: walk.RGB(0x80, 0x80, 0x80), // Secondary gray color
+					},
+					Label{
+						AssignTo:  &termsLinkLabel,
+						Text:      "Terms of Service",
+						Font:      Font{PointSize: 8, Underline: true},
+						Alignment: AlignHNearVCenter,
+						TextColor: walk.RGB(0x00, 0x7A, 0xCC), // Blue color for link
+					},
+					Label{
+						AssignTo:  &andLabel,
+						Text:      " and ",
+						Font:      Font{PointSize: 8},
+						Alignment: AlignHNearVCenter,
+						TextColor: walk.RGB(0x80, 0x80, 0x80), // Secondary gray color
+					},
+					Label{
+						AssignTo:  &privacyLinkLabel,
+						Text:      "Privacy Policy.",
+						Font:      Font{PointSize: 8, Underline: true},
+						Alignment: AlignHNearVCenter,
+						TextColor: walk.RGB(0x00, 0x7A, 0xCC), // Blue color for link
+					},
+				},
+			},
 			// Buttons at bottom
 			Composite{
 				AssignTo: &buttonComposite,
@@ -561,6 +603,9 @@ func ShowLoginDialog(parent walk.Form, authManager *auth.AuthManager, configMana
 		if logoContainer != nil {
 			logoContainer.SetBackground(bgBrush)
 		}
+		if termsComposite != nil {
+			termsComposite.SetBackground(bgBrush)
+		}
 	}
 
 	// Load and display word mark logo
@@ -589,6 +634,26 @@ func ShowLoginDialog(parent walk.Form, authManager *auth.AuthManager, configMana
 	if hostname != "" && manualURLLabel != nil {
 		manualURL := fmt.Sprintf("If the browser doesn't open, manually visit %s/auth/device-web-auth/start to complete authentication.", hostname)
 		manualURLLabel.SetText(manualURL)
+	}
+
+	// Attach click handlers to terms and privacy labels
+	if termsLinkLabel != nil {
+		termsLinkLabel.MouseDown().Attach(func(x, y int, button walk.MouseButton) {
+			if button == walk.LeftButton {
+				openBrowser("https://pangolin.net/terms-of-service.html")
+			}
+		})
+		// Change cursor to hand pointer on hover
+		termsLinkLabel.SetCursor(walk.CursorHand())
+	}
+	if privacyLinkLabel != nil {
+		privacyLinkLabel.MouseDown().Attach(func(x, y int, button walk.MouseButton) {
+			if button == walk.LeftButton {
+				openBrowser("https://pangolin.net/privacy-policy.html")
+			}
+		})
+		// Change cursor to hand pointer on hover
+		privacyLinkLabel.SetCursor(walk.CursorHand())
 	}
 
 	// Initial UI update
