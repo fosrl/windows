@@ -137,6 +137,7 @@ func ShowLoginDialog(parent walk.Form, authManager *auth.AuthManager, configMana
 	var codeLabel *walk.Label
 	var copyButton, openBrowserButton *walk.PushButton
 	var manualURLLabel *walk.Label
+	var manualURLComposite *walk.Composite
 	var progressBar *walk.ProgressBar
 	var backButton, cancelButton, loginButton *walk.PushButton
 	var logoContainer *walk.Composite
@@ -166,7 +167,7 @@ func ShowLoginDialog(parent walk.Form, authManager *auth.AuthManager, configMana
 			}
 			if cancelButton != nil {
 				cancelButton.SetVisible(showCancel)
-				cancelButton.SetEnabled(!isLoggingIn)
+				cancelButton.SetEnabled(true)
 			}
 			if loginButton != nil {
 				loginButton.SetVisible(showLogin)
@@ -207,6 +208,9 @@ func ShowLoginDialog(parent walk.Form, authManager *auth.AuthManager, configMana
 			}
 			if openBrowserButton != nil {
 				openBrowserButton.SetVisible(showDeviceAuthCode)
+			}
+			if manualURLComposite != nil {
+				manualURLComposite.SetVisible(showDeviceAuthCode)
 			}
 			if manualURLLabel != nil {
 				manualURLLabel.SetVisible(showDeviceAuthCode)
@@ -249,6 +253,15 @@ func ShowLoginDialog(parent walk.Form, authManager *auth.AuthManager, configMana
 						openBrowser(autoOpenURL)
 					}
 				}
+			}
+			// Update manual URL label
+			hostname := temporaryHostname
+			if hostname == "" {
+				hostname = configManager.GetHostname()
+			}
+			if hostname != "" && manualURLLabel != nil {
+				manualURL := fmt.Sprintf("%s/auth/login/device", hostname)
+				manualURLLabel.SetText(manualURL)
 			}
 		})
 	}
@@ -462,6 +475,20 @@ func ShowLoginDialog(parent walk.Form, authManager *auth.AuthManager, configMana
 							},
 						},
 					},
+					Composite{
+						AssignTo: &manualURLComposite,
+						Layout:   VBox{Margins: Margins{Top: 10}, MarginsZero: true},
+						Children: []Widget{
+							Label{
+								AssignTo:  &manualURLLabel,
+								Text:      "",
+								Font:      Font{PointSize: 8},
+								Alignment: AlignHCenterVCenter,
+								Visible:   false,
+								TextColor: walk.RGB(0x80, 0x80, 0x80), // Secondary gray color
+							},
+						},
+					},
 				},
 			},
 			// Terms and Privacy notice
@@ -627,13 +654,6 @@ func ShowLoginDialog(parent walk.Form, authManager *auth.AuthManager, configMana
 				logoImageView.SetImage(img)
 			}
 		}
-	}
-
-	// Update manual URL label
-	hostname := configManager.GetHostname()
-	if hostname != "" && manualURLLabel != nil {
-		manualURL := fmt.Sprintf("If the browser doesn't open, manually visit %s/auth/device-web-auth/start to complete authentication.", hostname)
-		manualURLLabel.SetText(manualURL)
 	}
 
 	// Attach click handlers to terms and privacy labels
