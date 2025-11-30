@@ -40,10 +40,7 @@ type DeviceAuthStartRequest struct {
 // DeviceAuthStartResponse represents a device auth start response
 type DeviceAuthStartResponse struct {
 	Code         string `json:"code"`
-	URL          string `json:"url"`
-	ExpiresIn    int    `json:"expiresIn"`
 	ExpiresAt    int64  `json:"expiresAt"`
-	PollInterval int    `json:"pollInterval"`
 }
 
 // DeviceAuthPollResponse represents a device auth poll response

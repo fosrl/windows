@@ -217,6 +217,9 @@ func (am *AuthManager) LoginWithDeviceAuth(ctx context.Context, hostnameOverride
 			return ctx.Err()
 		case <-ticker.C:
 			pollResponse, token, err := loginClient.PollDeviceAuth(code)
+			// log the poll response for debugging
+			logger.Debug("DeviceAuthPollResponse: %+v", pollResponse)
+
 			if err != nil {
 				// Continue polling on error
 				continue
