@@ -200,7 +200,6 @@ func (am *AuthManager) LoginWithDeviceAuth(ctx context.Context, hostnameOverride
 
 	// Poll for verification
 	expiresAt := time.Unix(startResponse.ExpiresAt/1000, 0)
-	logger.Debug("Device auth started, code: %s, expires at: %v", code, expiresAt)
 	verified := false
 	var sessionToken *string
 
@@ -218,8 +217,6 @@ func (am *AuthManager) LoginWithDeviceAuth(ctx context.Context, hostnameOverride
 			return ctx.Err()
 		case <-ticker.C:
 			pollResponse, token, err := loginClient.PollDeviceAuth(code)
-			// log the poll response for debugging
-			logger.Debug("DeviceAuthPollResponse: %+v", pollResponse)
 
 			if err != nil {
 				// Continue polling on error

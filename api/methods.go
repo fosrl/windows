@@ -70,9 +70,6 @@ func (c *APIClient) StartDeviceAuth(applicationName string, deviceName *string) 
 		return nil, err
 	}
 
-	// log response for debugging
-	logger.Debug("DeviceAuthStartResponse: %+v", response)
-
 	return &response, nil
 }
 
@@ -96,9 +93,6 @@ func (c *APIClient) PollDeviceAuth(code string) (*DeviceAuthPollResponse, *strin
 	} else {
 		// Also try to extract from cookie
 		token := extractCookie(resp, c.sessionCookieName)
-		if token == "" {
-			token = extractCookie(resp, "p_session")
-		}
 		if token != "" {
 			sessionToken = &token
 		}
