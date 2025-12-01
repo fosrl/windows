@@ -15,6 +15,7 @@ import (
 	"github.com/fosrl/windows/managers"
 	"github.com/fosrl/windows/secrets"
 	"github.com/fosrl/windows/tunnel"
+	"github.com/fosrl/windows/ui/preferences"
 	"github.com/fosrl/windows/updater"
 	"github.com/fosrl/windows/version"
 
@@ -468,19 +469,19 @@ func setupMenu() error {
 	})
 	moreMenu.Actions().Add(checkUpdateAction)
 
-	// View Logs action
-	viewLogsAction := walk.NewAction()
-	viewLogsAction.SetText("View Logs")
-	viewLogsAction.Triggered().Attach(func() {
+	// Preferences action
+	preferencesAction := walk.NewAction()
+	preferencesAction.SetText("Preferences")
+	preferencesAction.Triggered().Attach(func() {
 		go func() {
 			walk.App().Synchronize(func() {
-				if err := ShowLogWindow(mainWindow, tunnelManager); err != nil {
-					logger.Error("Failed to show log window: %v", err)
+				if err := preferences.ShowPreferencesWindow(mainWindow, tunnelManager, configManager, trayIcon); err != nil {
+					logger.Error("Failed to show preferences window: %v", err)
 					td := walk.NewTaskDialog()
 					_, _ = td.Show(walk.TaskDialogOpts{
 						Owner:         mainWindow,
 						Title:         "Error",
-						Content:       fmt.Sprintf("Failed to open log window: %v", err),
+						Content:       fmt.Sprintf("Failed to open preferences window: %v", err),
 						IconSystem:    walk.TaskDialogSystemIconError,
 						CommonButtons: win.TDCBF_OK_BUTTON,
 					})
@@ -488,7 +489,7 @@ func setupMenu() error {
 			})
 		}()
 	})
-	moreMenu.Actions().Add(viewLogsAction)
+	moreMenu.Actions().Add(preferencesAction)
 
 	moreAction = walk.NewMenuAction(moreMenu)
 	moreAction.SetText("More")

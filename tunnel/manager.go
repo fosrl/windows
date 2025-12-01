@@ -146,20 +146,32 @@ func (tm *Manager) buildConfig() (Config, error) {
 		return Config{}, fmt.Errorf("OLM secret not found")
 	}
 
+	// Get DNS settings from config manager
+	primaryDNS := tm.configManager.GetPrimaryDNS()
+	secondaryDNS := tm.configManager.GetSecondaryDNS()
+	dnsOverride := tm.configManager.GetDNSOverride()
+
+	// Build UpstreamDNS array with :53 appended to each
+	upstreamDNS := []string{primaryDNS + ":53"}
+	if secondaryDNS != "" {
+		upstreamDNS = append(upstreamDNS, secondaryDNS+":53")
+	}
+
 	config := Config{
 		Name:                "olm",
 		ID:                  olmId,
 		Secret:              olmSecret,
 		UserToken:           userToken,
 		MTU:                 1280,
-		Holepunch:           false,
+		Holepunch:           true,
 		PingIntervalSeconds: 5,
 		PingTimeoutSeconds:  5,
 		Endpoint:            tm.configManager.GetHostname(),
-		DNS:                 "8.8.8.8",
+		DNS:                 primaryDNS, // Use primary DNS without :53
 		OrgID:               currentOrg.Id,
 		InterfaceName:       "Pangolin",
-		UpstreamDNS:         []string{"8.8.8.8:53"},
+		UpstreamDNS:         upstreamDNS, // Each value has :53 appended
+		OverrideDNS:         dnsOverride,
 	}
 
 	return config, nil

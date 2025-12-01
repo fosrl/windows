@@ -52,7 +52,7 @@ func buildTunnel(config Config) error {
 		OrgID:                config.OrgID,
 		InterfaceName:        config.InterfaceName,
 		UpstreamDNS:          config.UpstreamDNS,
-		OverrideDNS:          true,
+		OverrideDNS:          config.OverrideDNS,
 	}
 
 	olmpkg.StartApi()

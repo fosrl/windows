@@ -1,10 +1,9 @@
 //go:build windows
 
-package ui
+package preferences
 
 import (
 	"bufio"
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -14,7 +13,6 @@ import (
 	"time"
 
 	"github.com/fosrl/windows/config"
-	"github.com/fosrl/windows/tunnel"
 
 	"github.com/fosrl/newt/logger"
 	"github.com/tailscale/walk"
@@ -28,260 +26,157 @@ const (
 	autoScrollThreshold = 10
 )
 
-type LogWindow struct {
-	*walk.Dialog
-	tabWidget      *walk.TabWidget
-	logView        *walk.TableView
-	olmStatusEdit  *walk.TextEdit
-	clearButton    *walk.PushButton
-	saveButton     *walk.PushButton
-	model          *logModel
-	tunnelManager  *tunnel.Manager
-	olmStatusQuit  chan bool
-	olmStatusMutex sync.Mutex
+// LogsTab handles the logs viewing tab
+type LogsTab struct {
+	tabPage     *walk.TabPage
+	logView     *walk.TableView
+	clearButton *walk.PushButton
+	saveButton  *walk.PushButton
+	model       *logModel
+	window      *PreferencesWindow
+	mu          sync.Mutex
 }
 
+// LogLine represents a single log line
 type LogLine struct {
 	Stamp time.Time
 	Level string
 	Line  string
 }
 
-var (
-	logWindowInstance *LogWindow
-	logWindowMutex    sync.Mutex
-)
-
-// ShowLogWindow shows the log viewer window (creates if needed, or brings to front).
-// It accepts a tunnel manager to enable OLM status polling in the second tab.
-func ShowLogWindow(owner walk.Form, tm *tunnel.Manager) error {
-	logWindowMutex.Lock()
-	defer logWindowMutex.Unlock()
-
-	if logWindowInstance != nil {
-		// Check if the window is still valid (not closed)
-		if logWindowInstance.Handle() != 0 {
-			// Focus the existing window using Windows API
-			hwnd := logWindowInstance.Handle()
-			win.ShowWindow(hwnd, win.SW_RESTORE)
-			win.SetForegroundWindow(hwnd)
-			return nil
-		}
-		// Window was closed, clear the reference
-		logWindowInstance = nil
-	}
-
-	// Create new window
-	lw, err := NewLogWindow(owner, tm)
-	if err != nil {
-		return err
-	}
-
-	logWindowInstance = lw
-
-	// Clean up when window closes
-	lw.Closing().Attach(func(canceled *bool, reason walk.CloseReason) {
-		logWindowMutex.Lock()
-		if logWindowInstance == lw {
-			logWindowInstance = nil
-		}
-		logWindowMutex.Unlock()
-
-		// Stop OLM status polling
-		if lw.olmStatusQuit != nil {
-			select {
-			case <-lw.olmStatusQuit:
-				// Already closed
-			default:
-				close(lw.olmStatusQuit)
-			}
-		}
-	})
-
-	// Show the dialog (non-modal, doesn't block)
-	lw.SetVisible(true)
-	return nil
+// NewLogsTab creates a new logs tab
+func NewLogsTab() *LogsTab {
+	return &LogsTab{}
 }
 
-func NewLogWindow(owner walk.Form, tm *tunnel.Manager) (*LogWindow, error) {
-	lw := &LogWindow{
-		tunnelManager: tm,
-		olmStatusQuit: make(chan bool),
-	}
-
+// Create creates the logs tab UI
+func (lt *LogsTab) Create(parent *walk.TabWidget) (*walk.TabPage, error) {
 	var err error
-	var disposables walk.Disposables
-	defer disposables.Treat()
-
-	if lw.Dialog, err = walk.NewDialog(owner); err != nil {
-		return nil, err
-	}
-	disposables.Add(lw)
-
-	lw.SetTitle("Pangolin Logs")
-	lw.SetLayout(walk.NewVBoxLayout())
-
-	// Create tab widget
-	if lw.tabWidget, err = walk.NewTabWidget(lw); err != nil {
+	if lt.tabPage, err = walk.NewTabPage(); err != nil {
 		return nil, err
 	}
 
-	// Create first tab for logs
-	logTabPage, err := walk.NewTabPage()
-	if err != nil {
-		return nil, err
-	}
-	logTabPage.SetTitle("Logs")
-	logTabPage.SetLayout(walk.NewVBoxLayout())
+	lt.tabPage.SetTitle("Logs")
+	lt.tabPage.SetLayout(walk.NewVBoxLayout())
 
-	if lw.logView, err = walk.NewTableView(logTabPage); err != nil {
+	if lt.logView, err = walk.NewTableView(lt.tabPage); err != nil {
 		return nil, err
 	}
-	lw.logView.SetAlternatingRowBG(true)
-	lw.logView.SetLastColumnStretched(true)
-	lw.logView.SetGridlines(true)
+	lt.logView.SetAlternatingRowBG(true)
+	lt.logView.SetLastColumnStretched(true)
+	lt.logView.SetGridlines(true)
 
 	contextMenu, err := walk.NewMenu()
 	if err != nil {
 		return nil, err
 	}
-	lw.logView.AddDisposable(contextMenu)
+	lt.logView.AddDisposable(contextMenu)
 	copyAction := walk.NewAction()
 	copyAction.SetText("&Copy")
 	copyAction.SetShortcut(walk.Shortcut{Modifiers: walk.ModControl, Key: walk.KeyC})
-	copyAction.Triggered().Attach(lw.onCopy)
+	copyAction.Triggered().Attach(lt.onCopy)
 	contextMenu.Actions().Add(copyAction)
-	lw.ShortcutActions().Add(copyAction)
+	lt.tabPage.ShortcutActions().Add(copyAction)
 	selectAllAction := walk.NewAction()
 	selectAllAction.SetText("Select &all")
 	selectAllAction.SetShortcut(walk.Shortcut{Modifiers: walk.ModControl, Key: walk.KeyA})
-	selectAllAction.Triggered().Attach(lw.onSelectAll)
+	selectAllAction.Triggered().Attach(lt.onSelectAll)
 	contextMenu.Actions().Add(selectAllAction)
-	lw.ShortcutActions().Add(selectAllAction)
+	lt.tabPage.ShortcutActions().Add(selectAllAction)
 	saveAction := walk.NewAction()
 	saveAction.SetText("&Save to file…")
 	saveAction.SetShortcut(walk.Shortcut{Modifiers: walk.ModControl, Key: walk.KeyS})
-	saveAction.Triggered().Attach(lw.onSave)
+	saveAction.Triggered().Attach(lt.onSave)
 	contextMenu.Actions().Add(saveAction)
-	lw.ShortcutActions().Add(saveAction)
-	lw.logView.SetContextMenu(contextMenu)
+	lt.tabPage.ShortcutActions().Add(saveAction)
+	lt.logView.SetContextMenu(contextMenu)
 	setSelectionStatus := func() {
-		copyAction.SetEnabled(len(lw.logView.SelectedIndexes()) > 0)
-		selectAllAction.SetEnabled(len(lw.logView.SelectedIndexes()) < len(lw.model.items))
+		copyAction.SetEnabled(len(lt.logView.SelectedIndexes()) > 0)
+		selectAllAction.SetEnabled(len(lt.logView.SelectedIndexes()) < len(lt.model.items))
 	}
-	lw.logView.SelectedIndexesChanged().Attach(setSelectionStatus)
+	lt.logView.SelectedIndexesChanged().Attach(setSelectionStatus)
 
 	stampCol := walk.NewTableViewColumn()
 	stampCol.SetName("Stamp")
 	stampCol.SetTitle("Time")
 	stampCol.SetFormat("2006-01-02 15:04:05.000")
 	stampCol.SetWidth(180)
-	lw.logView.Columns().Add(stampCol)
+	lt.logView.Columns().Add(stampCol)
 
 	levelCol := walk.NewTableViewColumn()
 	levelCol.SetName("Level")
 	levelCol.SetTitle("Level")
 	levelCol.SetWidth(80)
-	lw.logView.Columns().Add(levelCol)
+	lt.logView.Columns().Add(levelCol)
 
 	msgCol := walk.NewTableViewColumn()
 	msgCol.SetName("Line")
 	msgCol.SetTitle("Log message")
-	lw.logView.Columns().Add(msgCol)
+	lt.logView.Columns().Add(msgCol)
 
-	lw.model = newLogModel(lw)
-	lw.model.RowsReset().Attach(setSelectionStatus)
-	lw.logView.SetModel(lw.model)
+	lt.model = newLogModel(lt)
+	lt.model.RowsReset().Attach(setSelectionStatus)
+	lt.logView.SetModel(lt.model)
 	setSelectionStatus()
 
-	// Add log tab to tab widget first
-	lw.tabWidget.Pages().Add(logTabPage)
+	// Buttons will be created in AfterAdd() after tab is added to widget tree
 
-	// Create buttons container after tab is added
-	buttonsContainer, err := walk.NewComposite(logTabPage)
+	return lt.tabPage, nil
+}
+
+// SetWindow sets the parent window reference (called after window creation)
+func (lt *LogsTab) SetWindow(window *PreferencesWindow) {
+	lt.window = window
+}
+
+// AfterAdd is called after the tab page is added to the tab widget
+func (lt *LogsTab) AfterAdd() {
+	// Create buttons container after tab is added to widget tree (like old code)
+	var err error
+	buttonsContainer, err := walk.NewComposite(lt.tabPage)
 	if err != nil {
-		return nil, err
+		logger.Error("Failed to create buttons container: %v", err)
+		return
 	}
 	buttonsContainer.SetLayout(walk.NewHBoxLayout())
 	buttonsContainer.Layout().SetMargins(walk.Margins{})
 
 	walk.NewHSpacer(buttonsContainer)
 
-	if lw.clearButton, err = walk.NewPushButton(buttonsContainer); err != nil {
-		return nil, err
+	if lt.clearButton, err = walk.NewPushButton(buttonsContainer); err != nil {
+		logger.Error("Failed to create clear button: %v", err)
+		return
 	}
-	lw.clearButton.SetText("&Clear")
-	lw.clearButton.Clicked().Attach(lw.onClear)
+	lt.clearButton.SetText("&Clear")
+	lt.clearButton.Clicked().Attach(func() {
+		lt.onClear()
+	})
 
-	if lw.saveButton, err = walk.NewPushButton(buttonsContainer); err != nil {
-		return nil, err
+	if lt.saveButton, err = walk.NewPushButton(buttonsContainer); err != nil {
+		logger.Error("Failed to create save button: %v", err)
+		return
 	}
-	lw.saveButton.SetText("&Save")
-	lw.saveButton.Clicked().Attach(lw.onSave)
-
-	// Create second tab for OLM status
-	olmTabPage, err := walk.NewTabPage()
-	if err != nil {
-		return nil, err
-	}
-	olmTabPage.SetTitle("OLM Status")
-	olmTabPage.SetLayout(walk.NewVBoxLayout())
-
-	if lw.olmStatusEdit, err = walk.NewTextEdit(olmTabPage); err != nil {
-		return nil, err
-	}
-	lw.olmStatusEdit.SetReadOnly(true)
-	lw.olmStatusEdit.SetText("Loading OLM status...")
-
-	// Enable multiline and scrolling for large JSON content
-	// Get the window handle and set multiline/scroll styles
-	hwnd := lw.olmStatusEdit.Handle()
-	style := win.GetWindowLong(hwnd, win.GWL_STYLE)
-	style |= win.ES_MULTILINE | win.ES_AUTOVSCROLL | win.ES_AUTOHSCROLL | win.WS_VSCROLL | win.WS_HSCROLL
-	win.SetWindowLong(hwnd, win.GWL_STYLE, style)
-
-	// Set monospace font for better JSON readability
-	if font, err := walk.NewFont("Consolas", 10, 0); err == nil {
-		lw.olmStatusEdit.SetFont(font)
-	} else if font, err := walk.NewFont("Courier New", 10, 0); err == nil {
-		// Fallback to Courier New if Consolas is not available
-		lw.olmStatusEdit.SetFont(font)
-	}
-
-	// Add OLM tab to tab widget
-	lw.tabWidget.Pages().Add(olmTabPage)
-
-	// Start OLM status polling
-	go lw.pollOLMStatus()
-
-	disposables.Spare()
-
-	// Set window icon
-	iconsPath := config.GetIconsPath()
-	iconPath := filepath.Join(iconsPath, "icon-orange.ico")
-	icon, err := walk.NewIconFromFile(iconPath)
-	if err != nil {
-		logger.Error("Failed to load window icon from %s: %v", iconPath, err)
-	} else {
-		if err := lw.SetIcon(icon); err != nil {
-			logger.Error("Failed to set window icon: %v", err)
-		}
-	}
-
-	// Set window size after all components are added
-	lw.SetSize(walk.Size{Width: 800, Height: 600})
-
-	return lw, nil
+	lt.saveButton.SetText("&Save")
+	lt.saveButton.Clicked().Attach(func() {
+		lt.onSave()
+	})
 }
 
-func (lw *LogWindow) isAtBottom() bool {
-	if len(lw.model.items) == 0 {
+// Cleanup cleans up resources when the tab is closed
+func (lt *LogsTab) Cleanup() {
+	if lt.model != nil {
+		lt.model.cleanup()
+	}
+}
+
+func (lt *LogsTab) isAtBottom() bool {
+	if len(lt.model.items) == 0 {
 		return true
 	}
 
 	// Check if the last item is visible
-	lastIndex := len(lw.model.items) - 1
-	if lw.logView.ItemVisible(lastIndex) {
+	lastIndex := len(lt.model.items) - 1
+	if lt.logView.ItemVisible(lastIndex) {
 		return true
 	}
 
@@ -293,7 +188,7 @@ func (lw *LogWindow) isAtBottom() bool {
 	}
 
 	for i := thresholdStart; i <= lastIndex; i++ {
-		if lw.logView.ItemVisible(i) {
+		if lt.logView.ItemVisible(i) {
 			return true
 		}
 	}
@@ -301,64 +196,20 @@ func (lw *LogWindow) isAtBottom() bool {
 	return false
 }
 
-func (lw *LogWindow) scrollToBottom() {
-	if len(lw.model.items) > 0 {
-		lw.logView.EnsureItemVisible(len(lw.model.items) - 1)
+func (lt *LogsTab) scrollToBottom() {
+	if len(lt.model.items) > 0 {
+		lt.logView.EnsureItemVisible(len(lt.model.items) - 1)
 	}
 }
 
-func (lw *LogWindow) pollOLMStatus() {
-	if lw.tunnelManager == nil {
-		walk.App().Synchronize(func() {
-			lw.olmStatusEdit.SetText("Tunnel manager not available")
-		})
-		return
-	}
-
-	ticker := time.NewTicker(1 * time.Second)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-lw.olmStatusQuit:
-			return
-		case <-ticker.C:
-			status, err := lw.tunnelManager.GetOLMStatus()
-			if err != nil {
-				walk.App().Synchronize(func() {
-					lw.olmStatusEdit.SetText("Unable to get status via pipe. Is the tunnel service running?")
-				})
-				continue
-			}
-
-			// Format JSON with indentation
-			jsonData, err := json.MarshalIndent(status, "", "  ")
-			if err != nil {
-				walk.App().Synchronize(func() {
-					lw.olmStatusEdit.SetText(fmt.Sprintf("Error formatting JSON: %v", err))
-				})
-				continue
-			}
-
-			// Convert Unix newlines to Windows line breaks for proper display
-			jsonText := strings.ReplaceAll(string(jsonData), "\n", "\r\n")
-
-			// Update the text edit with formatted JSON
-			walk.App().Synchronize(func() {
-				lw.olmStatusEdit.SetText(jsonText)
-			})
-		}
-	}
-}
-
-func (lw *LogWindow) onCopy() {
+func (lt *LogsTab) onCopy() {
 	var logLines strings.Builder
-	selectedItemIndexes := lw.logView.SelectedIndexes()
+	selectedItemIndexes := lt.logView.SelectedIndexes()
 	if len(selectedItemIndexes) == 0 {
 		return
 	}
 	for i := 0; i < len(selectedItemIndexes); i++ {
-		logItem := lw.model.items[selectedItemIndexes[i]]
+		logItem := lt.model.items[selectedItemIndexes[i]]
 		logLines.WriteString(fmt.Sprintf("%s [%s] %s\r\n",
 			logItem.Stamp.Format("2006-01-02 15:04:05.000"),
 			logItem.Level,
@@ -367,31 +218,35 @@ func (lw *LogWindow) onCopy() {
 	walk.Clipboard().SetText(logLines.String())
 }
 
-func (lw *LogWindow) onSelectAll() {
-	lw.logView.SetSelectedIndexes([]int{-1})
+func (lt *LogsTab) onSelectAll() {
+	lt.logView.SetSelectedIndexes([]int{-1})
 }
 
-func (lw *LogWindow) onClear() {
+func (lt *LogsTab) onClear() {
 	// Clear all log items from the model
-	lw.model.mu.Lock()
-	lw.model.items = lw.model.items[:0]
-	lw.model.mu.Unlock()
+	lt.model.mu.Lock()
+	lt.model.items = lt.model.items[:0]
+	lt.model.mu.Unlock()
 
 	// Update the UI
 	walk.App().Synchronize(func() {
-		lw.model.PublishRowsReset()
+		lt.model.PublishRowsReset()
 	})
 }
 
-func (lw *LogWindow) onSave() {
+func (lt *LogsTab) onSave() {
 	fd := walk.FileDialog{
 		Filter:   "Text Files (*.txt)|*.txt|All Files (*.*)|*.*",
 		FilePath: fmt.Sprintf("pangolin-log-%s.txt", time.Now().Format("2006-01-02T150405")),
 		Title:    "Export log to file",
 	}
 
-	// Pass the dialog directly since Dialog implements Form
-	if ok, _ := fd.ShowSave(lw); !ok {
+	// Get the parent window for the dialog
+	if lt.window == nil {
+		return
+	}
+
+	if ok, _ := fd.ShowSave(lt.window); !ok {
 		return
 	}
 
@@ -399,8 +254,8 @@ func (lw *LogWindow) onSave() {
 		fd.FilePath = fd.FilePath + ".txt"
 	}
 
-	writeFileWithOverwriteHandling(lw, fd.FilePath, func(file *os.File) error {
-		for _, item := range lw.model.items {
+	writeFileWithOverwriteHandling(lt.window, fd.FilePath, func(file *os.File) error {
+		for _, item := range lt.model.items {
 			line := fmt.Sprintf("%s [%s] %s\r\n",
 				item.Stamp.Format("2006-01-02 15:04:05.000"),
 				item.Level,
@@ -415,7 +270,7 @@ func (lw *LogWindow) onSave() {
 
 type logModel struct {
 	walk.ReflectTableModelBase
-	lw       *LogWindow
+	lt       *LogsTab
 	quit     chan bool
 	items    []LogLine
 	filePos  int64
@@ -423,9 +278,9 @@ type logModel struct {
 	mu       sync.Mutex
 }
 
-func newLogModel(lw *LogWindow) *logModel {
+func newLogModel(lt *LogsTab) *logModel {
 	mdl := &logModel{
-		lw:   lw,
+		lt:   lt,
 		quit: make(chan bool),
 	}
 
@@ -448,6 +303,15 @@ func newLogModel(lw *LogWindow) *logModel {
 	}()
 
 	return mdl
+}
+
+func (mdl *logModel) cleanup() {
+	select {
+	case <-mdl.quit:
+		// Already closed
+	default:
+		close(mdl.quit)
+	}
 }
 
 func (mdl *logModel) loadInitialLogs() {
@@ -491,7 +355,7 @@ func (mdl *logModel) loadInitialLogs() {
 
 	walk.App().Synchronize(func() {
 		mdl.PublishRowsReset()
-		mdl.lw.scrollToBottom()
+		mdl.lt.scrollToBottom()
 	})
 }
 
@@ -548,7 +412,7 @@ func (mdl *logModel) readNewLines() {
 	}
 
 	mdl.mu.Lock()
-	isAtBottom := mdl.lw.isAtBottom() && len(mdl.lw.logView.SelectedIndexes()) <= 1
+	isAtBottom := mdl.lt.isAtBottom() && len(mdl.lt.logView.SelectedIndexes()) <= 1
 
 	mdl.items = append(mdl.items, newItems...)
 	if len(mdl.items) > maxLogLinesDisplayed {
@@ -562,7 +426,7 @@ func (mdl *logModel) readNewLines() {
 	walk.App().Synchronize(func() {
 		mdl.PublishRowsReset()
 		if isAtBottom {
-			mdl.lw.scrollToBottom()
+			mdl.lt.scrollToBottom()
 		}
 	})
 }
