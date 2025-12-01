@@ -199,7 +199,7 @@ func (am *AuthManager) LoginWithDeviceAuth(ctx context.Context, hostnameOverride
 	am.mu.Unlock()
 
 	// Poll for verification
-	expiresAt := time.Unix(startResponse.ExpiresAt/1000, 0)
+	expiresAt := time.Now().Add(time.Duration(startResponse.ExpiresInSeconds) * time.Second)
 	verified := false
 	var sessionToken *string
 

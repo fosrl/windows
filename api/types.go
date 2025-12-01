@@ -39,8 +39,8 @@ type DeviceAuthStartRequest struct {
 
 // DeviceAuthStartResponse represents a device auth start response
 type DeviceAuthStartResponse struct {
-	Code         string `json:"code"`
-	ExpiresAt    int64  `json:"expiresAt"`
+	Code             string `json:"code"`
+	ExpiresInSeconds int64  `json:"expiresInSeconds"`
 }
 
 // DeviceAuthPollResponse represents a device auth poll response
@@ -126,16 +126,16 @@ type GetClientResponse struct {
 
 // MyDeviceUser represents a user in the my device response
 type MyDeviceUser struct {
-	UserId            string  `json:"userId"`
-	Email             string  `json:"email"`
-	Username          *string `json:"username,omitempty"`
-	Name              *string `json:"name,omitempty"`
-	Type              *string `json:"type,omitempty"`
-	TwoFactorEnabled  *bool   `json:"twoFactorEnabled,omitempty"`
-	EmailVerified     *bool   `json:"emailVerified,omitempty"`
-	ServerAdmin       *bool   `json:"serverAdmin,omitempty"`
-	IdpName           *string `json:"idpName,omitempty"`
-	IdpId             *int `json:"idpId,omitempty"`
+	UserId           string  `json:"userId"`
+	Email            string  `json:"email"`
+	Username         *string `json:"username,omitempty"`
+	Name             *string `json:"name,omitempty"`
+	Type             *string `json:"type,omitempty"`
+	TwoFactorEnabled *bool   `json:"twoFactorEnabled,omitempty"`
+	EmailVerified    *bool   `json:"emailVerified,omitempty"`
+	ServerAdmin      *bool   `json:"serverAdmin,omitempty"`
+	IdpName          *string `json:"idpName,omitempty"`
+	IdpId            *int    `json:"idpId,omitempty"`
 }
 
 // ResponseOrg represents an organization in the my device response
