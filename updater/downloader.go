@@ -8,7 +8,10 @@ import (
 	"fmt"
 	"hash"
 	"io"
+	"net/url"
 	"os"
+	"strconv"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -44,8 +47,9 @@ func (pm *progressHashWatcher) Write(p []byte) (int, error) {
 }
 
 type UpdateFound struct {
-	name string
-	hash [blake2b.Size256]byte
+	name             string
+	hash             [blake2b.Size256]byte
+	downloadLocation string // Can be empty (use default), a relative path, or a full URL
 }
 
 // Name returns the filename of the update MSI
@@ -206,21 +210,123 @@ func DownloadVerifyAndExecute(userToken uintptr) (progress chan DownloadProgress
 			}
 		}()
 
-		downloadPath := fmt.Sprintf(msiPath, update.name)
-		logger.Info("Updater: Downloading MSI from: %s", downloadPath)
 		dp := DownloadProgress{Activity: "Downloading update"}
 		progress <- dp
-		response, err := connection.Get(downloadPath, false)
-		if err != nil {
-			logger.Error("Updater: Failed to download MSI: %v", err)
-			progress <- DownloadProgress{Error: err}
+
+		var response *winhttp.Response
+		var downloadConnection *winhttp.Connection
+		var downloadSession *winhttp.Session
+
+		// Get download location from manifest (required)
+		downloadLocation := update.downloadLocation
+		if downloadLocation == "" {
+			logger.Error("Updater: Download location not specified in manifest for file: %s", update.name)
+			progress <- DownloadProgress{Error: errors.New("download location not specified in manifest")}
 			return
+		}
+
+		// Check if downloadLocation is a full URL (http:// or https://)
+		if strings.HasPrefix(downloadLocation, "http://") || strings.HasPrefix(downloadLocation, "https://") {
+			// Full URL - download from external source
+			logger.Info("Updater: Downloading MSI from external URL: %s", downloadLocation)
+
+			// Parse the URL to extract host, port, and path
+			parsedURL, err := url.Parse(downloadLocation)
+			if err != nil {
+				logger.Error("Updater: Failed to parse download URL: %v", err)
+				progress <- DownloadProgress{Error: fmt.Errorf("invalid download URL: %w", err)}
+				return
+			}
+
+			// Determine if HTTPS
+			isHTTPS := parsedURL.Scheme == "https"
+			if parsedURL.Scheme != "http" && parsedURL.Scheme != "https" {
+				logger.Error("Updater: Unsupported URL scheme: %s", parsedURL.Scheme)
+				progress <- DownloadProgress{Error: fmt.Errorf("unsupported URL scheme: %s", parsedURL.Scheme)}
+				return
+			}
+
+			// Extract host and port
+			host := parsedURL.Hostname()
+			if host == "" {
+				logger.Error("Updater: Missing host in download URL")
+				progress <- DownloadProgress{Error: errors.New("missing host in download URL")}
+				return
+			}
+
+			portStr := parsedURL.Port()
+			var port uint16
+			if portStr == "" {
+				// Use default port based on scheme
+				if isHTTPS {
+					port = 443
+				} else {
+					port = 80
+				}
+			} else {
+				portNum, err := strconv.ParseUint(portStr, 10, 16)
+				if err != nil {
+					logger.Error("Updater: Invalid port in download URL: %v", err)
+					progress <- DownloadProgress{Error: fmt.Errorf("invalid port in download URL: %w", err)}
+					return
+				}
+				port = uint16(portNum)
+			}
+
+			// Build the path (include query and fragment if present)
+			downloadPath := parsedURL.Path
+			if parsedURL.RawQuery != "" {
+				downloadPath += "?" + parsedURL.RawQuery
+			}
+			if parsedURL.Fragment != "" {
+				downloadPath += "#" + parsedURL.Fragment
+			}
+			if downloadPath == "" {
+				downloadPath = "/"
+			}
+
+			logger.Info("Updater: Connecting to external download server: %s:%d (HTTPS=%v)", host, port, isHTTPS)
+
+			// Create a new session for the external download
+			downloadSession, err = winhttp.NewSession(version.UserAgent())
+			if err != nil {
+				logger.Error("Updater: Failed to create WinHTTP session for external download: %v", err)
+				progress <- DownloadProgress{Error: err}
+				return
+			}
+			defer downloadSession.Close()
+
+			// Connect to the external host
+			downloadConnection, err = downloadSession.Connect(host, port, isHTTPS)
+			if err != nil {
+				logger.Error("Updater: Failed to connect to external download server: %v", err)
+				progress <- DownloadProgress{Error: err}
+				return
+			}
+			defer downloadConnection.Close()
+
+			logger.Info("Updater: Downloading MSI from path: %s", downloadPath)
+			response, err = downloadConnection.Get(downloadPath, false)
+			if err != nil {
+				logger.Error("Updater: Failed to download MSI from external URL: %v", err)
+				progress <- DownloadProgress{Error: err}
+				return
+			}
+		} else {
+			// Relative path - download from update server
+			logger.Info("Updater: Downloading MSI from update server: %s", downloadLocation)
+			response, err = connection.Get(downloadLocation, false)
+			if err != nil {
+				logger.Error("Updater: Failed to download MSI: %v", err)
+				progress <- DownloadProgress{Error: err}
+				return
+			}
 		}
 		defer response.Close()
 		logger.Info("Updater: MSI download response received")
 
 		length, err := response.Length()
-		if err == nil && length >= 0 {
+		if err == nil {
 			logger.Info("Updater: MSI file size: %d bytes", length)
 			dp.BytesTotal = length
 			progress <- dp

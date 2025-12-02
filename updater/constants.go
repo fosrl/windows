@@ -14,8 +14,6 @@ const (
 	updateServerUseHttps = true
 	// latestVersionPath is the path to the latest version signature file
 	latestVersionPath = "/windows-client/latest.sig"
-	// msiPath is the path template for MSI files (use %s for filename)
-	msiPath = "/windows-client/%s"
 	// msiArchPrefix is the prefix for MSI filenames (use %s for architecture)
 	msiArchPrefix = "pangolin-%s-"
 	// msiSuffix is the suffix for MSI filenames

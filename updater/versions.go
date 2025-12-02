@@ -75,7 +75,7 @@ func findCandidate(candidates fileList) (*UpdateFound, error) {
 		logger.Info("Updater: Manifest contains file: %s", name)
 	}
 
-	for name, hash := range candidates {
+	for name, entry := range candidates {
 		logger.Info("Updater: Checking file: %s", name)
 		hasPrefix := strings.HasPrefix(name, prefix)
 		hasSuffix := strings.HasSuffix(name, suffix)
@@ -99,8 +99,12 @@ func findCandidate(candidates fileList) (*UpdateFound, error) {
 			logger.Info("Updater: Version comparison result - %s is newer than %s: %v", candidateVersion, currentVersion, newer)
 
 			if newer {
-				logger.Info("Updater: ✓ Update candidate found: %s (hash: %x)", name, hash)
-				return &UpdateFound{name, hash}, nil
+				logger.Info("Updater: ✓ Update candidate found: %s (hash: %x, location: %s)", name, entry.hash, entry.downloadLocation)
+				return &UpdateFound{
+					name:             name,
+					hash:             entry.hash,
+					downloadLocation: entry.downloadLocation,
+				}, nil
 			} else {
 				logger.Info("Updater: Candidate version %s is not newer, skipping", candidateVersion)
 			}

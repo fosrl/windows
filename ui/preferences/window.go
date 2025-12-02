@@ -162,17 +162,11 @@ func NewPreferencesWindow(owner walk.Form, tm *tunnel.Manager, cm *config.Config
 	pw.SetSize(walk.Size{Width: 800, Height: 600})
 
 	// Make dialog appear in taskbar by setting WS_EX_APPWINDOW extended style
-	// and keep it always on top with WS_EX_TOPMOST
 	const GWL_EXSTYLE = -20
 	const WS_EX_APPWINDOW = 0x00040000
-	const WS_EX_TOPMOST = 0x00000008
 	exStyle := win.GetWindowLong(pw.Handle(), GWL_EXSTYLE)
 	exStyle |= WS_EX_APPWINDOW
-	exStyle |= WS_EX_TOPMOST
 	win.SetWindowLong(pw.Handle(), GWL_EXSTYLE, exStyle)
-
-	// Ensure window stays on top using SetWindowPos
-	win.SetWindowPos(pw.Handle(), win.HWND_TOPMOST, 0, 0, 0, 0, win.SWP_NOMOVE|win.SWP_NOSIZE)
 
 	return pw, nil
 }
