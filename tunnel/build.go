@@ -10,6 +10,7 @@ import (
 
 	olmpkg "github.com/fosrl/olm/olm"
 	configpkg "github.com/fosrl/windows/config"
+	"github.com/fosrl/windows/version"
 )
 
 // buildTunnel builds the tunnel
@@ -24,7 +25,8 @@ func buildTunnel(config Config) error {
 		LogLevel:   configpkg.LogLevel,
 		EnableAPI:  true,
 		SocketPath: OLMNamedPipePath,
-		Version:    "Pangolin Windows Client",
+		Version:    version.Number,
+		Agent:      "Pangolin Windows Client",
 		OnConnected: func() {
 			logger.Info("Tunnel: OLM connected")
 		},
