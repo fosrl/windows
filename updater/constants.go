@@ -7,7 +7,7 @@ const (
 	// This should be replaced with your own public key.
 	releasePublicKeyBase64 = "RWQWK7GF/RR35J1NETi57nk9cbngz7sBDsCrC3yce2CcKfACMpIcpvKV"
 	// updateServerHost is the hostname of the update server
-	updateServerHost = "test-update.tunneled.to"
+	updateServerHost = "static.pangolin.net"
 	// updateServerPort is the port number for the update server
 	updateServerPort = 443
 	// updateServerUseHttps indicates whether to use HTTPS
