@@ -376,6 +376,7 @@ type OLMStatusResponse struct {
 // OLMPeerStatus represents the status of a peer connection
 type OLMPeerStatus struct {
 	SiteID    int           `json:"siteId"`
+	SiteName  string        `json:"name"`
 	Connected bool          `json:"connected"`
 	RTT       time.Duration `json:"rtt"`
 	LastSeen  time.Time     `json:"lastSeen"`
