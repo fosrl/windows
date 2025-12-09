@@ -364,7 +364,7 @@ func ShowLoginDialog(parent walk.Form, authManager *auth.AuthManager, configMana
 
 	Dialog{
 		AssignTo: &dlg,
-		Title:    "Login to Pangolin",
+		Title:    "Log in to Pangolin",
 		MinSize:  Size{Width: 450, Height: 330},
 		MaxSize:  Size{Width: 450, Height: 330},
 		Layout:   VBox{Margins: Margins{Left: 20, Top: 10, Right: 20, Bottom: 10}, Spacing: 5},
