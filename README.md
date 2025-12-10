@@ -18,4 +18,4 @@ This client can be used with both:
 
 ## Documentation
 
-Documentation for the Windows client and all other documentation for Pangolin can be found at [docs.pangolin.net](https://docs.pangolin.net/manage/clients/windows).
+Documentation for the Windows client and all other documentation for Pangolin can be found at [docs.pangolin.net](https://docs.pangolin.net/manage/clients/install-client#windows).
