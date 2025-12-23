@@ -303,7 +303,20 @@ func setupMenu() error {
 	})
 	actions.Add(connectAction)
 
+	actions.Add(walk.NewSeparatorAction())
+
+	// Create account selector menu
 	var err error
+	accountMenu, err = walk.NewMenu()
+	if err != nil {
+		logger.Error("Failed to create org menu: %v", err)
+		return err
+	}
+	accountMenuAction = walk.NewMenuAction(accountMenu)
+	accountMenuAction.SetText("Accounts")
+	accountMenuAction.SetVisible(false) // Hidden initially
+	actions.Add(accountMenuAction)
+
 	// Create organizations menu
 	orgMenu, err = walk.NewMenu()
 	if err != nil {
@@ -314,17 +327,6 @@ func setupMenu() error {
 	orgsMenuAction.SetText("Organizations")
 	orgsMenuAction.SetVisible(false) // Hidden initially
 	actions.Add(orgsMenuAction)
-
-	// Create account selector menu
-	accountMenu, err = walk.NewMenu()
-	if err != nil {
-		logger.Error("Failed to create org menu: %v", err)
-		return err
-	}
-	accountMenuAction = walk.NewMenuAction(accountMenu)
-	accountMenuAction.SetText("Accounts")
-	accountMenuAction.SetVisible(false) // Hidden initially
-	actions.Add(accountMenuAction)
 
 	// Separator before login
 	actions.Add(walk.NewSeparatorAction())
