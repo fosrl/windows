@@ -247,7 +247,7 @@ func (am *AuthManager) LoginWithDeviceAuth(ctx context.Context, hostnameOverride
 // Returns the selected organization's ID.
 // This does NOT get persisted to the account store; callers
 // persist it to the account store themselves.
-func (am *AuthManager) selectOrgAutomatically() string {
+func (am *AuthManager) ensureOrgIsSelected() string {
 	var selectedOrgID string
 
 	am.mu.RLock()
@@ -266,29 +266,24 @@ func (am *AuthManager) selectOrgAutomatically() string {
 		am.organizations = orgsResponse.Orgs
 		am.mu.Unlock()
 
-		// Restore last selected org from config, or auto-select if only one org
+		// Restore last selected org from config,
+		// or auto-select a random one.
 		if activeAccount, _ := am.accountManager.ActiveAccount(); activeAccount != nil {
 			for _, org := range orgsResponse.Orgs {
 				if org.Id == activeAccount.OrgID {
 					am.mu.Lock()
 					am.currentOrg = &org
+					selectedOrgID = am.currentOrg.Id
 					am.mu.Unlock()
 					break
 				}
 			}
+		} else if len(orgsResponse.Orgs) > 0 {
+			am.mu.Lock()
+			am.currentOrg = &orgsResponse.Orgs[0]
+			selectedOrgID = am.currentOrg.Id
+			am.mu.Unlock()
 		}
-
-		if am.currentOrg == nil {
-			if len(orgsResponse.Orgs) > 0 {
-				am.mu.Lock()
-				am.currentOrg = &orgsResponse.Orgs[0]
-				am.mu.Unlock()
-			}
-		}
-
-		am.mu.RLock()
-		selectedOrgID = am.currentOrg.Id
-		am.mu.RUnlock()
 	}
 
 	return selectedOrgID
@@ -306,7 +301,7 @@ func (am *AuthManager) handleSuccessfulAuth(user *api.User, hostname string, tok
 
 	am.UpdateCurrentUser(user)
 
-	selectedOrgID := am.selectOrgAutomatically()
+	selectedOrgID := am.ensureOrgIsSelected()
 
 	_ = am.secretManager.SaveSessionToken(user.UserId, token)
 
@@ -465,10 +460,7 @@ func (am *AuthManager) RefreshFromMyDevice(olmId string) error {
 	// If current org no longer exists, clear selection
 	if currentOrgId != "" && am.currentOrg != nil && am.currentOrg.Id != currentOrgId {
 		am.currentOrg = nil
-		if activeAccount, _ := am.accountManager.ActiveAccount(); activeAccount != nil {
-			activeAccount.OrgID = ""
-			am.accountManager.Save()
-		}
+		_ = am.accountManager.SetUserOrganization(am.currentUser.UserId, "")
 	}
 
 	// Update organizations list
@@ -670,7 +662,7 @@ func (am *AuthManager) SwitchAccount(userID string) error {
 		return errors.New("session token does not exist for this user")
 	}
 
-	selectedOrgID := am.selectOrgAutomatically()
+	selectedOrgID := am.ensureOrgIsSelected()
 
 	err := am.accountManager.SetUserOrganization(userID, selectedOrgID)
 	if err != nil {
