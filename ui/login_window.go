@@ -110,7 +110,14 @@ func isDarkMode() bool {
 }
 
 // ShowLoginDialog shows the login dialog with full authentication flow
-func ShowLoginDialog(parent walk.Form, authManager *auth.AuthManager, configManager *config.ConfigManager, apiClient *api.APIClient, tunnelManager *tunnel.Manager) {
+func ShowLoginDialog(
+	parent walk.Form,
+	authManager *auth.AuthManager,
+	configManager *config.ConfigManager,
+	accountManager *config.AccountManager,
+	apiClient *api.APIClient,
+	tunnelManager *tunnel.Manager,
+) {
 	// Check if a login dialog is already open
 	openLoginDialogMutex.Lock()
 	if openLoginDialog != nil {
@@ -132,6 +139,8 @@ func ShowLoginDialog(parent walk.Form, authManager *auth.AuthManager, configMana
 	var contentComposite *walk.Composite
 	var buttonComposite *walk.Composite
 
+	activeAccount, _ := accountManager.ActiveAccount()
+
 	// State variables
 	currentState := stateHostingSelection
 	hostingOpt := hostingNone
@@ -140,7 +149,10 @@ func ShowLoginDialog(parent walk.Form, authManager *auth.AuthManager, configMana
 	hasAutoOpenedBrowser := false
 	loginSucceeded := false
 	// Initialize temporary hostname from config (will be used for login flow, only persisted after successful login)
-	temporaryHostname := configManager.GetHostname()
+	temporaryHostname := config.DefaultHostname
+	if activeAccount != nil {
+		temporaryHostname = activeAccount.Hostname
+	}
 
 	// Context for canceling polling goroutine and login operation
 	pollCtx, cancelPoll := context.WithCancel(context.Background())
@@ -259,25 +271,17 @@ func ShowLoginDialog(parent walk.Form, authManager *auth.AuthManager, configMana
 				if !hasAutoOpenedBrowser {
 					hasAutoOpenedBrowser = true
 					// Use temporary hostname if set, otherwise fall back to saved hostname
-					hostname := temporaryHostname
-					if hostname == "" {
-						hostname = configManager.GetHostname()
-					}
-					if hostname != "" {
+					if temporaryHostname != "" {
 						// Remove middle hyphen from code (e.g., "XXXX-XXXX" -> "XXXXXXXX")
 						codeWithoutHyphen := strings.ReplaceAll(codeStr, "-", "")
-						autoOpenURL := fmt.Sprintf("%s/auth/login/device?code=%s", hostname, codeWithoutHyphen)
+						autoOpenURL := fmt.Sprintf("%s/auth/login/device?code=%s", temporaryHostname, codeWithoutHyphen)
 						openBrowser(autoOpenURL)
 					}
 				}
 			}
 			// Update manual URL label
-			hostname := temporaryHostname
-			if hostname == "" {
-				hostname = configManager.GetHostname()
-			}
-			if hostname != "" && manualURLLabel != nil {
-				manualURL := fmt.Sprintf("%s/auth/login/device", hostname)
+			if temporaryHostname != "" && manualURLLabel != nil {
+				manualURL := fmt.Sprintf("%s/auth/login/device", temporaryHostname)
 				manualURLLabel.SetText(manualURL)
 			}
 		})
@@ -285,7 +289,6 @@ func ShowLoginDialog(parent walk.Form, authManager *auth.AuthManager, configMana
 
 	performLogin := func() {
 		// Ensure server URL is configured (but don't persist yet)
-		var hostnameToSave string
 		if hostingOpt == hostingSelfHosted {
 			url := normalizeURL(selfHostedURL)
 			if url == "" {
@@ -304,11 +307,9 @@ func ShowLoginDialog(parent walk.Form, authManager *auth.AuthManager, configMana
 				})
 				return
 			}
-			hostnameToSave = url
 			temporaryHostname = url
 		} else if hostingOpt == hostingCloud {
-			hostnameToSave = "https://app.pangolin.net"
-			temporaryHostname = hostnameToSave
+			temporaryHostname = "https://app.pangolin.net"
 		}
 
 		// Pass temporary hostname to login (it will use a temporary API client internally)
@@ -352,18 +353,6 @@ func ShowLoginDialog(parent walk.Form, authManager *auth.AuthManager, configMana
 			return
 		}
 
-		// Login succeeded - now persist the hostname
-		if hostnameToSave != "" {
-			cfg := configManager.GetConfig()
-			if cfg == nil {
-				cfg = &config.Config{}
-			}
-			cfg.Hostname = &hostnameToSave
-			configManager.Save(cfg)
-			// Update API client's base URL now that login succeeded
-			apiClient.UpdateBaseURL(hostnameToSave)
-		}
-
 		// Success - always stop any running tunnel after login, then close
 		logger.Info("Stopping tunnel after successful login")
 		if err := managers.IPCClientStopTunnel(); err != nil {
@@ -380,7 +369,7 @@ func ShowLoginDialog(parent walk.Form, authManager *auth.AuthManager, configMana
 
 	Dialog{
 		AssignTo: &dlg,
-		Title:    "Log in to Pangolin",
+		Title:    "Login to Pangolin",
 		MinSize:  Size{Width: 450, Height: 330},
 		MaxSize:  Size{Width: 450, Height: 330},
 		Layout:   VBox{Margins: Margins{Left: 20, Top: 10, Right: 20, Bottom: 10}, Spacing: 5},
@@ -421,14 +410,6 @@ func ShowLoginDialog(parent walk.Form, authManager *auth.AuthManager, configMana
 						OnClicked: func() {
 							hostingOpt = hostingSelfHosted
 							currentState = stateReadyToLogin
-							// Prefill with saved hostname if it exists and is not cloud
-							savedHostname := configManager.GetHostname()
-							if savedHostname != "" && savedHostname != "https://app.pangolin.net" {
-								selfHostedURL = savedHostname
-								if urlLineEdit != nil {
-									urlLineEdit.SetText(selfHostedURL)
-								}
-							}
 							updateUI()
 						},
 					},
@@ -590,7 +571,7 @@ func ShowLoginDialog(parent walk.Form, authManager *auth.AuthManager, configMana
 					},
 					PushButton{
 						AssignTo: &loginButton,
-						Text:     "Log in",
+						Text:     "Login",
 						MinSize:  Size{Width: 75, Height: 0},
 						MaxSize:  Size{Width: 75, Height: 0},
 						Visible:  false,

@@ -213,11 +213,19 @@ func main() {
 	mw.SetVisible(false)
 
 	// Initialize managers
+	accountManager := config.NewAccountManager()
 	configManager := config.NewConfigManager()
 	secretManager := secrets.NewSecretManager()
-	hostname := configManager.GetHostname()
+
+	var hostname string
+	if activeAccount, _ := accountManager.ActiveAccount(); activeAccount != nil {
+		hostname = activeAccount.Hostname
+	} else {
+		hostname = config.DefaultHostname
+	}
+
 	apiClient := api.NewAPIClient(hostname, "")
-	authManager := auth.NewAuthManager(apiClient, configManager, secretManager)
+	authManager := auth.NewAuthManager(apiClient, configManager, accountManager, secretManager)
 
 	// Initialize auth manager (loads saved session token if available)
 	if err := authManager.Initialize(); err != nil {
@@ -225,7 +233,7 @@ func main() {
 	}
 
 	// Setup tray icon and menu
-	if err := ui.SetupTray(mw, authManager, configManager, apiClient, secretManager); err != nil {
+	if err := ui.SetupTray(mw, authManager, configManager, accountManager, apiClient, secretManager); err != nil {
 		logger.Fatal("Failed to setup tray: %v", err)
 	}
 

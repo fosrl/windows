@@ -32,15 +32,16 @@ type IPCClient interface {
 // Manager manages tunnel connection state and operations
 // It provides a simplified API for the UI layer, abstracting away IPC details
 type Manager struct {
-	mu            sync.RWMutex
-	currentState  State
-	isConnected   bool
-	stateCallback func(State)
-	unregisterCb  func()
-	ipcClient     IPCClient
-	authManager   *auth.AuthManager
-	configManager *config.ConfigManager
-	secretManager *secrets.SecretManager
+	mu             sync.RWMutex
+	currentState   State
+	isConnected    bool
+	stateCallback  func(State)
+	unregisterCb   func()
+	ipcClient      IPCClient
+	authManager    *auth.AuthManager
+	configManager  *config.ConfigManager
+	accountManager *config.AccountManager
+	secretManager  *secrets.SecretManager
 	// Status polling fields
 	pollCtx       context.Context
 	pollCancel    context.CancelFunc
@@ -48,19 +49,26 @@ type Manager struct {
 }
 
 // NewManager creates a new Manager instance
-func NewManager(am *auth.AuthManager, cm *config.ConfigManager, sm *secrets.SecretManager, ipc IPCClient) *Manager {
+func NewManager(
+	authManager *auth.AuthManager,
+	configManager *config.ConfigManager,
+	accountManager *config.AccountManager,
+	secretManager *secrets.SecretManager,
+	ipcClient IPCClient,
+) *Manager {
 	tm := &Manager{
-		currentState:  StateStopped,
-		isConnected:   false,
-		authManager:   am,
-		configManager: cm,
-		secretManager: sm,
-		ipcClient:     ipc,
+		currentState:   StateStopped,
+		isConnected:    false,
+		authManager:    authManager,
+		configManager:  configManager,
+		accountManager: accountManager,
+		secretManager:  secretManager,
+		ipcClient:      ipcClient,
 	}
 
 	// Register for tunnel state change notifications
-	if ipc != nil {
-		tm.unregisterCb = ipc.RegisterStateChangeCallback(func(state State) {
+	if ipcClient != nil {
+		tm.unregisterCb = ipcClient.RegisterStateChangeCallback(func(state State) {
 			tm.mu.Lock()
 			tm.currentState = state
 			tm.isConnected = (state == StateRunning)
@@ -124,8 +132,13 @@ func (tm *Manager) RegisterStateChangeCallback(cb func(State)) {
 
 // buildConfig builds the tunnel configuration from auth manager, config manager, and secret manager
 func (tm *Manager) buildConfig() (Config, error) {
+	activeAccount, err := tm.accountManager.ActiveAccount()
+	if err != nil {
+		return Config{}, err
+	}
+
 	// Get session token from secret manager
-	userToken, found := tm.secretManager.GetSecret("session-token")
+	userToken, found := tm.secretManager.GetSessionToken(activeAccount.UserID)
 	if !found || userToken == "" {
 		return Config{}, fmt.Errorf("session token not found")
 	}
@@ -167,7 +180,7 @@ func (tm *Manager) buildConfig() (Config, error) {
 		Holepunch:           true,
 		PingIntervalSeconds: 5,
 		PingTimeoutSeconds:  5,
-		Endpoint:            tm.configManager.GetHostname(),
+		Endpoint:            activeAccount.Hostname,
 		DNS:                 primaryDNS, // Use primary DNS without :53
 		OrgID:               currentOrg.Id,
 		InterfaceName:       "Pangolin",
@@ -268,23 +281,22 @@ func (tm *Manager) Connect() error {
 			)
 		}
 	} else {
-		// Try to get userId from config as fallback
-		cfg := tm.configManager.GetConfig()
-		if cfg != nil && cfg.UserId != nil && *cfg.UserId != "" {
-			if err := tm.authManager.EnsureOlmCredentials(*cfg.UserId); err != nil {
-				logger.Error("Failed to ensure OLM credentials: %v", err)
-				return formatConnectionError(
-					"OLM Credentials Error",
-					fmt.Sprintf("Failed to set up device credentials: %v", err),
-					err,
-				)
-			}
-		} else {
-			logger.Error("No user ID available for OLM credentials")
+		activeAccount, err := tm.accountManager.ActiveAccount()
+		if err != nil {
+			logger.Error("Failed to get active account: %v", err)
 			return formatConnectionError(
 				"Authentication Error",
 				"No user ID available. Please log in again.",
-				nil,
+				err,
+			)
+		}
+
+		if err := tm.authManager.EnsureOlmCredentials(activeAccount.UserID); err != nil {
+			logger.Error("Failed to ensure OLM credentials: %v", err)
+			return formatConnectionError(
+				"OLM Credentials Error",
+				fmt.Sprintf("Failed to set up device credentials: %v", err),
+				err,
 			)
 		}
 	}

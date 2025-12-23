@@ -25,12 +25,6 @@ const (
 
 // Config represents the application configuration
 type Config struct {
-	UserId       *string `json:"userId,omitempty"`
-	Email        *string `json:"email,omitempty"`
-	OrgId        *string `json:"orgId,omitempty"`
-	Username     *string `json:"username,omitempty"`
-	Name         *string `json:"name,omitempty"`
-	Hostname     *string `json:"hostname,omitempty"`
 	DNSOverride  *bool   `json:"dnsOverride,omitempty"`
 	DNSTunnel    *bool   `json:"dnsTunnel,omitempty"`
 	PrimaryDNS   *string `json:"primaryDNS,omitempty"`
@@ -57,7 +51,7 @@ func NewConfigManager() *ConfigManager {
 	configPath := filepath.Join(pangolinDir, ConfigFileName)
 
 	// Create directory if it doesn't exist
-	if err := os.MkdirAll(pangolinDir, 0755); err != nil {
+	if err := os.MkdirAll(pangolinDir, 0o755); err != nil {
 		logger.Error("Failed to create config directory: %v", err)
 	}
 
@@ -120,7 +114,7 @@ func (cm *ConfigManager) save(cfg *Config) bool {
 	}
 
 	// Write to file
-	if err := os.WriteFile(cm.configPath, data, 0644); err != nil {
+	if err := os.WriteFile(cm.configPath, data, 0o644); err != nil {
 		logger.Error("Error saving config: %v", err)
 		return false
 	}
@@ -138,29 +132,15 @@ func (cm *ConfigManager) Save(cfg *Config) bool {
 	return cm.save(cfg)
 }
 
-// Clear clears user-specific fields but keeps hostname
+// Clear clears user-specific fields
 // Returns true if successful
 func (cm *ConfigManager) Clear() bool {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
 
 	clearedConfig := &Config{}
-	if cm.config != nil && cm.config.Hostname != nil {
-		clearedConfig.Hostname = cm.config.Hostname
-	}
 
 	return cm.save(clearedConfig)
-}
-
-// GetHostname returns the hostname from config or the default hostname
-func (cm *ConfigManager) GetHostname() string {
-	cm.mu.RLock()
-	defer cm.mu.RUnlock()
-
-	if cm.config != nil && cm.config.Hostname != nil && *cm.config.Hostname != "" {
-		return *cm.config.Hostname
-	}
-	return DefaultHostname
 }
 
 // GetDNSOverride returns the DNS override setting from config or the default value
@@ -264,30 +244,6 @@ func (cm *ConfigManager) getConfigCopy() *Config {
 
 	// Create a new config and copy all pointer fields
 	cfg := &Config{}
-	if cm.config.UserId != nil {
-		userId := *cm.config.UserId
-		cfg.UserId = &userId
-	}
-	if cm.config.Email != nil {
-		email := *cm.config.Email
-		cfg.Email = &email
-	}
-	if cm.config.OrgId != nil {
-		orgId := *cm.config.OrgId
-		cfg.OrgId = &orgId
-	}
-	if cm.config.Username != nil {
-		username := *cm.config.Username
-		cfg.Username = &username
-	}
-	if cm.config.Name != nil {
-		name := *cm.config.Name
-		cfg.Name = &name
-	}
-	if cm.config.Hostname != nil {
-		hostname := *cm.config.Hostname
-		cfg.Hostname = &hostname
-	}
 	if cm.config.DNSOverride != nil {
 		dnsOverride := *cm.config.DNSOverride
 		cfg.DNSOverride = &dnsOverride
