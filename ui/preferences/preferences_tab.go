@@ -274,36 +274,7 @@ func (pt *PreferencesTab) onSave() {
 	}
 
 	// Get current config and create a copy to modify
-	currentCfg := pt.configManager.GetConfig()
 	cfg := &config.Config{}
-
-	// Copy all existing fields to preserve them
-	if currentCfg != nil {
-		if currentCfg.UserId != nil {
-			userId := *currentCfg.UserId
-			cfg.UserId = &userId
-		}
-		if currentCfg.Email != nil {
-			email := *currentCfg.Email
-			cfg.Email = &email
-		}
-		if currentCfg.OrgId != nil {
-			orgId := *currentCfg.OrgId
-			cfg.OrgId = &orgId
-		}
-		if currentCfg.Username != nil {
-			username := *currentCfg.Username
-			cfg.Username = &username
-		}
-		if currentCfg.Name != nil {
-			name := *currentCfg.Name
-			cfg.Name = &name
-		}
-		if currentCfg.Hostname != nil {
-			hostname := *currentCfg.Hostname
-			cfg.Hostname = &hostname
-		}
-	}
 
 	// Set DNS settings
 	dnsOverrideVal := dnsOverride
