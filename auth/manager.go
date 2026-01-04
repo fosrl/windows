@@ -697,7 +697,6 @@ func (am *AuthManager) Logout() error {
 	am.mu.Unlock()
 
 	_ = am.secretManager.DeleteSessionToken(userID)
-	_ = am.secretManager.DeleteOlmCredentials(userID)
 
 	_ = am.accountManager.RemoveAccount(userID)
 
