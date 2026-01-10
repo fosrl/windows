@@ -149,6 +149,7 @@ func (m *AccountManager) SetUserOrganization(userID string, orgID string) error 
 
 	if account, ok := m.Accounts[userID]; ok {
 		account.OrgID = orgID
+		m.Accounts[userID] = account // Put the modified account back in the map
 	} else {
 		return errors.New("account does not exist")
 	}

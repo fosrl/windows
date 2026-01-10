@@ -247,7 +247,9 @@ func (am *AuthManager) LoginWithDeviceAuth(ctx context.Context, hostnameOverride
 // Returns the selected organization's ID.
 // This does NOT get persisted to the account store; callers
 // persist it to the account store themselves.
-func (am *AuthManager) ensureOrgIsSelected() string {
+// If account is provided, it will use that account's stored org ID.
+// Otherwise, it will use the active account's stored org ID.
+func (am *AuthManager) ensureOrgIsSelected(account *config.Account) string {
 	var selectedOrgID string
 
 	am.mu.RLock()
@@ -268,9 +270,21 @@ func (am *AuthManager) ensureOrgIsSelected() string {
 
 		// Restore last selected org from config,
 		// or auto-select a random one.
-		if activeAccount, _ := am.accountManager.ActiveAccount(); activeAccount != nil {
+		var accountToUse *config.Account
+		if account != nil {
+			// Use the provided account (e.g., when switching accounts)
+			accountToUse = account
+		} else {
+			// Fall back to active account (e.g., during initial login)
+			if activeAccount, _ := am.accountManager.ActiveAccount(); activeAccount != nil {
+				accountToUse = activeAccount
+			}
+		}
+
+		if accountToUse != nil && accountToUse.OrgID != "" {
+			// Try to restore the last selected org for this account
 			for _, org := range orgsResponse.Orgs {
-				if org.Id == activeAccount.OrgID {
+				if org.Id == accountToUse.OrgID {
 					am.mu.Lock()
 					am.currentOrg = &org
 					selectedOrgID = am.currentOrg.Id
@@ -278,7 +292,11 @@ func (am *AuthManager) ensureOrgIsSelected() string {
 					break
 				}
 			}
-		} else if len(orgsResponse.Orgs) > 0 {
+		}
+
+		// If no org was selected (either no stored org ID or stored org no longer exists),
+		// auto-select the first available org
+		if selectedOrgID == "" && len(orgsResponse.Orgs) > 0 {
 			am.mu.Lock()
 			am.currentOrg = &orgsResponse.Orgs[0]
 			selectedOrgID = am.currentOrg.Id
@@ -301,7 +319,13 @@ func (am *AuthManager) handleSuccessfulAuth(user *api.User, hostname string, tok
 
 	am.UpdateCurrentUser(user)
 
-	selectedOrgID := am.ensureOrgIsSelected()
+	// Check if account already exists to use its stored org ID
+	var existingAccount *config.Account
+	if existingAcc, exists := am.accountManager.Accounts[user.UserId]; exists {
+		existingAccount = &existingAcc
+	}
+
+	selectedOrgID := am.ensureOrgIsSelected(existingAccount)
 
 	_ = am.secretManager.SaveSessionToken(user.UserId, token)
 
@@ -662,7 +686,7 @@ func (am *AuthManager) SwitchAccount(userID string) error {
 		return errors.New("session token does not exist for this user")
 	}
 
-	selectedOrgID := am.ensureOrgIsSelected()
+	selectedOrgID := am.ensureOrgIsSelected(&accountToSwitchTo)
 
 	err := am.accountManager.SetUserOrganization(userID, selectedOrgID)
 	if err != nil {
@@ -684,6 +708,16 @@ func (am *AuthManager) Logout() error {
 
 	userID := am.accountManager.ActiveUserID
 
+	// Get all accounts before removing the current one
+	// We need to find the next available account to switch to
+	var nextAccountID string
+	for accountID := range am.accountManager.Accounts {
+		if accountID != userID {
+			nextAccountID = accountID
+			break
+		}
+	}
+
 	// Clear local data
 	am.apiClient.UpdateSessionToken("")
 
@@ -699,6 +733,19 @@ func (am *AuthManager) Logout() error {
 	_ = am.secretManager.DeleteSessionToken(userID)
 
 	_ = am.accountManager.RemoveAccount(userID)
+
+	// Auto-select next available account if one exists
+	if nextAccountID != "" {
+		// Check if the account still exists (it should, since we got it before removal)
+		_, exists := am.accountManager.Accounts[nextAccountID]
+		if exists {
+			// Switch to the next available account
+			if err := am.SwitchAccount(nextAccountID); err != nil {
+				logger.Warn("Failed to auto-switch to next account after logout: %v", err)
+				// Don't return error - logout was successful, auto-switch is just a convenience
+			}
+		}
+	}
 
 	return nil
 }
