@@ -886,11 +886,7 @@ func updateAccountMenu() {
 	// Update accounts menu action text
 	accountMenuActionText := "Select Account"
 	if currentAccount != nil {
-		if emailCounts[currentAccount.Email] > 1 {
-			accountMenuActionText = fmt.Sprintf("%s (%s)", currentAccount.Email, currentAccount.Hostname)
-		} else {
-			accountMenuActionText = currentAccount.Email
-		}
+		accountMenuActionText = currentAccount.Email
 	}
 	accountMenuAction.SetText(accountMenuActionText)
 	accountMenuAction.SetVisible(len(accounts) > 0)
