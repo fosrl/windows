@@ -113,8 +113,8 @@ type MaxSessionLength struct {
 // PasswordAge represents password age policy
 type PasswordAge struct {
 	Compliant          bool `json:"compliant"`
-	MaxPasswordAgeDays int  `json:"maxPasswordAgeDays"`
-	PasswordAgeDays    int  `json:"passwordAgeDays"`
+	MaxPasswordAgeDays float32  `json:"maxPasswordAgeDays"`
+	PasswordAgeDays    float32  `json:"passwordAgeDays"`
 }
 
 // GetClientResponse represents the response for getting a client
