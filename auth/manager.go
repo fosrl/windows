@@ -607,7 +607,7 @@ func (am *AuthManager) EnsureOlmCredentials(userId string) error {
 		// Verify OLM exists on server by getting the OLM directly
 		olmIdString, found := am.secretManager.GetOlmId(userId)
 		if found {
-			olm, err := am.apiClient.GetUserOlm(userId, olmIdString)
+			olm, err := am.apiClient.GetUserOlm(userId, olmIdString, nil)
 			if err == nil && olm != nil {
 				// Verify the olmId matches
 				if olm.OlmId == olmIdString {
@@ -813,6 +813,11 @@ func (am *AuthManager) UpdateCurrentUser(user *api.User) {
 	am.mu.Lock()
 	defer am.mu.Unlock()
 	am.currentUser = user
+}
+
+// APIClient returns a reference to the API client
+func (am *AuthManager) APIClient() *api.APIClient {
+	return am.apiClient
 }
 
 // Helper function

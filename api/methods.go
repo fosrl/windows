@@ -169,8 +169,17 @@ func (c *APIClient) CreateOlm(userId, name string) (*CreateOlmResponse, error) {
 }
 
 // GetUserOlm gets an OLM for a user by userId and olmId
-func (c *APIClient) GetUserOlm(userId, olmId string) (*Olm, error) {
+// orgId is optional and will be included as a query parameter if provided
+func (c *APIClient) GetUserOlm(userId, olmId string, orgId *string) (*Olm, error) {
 	path := fmt.Sprintf("/user/%s/olm/%s", userId, olmId)
+
+	// Build query parameters if orgId is provided
+	if orgId != nil && *orgId != "" {
+		params := url.Values{}
+		params.Set("orgId", *orgId)
+		path = fmt.Sprintf("%s?%s", path, params.Encode())
+	}
+
 	data, resp, err := c.makeRequest("GET", path, nil)
 	if err != nil {
 		return nil, err

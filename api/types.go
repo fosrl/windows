@@ -105,16 +105,16 @@ type OrgPolicies struct {
 
 // MaxSessionLength represents max session length policy
 type MaxSessionLength struct {
-	Compliant             bool `json:"compliant"`
-	MaxSessionLengthHours float32  `json:"maxSessionLengthHours"`
-	SessionAgeHours       float32  `json:"sessionAgeHours"`
+	Compliant             bool    `json:"compliant"`
+	MaxSessionLengthHours float32 `json:"maxSessionLengthHours"`
+	SessionAgeHours       float32 `json:"sessionAgeHours"`
 }
 
 // PasswordAge represents password age policy
 type PasswordAge struct {
-	Compliant          bool `json:"compliant"`
-	MaxPasswordAgeDays float32  `json:"maxPasswordAgeDays"`
-	PasswordAgeDays    float32  `json:"passwordAgeDays"`
+	Compliant          bool    `json:"compliant"`
+	MaxPasswordAgeDays float32 `json:"maxPasswordAgeDays"`
+	PasswordAgeDays    float32 `json:"passwordAgeDays"`
 }
 
 // GetClientResponse represents the response for getting a client
@@ -147,10 +147,11 @@ type ResponseOrg struct {
 
 // Olm represents an OLM (Online Management) record
 type Olm struct {
-	OlmId  string  `json:"olmId"`
-	UserId string  `json:"userId"`
-	Name   *string `json:"name,omitempty"`
-	Secret *string `json:"secret,omitempty"`
+	OlmId   string  `json:"olmId"`
+	UserId  string  `json:"userId"`
+	Name    *string `json:"name,omitempty"`
+	Secret  *string `json:"secret,omitempty"`
+	Blocked *bool   `json:"blocked,omitempty"`
 }
 
 // MyDeviceResponse represents the response for getting my device

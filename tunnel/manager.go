@@ -301,6 +301,47 @@ func (tm *Manager) Connect() error {
 		}
 	}
 
+	// Check if OLM is blocked before connecting
+	currentUser = tm.authManager.CurrentUser()
+	var userId string
+	if currentUser != nil && currentUser.UserId != "" {
+		userId = currentUser.UserId
+	} else {
+		activeAccount, err := tm.accountManager.ActiveAccount()
+		if err != nil {
+			logger.Error("Failed to get active account for blocked check: %v", err)
+		} else {
+			userId = activeAccount.UserID
+		}
+	}
+
+	if userId != "" {
+		olmId, found := tm.secretManager.GetOlmId(userId)
+		if found && olmId != "" {
+			// Get orgId if available
+			var orgId *string
+			if currentOrg := tm.authManager.CurrentOrg(); currentOrg != nil {
+				orgId = &currentOrg.Id
+			}
+
+			// Check if OLM is blocked
+			olm, err := tm.authManager.APIClient().GetUserOlm(userId, olmId, orgId)
+			if err != nil {
+				// If check fails (network error, etc.), log but allow connection attempt
+				// The server will reject if truly blocked
+				logger.Error("Failed to check OLM blocked status: %v", err)
+			} else if olm != nil && olm.Blocked != nil && *olm.Blocked {
+				// User is blocked - prevent connection
+				logger.Error("Account is blocked, preventing connection")
+				return formatConnectionError(
+					"Account Blocked",
+					"Your device is blocked in this organization. Contact your admin for more information.",
+					nil,
+				)
+			}
+		}
+	}
+
 	// Build config from dependencies
 	config, err := tm.buildConfig()
 	if err != nil {
