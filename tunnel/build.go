@@ -14,14 +14,14 @@ import (
 )
 
 // buildTunnel builds the tunnel
-func buildTunnel(config Config) error {
+func (s *tunnelService) buildTunnel(config Config) error {
 	logger.Debug("Build tunnel called: config: %+v", config)
 
 	// Create context for OLM
 	olmContext := context.Background()
 
 	// Create OLM GlobalConfig with hardcoded values from Swift
-	olmInitConfig := olmpkg.GlobalConfig{
+	olmInitConfig := olmpkg.OlmConfig{
 		LogLevel:   configpkg.LogLevel,
 		EnableAPI:  true,
 		SocketPath: OLMNamedPipePath,
@@ -39,7 +39,11 @@ func buildTunnel(config Config) error {
 	}
 
 	// Initialize OLM with context and GlobalConfig
-	olmpkg.Init(olmContext, olmInitConfig)
+	var err error
+	s.olm, err = olmpkg.Init(olmContext, olmInitConfig)
+	if err != nil {
+		return err
+	}
 
 	olmConfig := olmpkg.TunnelConfig{
 		Endpoint:             config.Endpoint,
@@ -58,11 +62,11 @@ func buildTunnel(config Config) error {
 		TunnelDNS:            config.TunnelDNS,
 	}
 
-	olmpkg.StartApi()
+	s.olm.StartApi()
 
 	logger.Info("Starting OLM tunnel...")
 	go func() {
-		olmpkg.StartTunnel(olmConfig)
+		s.olm.StartTunnel(olmConfig)
 		logger.Info("OLM tunnel stopped")
 	}()
 
