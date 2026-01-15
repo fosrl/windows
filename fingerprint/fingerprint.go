@@ -1,9 +1,12 @@
-// go:build windows
+//go:build windows
 
-package tunnel
+package fingerprint
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"os/user"
@@ -12,17 +15,20 @@ import (
 	"strings"
 	"syscall"
 	"unsafe"
+
+	"golang.org/x/sys/windows/registry"
 )
 
 type Fingerprint struct {
-	Username      string `json:"username"`
-	Hostname      string `json:"hostname"`
-	Platform      string `json:"platform"`
-	OSVersion     string `json:"osVersion"`
-	KernelVersion string `json:"kernelVersion"`
-	Architecture  string `json:"arch"`
-	DeviceModel   string `json:"deviceModel"`
-	SerialNumber  string `json:"serialNumber"`
+	Username            string `json:"username"`
+	Hostname            string `json:"hostname"`
+	Platform            string `json:"platform"`
+	OSVersion           string `json:"osVersion"`
+	KernelVersion       string `json:"kernelVersion"`
+	Architecture        string `json:"arch"`
+	DeviceModel         string `json:"deviceModel"`
+	SerialNumber        string `json:"serialNumber"`
+	PlatformFingerprint string `json:"platformFingerprint"'`
 }
 
 type PostureChecks struct {
@@ -52,14 +58,15 @@ func GatherFingerprintInfo() *Fingerprint {
 	deviceModel, serialNumber := getWindowsModelAndSerial()
 
 	return &Fingerprint{
-		Username:      username,
-		Hostname:      hostname,
-		Platform:      "windows",
-		OSVersion:     osVersion,
-		KernelVersion: kernelVersion,
-		Architecture:  runtime.GOARCH,
-		DeviceModel:   deviceModel,
-		SerialNumber:  serialNumber,
+		Username:            username,
+		Hostname:            hostname,
+		Platform:            "windows",
+		OSVersion:           osVersion,
+		KernelVersion:       kernelVersion,
+		Architecture:        runtime.GOARCH,
+		DeviceModel:         deviceModel,
+		SerialNumber:        serialNumber,
+		PlatformFingerprint: computePlatformFingerprint(),
 	}
 }
 
@@ -228,4 +235,85 @@ func (p *PostureChecks) ToMap() map[string]any {
 	}
 
 	return m
+}
+
+func computePlatformFingerprint() string {
+	parts := []string{
+		runtime.GOOS,
+		runtime.GOARCH,
+		cpuFingerprint(),
+		dmiFingerprint(),
+	}
+
+	fmt.Println("parts")
+
+	var out []string
+	for _, p := range parts {
+		if p != "" {
+			out = append(out, p)
+		}
+	}
+
+	raw := strings.Join(out, "|")
+	h := sha256.Sum256([]byte(raw))
+	return hex.EncodeToString(h[:])
+}
+
+func cpuFingerprint() string {
+	k, err := registry.OpenKey(
+		registry.LOCAL_MACHINE,
+		`HARDWARE\DESCRIPTION\System\CentralProcessor\0`,
+		registry.QUERY_VALUE,
+	)
+	if err != nil {
+		return ""
+	}
+	defer k.Close()
+
+	var parts []string
+
+	if v, _, err := k.GetStringValue("VendorIdentifier"); err == nil {
+		parts = append(parts, "vendor="+normalize(v))
+	}
+	if v, _, err := k.GetStringValue("ProcessorNameString"); err == nil {
+		parts = append(parts, "model_name="+normalize(v))
+	}
+	if v, _, err := k.GetStringValue("Identifier"); err == nil {
+		parts = append(parts, "identifier="+normalize(v))
+	}
+
+	return strings.Join(parts, "|")
+}
+
+func dmiFingerprint() string {
+	k, err := registry.OpenKey(
+		registry.LOCAL_MACHINE,
+		`SYSTEM\CurrentControlSet\Control\SystemInformation`,
+		registry.QUERY_VALUE,
+	)
+	if err != nil {
+		return ""
+	}
+	defer k.Close()
+
+	var parts []string
+
+	read := func(name, key string) {
+		if v, _, err := k.GetStringValue(name); err == nil && v != "" {
+			parts = append(parts, key+"="+normalize(v))
+		}
+	}
+
+	read("SystemManufacturer", "sys_vendor")
+	read("SystemProductName", "product_name")
+	read("SystemSKU", "sku")
+	read("BaseBoardManufacturer", "board_vendor")
+	read("BaseBoardProduct", "board_name")
+
+	return strings.Join(parts, "|")
+}
+
+func normalize(s string) string {
+	s = strings.ToLower(strings.TrimSpace(s))
+	return strings.Join(strings.Fields(s), " ")
 }

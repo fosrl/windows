@@ -10,6 +10,7 @@ import (
 
 	olmpkg "github.com/fosrl/olm/olm"
 	configpkg "github.com/fosrl/windows/config"
+	"github.com/fosrl/windows/fingerprint"
 	"github.com/fosrl/windows/version"
 )
 
@@ -45,8 +46,8 @@ func (s *tunnelService) buildTunnel(config Config) error {
 		return err
 	}
 
-	initialFingerprint := GatherFingerprintInfo().ToMap()
-	initialPostures := GatherPostureChecks().ToMap()
+	initialFingerprint := fingerprint.GatherFingerprintInfo().ToMap()
+	initialPostures := fingerprint.GatherPostureChecks().ToMap()
 
 	olmConfig := olmpkg.TunnelConfig{
 		Endpoint:             config.Endpoint,
@@ -78,8 +79,8 @@ func (s *tunnelService) buildTunnel(config Config) error {
 			case <-s.fingerprintCtx.Done():
 				return
 			case <-ticker.C:
-				fp := GatherFingerprintInfo().ToMap()
-				postures := GatherPostureChecks().ToMap()
+				fp := fingerprint.GatherFingerprintInfo().ToMap()
+				postures := fingerprint.GatherPostureChecks().ToMap()
 
 				s.olm.SetFingerprint(fp)
 				s.olm.SetPostures(postures)
