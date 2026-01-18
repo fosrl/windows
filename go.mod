@@ -3,19 +3,19 @@ module github.com/fosrl/windows
 go 1.25
 
 require (
-	github.com/fosrl/newt v0.0.0
-	github.com/fosrl/olm v0.0.0
+	github.com/Microsoft/go-winio v0.6.2
+	github.com/fosrl/newt v1.8.1
+	github.com/fosrl/olm v1.3.0
 	github.com/pkg/browser v0.0.0-20240102092130-5ac0b6a4141c
 	github.com/tailscale/walk v0.0.0-20251016200523-963e260a8227
 	github.com/tailscale/win v0.0.0-20250213223159-5992cb43ca35
 	github.com/zalando/go-keyring v0.2.6
-	golang.org/x/crypto v0.45.0
-	golang.org/x/sys v0.38.0
+	golang.org/x/crypto v0.47.0
+	golang.org/x/sys v0.40.0
 )
 
 require (
 	al.essio.dev/pkg/shellescape v1.5.1 // indirect
-	github.com/Microsoft/go-winio v0.6.2 // indirect
 	github.com/danieljoos/wincred v1.2.2 // indirect
 	github.com/dblohm7/wingoes v0.0.0-20231019175336-f6e33aa7cc34 // indirect
 	github.com/godbus/dbus/v5 v5.2.0 // indirect
@@ -26,7 +26,7 @@ require (
 	github.com/vishvananda/netns v0.0.5 // indirect
 	golang.org/x/exp v0.0.0-20251113190631-e25ba8c21ef6 // indirect
 	golang.org/x/mod v0.30.0 // indirect
-	golang.org/x/net v0.47.0 // indirect
+	golang.org/x/net v0.48.0 // indirect
 	golang.org/x/sync v0.18.0 // indirect
 	golang.org/x/time v0.12.0 // indirect
 	golang.org/x/tools v0.39.0 // indirect
