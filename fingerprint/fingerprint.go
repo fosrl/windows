@@ -38,6 +38,7 @@ type PostureChecks struct {
 
 	DiskEncrypted   bool `json:"diskEncrypted"`
 	FirewallEnabled bool `json:"firewallEnabled"`
+	TpmAvailable    bool `json:"tpmAvailable"`
 
 	// Windows-specific posture check information
 
@@ -72,7 +73,7 @@ func GatherFingerprintInfo() *Fingerprint {
 func GatherPostureChecks() *PostureChecks {
 	var wg sync.WaitGroup
 
-	var diskEncrypted, firewall, defender bool
+	var diskEncrypted, firewall, tpm, defender bool
 
 	wg.Go(func() {
 		diskEncrypted = windowsDiskEncrypted()
@@ -80,6 +81,10 @@ func GatherPostureChecks() *PostureChecks {
 
 	wg.Go(func() {
 		firewall = windowsFirewallEnabled()
+	})
+
+	wg.Go(func() {
+		tpm = windowsTPMAvailable()
 	})
 
 	wg.Go(func() {
@@ -91,6 +96,7 @@ func GatherPostureChecks() *PostureChecks {
 	return &PostureChecks{
 		DiskEncrypted:          diskEncrypted,
 		FirewallEnabled:        firewall,
+		TpmAvailable:           tpm,
 		WindowsDefenderEnabled: defender,
 	}
 }
@@ -188,6 +194,36 @@ func windowsFirewallEnabled() bool {
 
 	result := s == "True"
 	logger.Debug("Posture check: Firewall - Result: %v", result)
+	return result
+}
+
+func windowsTPMAvailable() bool {
+	command := "Get-Tpm | Select-Object -ExpandProperty TpmPresent"
+	logger.Debug("Posture check: TPM - Executing PowerShell command: %s", command)
+
+	cmd := exec.Command("powershell.exe", "-Command", command)
+	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+	out, err := cmd.Output()
+
+	if err != nil {
+		logger.Debug("Posture check: TPM - Command failed with error: %v", err)
+		return false
+	}
+
+	rawOutput := string(out)
+	logger.Debug("Posture check: TPM - Raw command output: %q", rawOutput)
+
+	s := strings.TrimSpace(rawOutput)
+	logger.Debug("Posture check: TPM - Trimmed output: %q", s)
+
+	// If output is empty, assume no TPM
+	if s == "" {
+		logger.Debug("Posture check: TPM - Empty output, assuming no TPM")
+		return false
+	}
+
+	result := s == "True"
+	logger.Debug("Posture check: TPM - Result: %v", result)
 	return result
 }
 
