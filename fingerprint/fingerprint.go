@@ -42,7 +42,7 @@ type PostureChecks struct {
 
 	// Windows-specific posture check information
 
-	WindowsDefenderEnabled bool `json:"windowsDefenderEnabled"`
+	WindowsAntivirusEnabled bool `json:"windowsAntivirusEnabled"`
 }
 
 func GatherFingerprintInfo() *Fingerprint {
@@ -88,16 +88,16 @@ func GatherPostureChecks() *PostureChecks {
 	})
 
 	wg.Go(func() {
-		defender = windowsDefenderEnabled()
+		defender = windowsAntivirusEnabled()
 	})
 
 	wg.Wait()
 
 	return &PostureChecks{
-		DiskEncrypted:          diskEncrypted,
-		FirewallEnabled:        firewall,
-		TpmAvailable:           tpm,
-		WindowsDefenderEnabled: defender,
+		DiskEncrypted:           diskEncrypted,
+		FirewallEnabled:         firewall,
+		TpmAvailable:            tpm,
+		WindowsAntivirusEnabled: defender,
 	}
 }
 
@@ -227,7 +227,7 @@ func windowsTPMAvailable() bool {
 	return result
 }
 
-func windowsDefenderEnabled() bool {
+func windowsAntivirusEnabled() bool {
 	// Query Windows Security Center for antivirus products
 	// Get productState values and check if any antivirus is active
 	command := "Get-CimInstance -Namespace 'root/SecurityCenter2' -ClassName AntiVirusProduct | Select-Object -ExpandProperty productState"
