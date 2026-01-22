@@ -595,17 +595,11 @@ func ShowLoginDialog(
 	win.SetWindowLong(dlg.Handle(), win.GWL_STYLE, style)
 
 	// Make dialog appear in taskbar by setting WS_EX_APPWINDOW extended style
-	// and keep it always on top with WS_EX_TOPMOST
 	const GWL_EXSTYLE = -20
 	const WS_EX_APPWINDOW = 0x00040000
-	const WS_EX_TOPMOST = 0x00000008
 	exStyle := win.GetWindowLong(dlg.Handle(), GWL_EXSTYLE)
 	exStyle |= WS_EX_APPWINDOW
-	exStyle |= WS_EX_TOPMOST
 	win.SetWindowLong(dlg.Handle(), GWL_EXSTYLE, exStyle)
-
-	// Ensure window stays on top using SetWindowPos
-	win.SetWindowPos(dlg.Handle(), win.HWND_TOPMOST, 0, 0, 0, 0, win.SWP_NOMOVE|win.SWP_NOSIZE)
 
 	// Set fixed size
 	dlg.SetSize(walk.Size{Width: 450, Height: 330})
