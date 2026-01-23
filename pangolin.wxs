@@ -2,7 +2,7 @@
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
   <Package Name="Pangolin" 
            Language="1033" 
-           Version="0.4.1" 
+           Version="0.5.0" 
            Manufacturer="Fossorial" 
            UpgradeCode="165F13D3-9A2F-4AF7-9C68-474A8256B274"
            Compressed="yes">
