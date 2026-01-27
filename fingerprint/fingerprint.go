@@ -68,7 +68,7 @@ func GatherFingerprintInfo() *Fingerprint {
 		Architecture:        runtime.GOARCH,
 		DeviceModel:         deviceModel,
 		SerialNumber:        serialNumber,
-		PlatformFingerprint: computePlatformFingerprint(),
+		PlatformFingerprint: computePlatformFingerprint(serialNumber),
 	}
 }
 
@@ -362,12 +362,17 @@ func (p *PostureChecks) ToMap() map[string]any {
 	return m
 }
 
-func computePlatformFingerprint() string {
+func computePlatformFingerprint(serialNumber string) string {
 	parts := []string{
 		runtime.GOOS,
 		runtime.GOARCH,
 		cpuFingerprint(),
 		dmiFingerprint(),
+	}
+
+	// Add serial number to fingerprint if available
+	if serialNumber != "" {
+		parts = append(parts, "serial="+normalize(serialNumber))
 	}
 
 	fmt.Println("parts")
