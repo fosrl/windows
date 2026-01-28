@@ -168,7 +168,7 @@ func NewPreferencesWindow(owner walk.Form, tm *tunnel.Manager, cm *config.Config
 	}
 
 	// Set window size after all components are added
-	pw.SetSize(walk.Size{Width: 800, Height: 600})
+	pw.SetSize(walk.Size{Width: 450, Height: 600})
 
 	// Make dialog appear in taskbar by setting WS_EX_APPWINDOW extended style
 	const GWL_EXSTYLE = -20

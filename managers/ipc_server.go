@@ -39,9 +39,6 @@ type ManagerService struct {
 }
 
 func (s *ManagerService) Quit(stopTunnelsOnQuit bool) (alreadyQuit bool, err error) {
-	if s.elevatedToken == 0 {
-		return false, windows.ERROR_ACCESS_DENIED
-	}
 	if !atomic.CompareAndSwapUint32(&haveQuit, 0, 1) {
 		return true, nil
 	}

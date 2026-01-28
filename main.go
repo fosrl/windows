@@ -118,10 +118,12 @@ func main() {
 		serviceName := config.AppName + "Manager"
 
 		// Try to connect to service manager
+		// Note: Standard users should be able to connect to query services,
+		// but may need elevation to install/start services
 		m, err := mgr.Connect()
 		if err != nil {
 			// If we can't connect to service manager, we can't check service status
-			// Try to use sc query as an alternative, or just try to elevate to install/start
+			// This is unusual for standard users - they should be able to connect to query services
 			if err == windows.ERROR_ACCESS_DENIED {
 				logger.Info("Cannot access service manager without admin privileges")
 				logger.Info("Attempting to install/start manager service (will show UAC prompt)...")
@@ -151,6 +153,13 @@ func main() {
 		status, err := service.Query()
 		if err != nil {
 			logger.Fatal("Failed to query service status: %v", err)
+		}
+
+		// If service is already running, exit - the manager service will automatically
+		// launch the UI for logged-in users. No UAC prompt needed.
+		if status.State == svc.Running || status.State == svc.StartPending {
+			logger.Info("Manager service is already running")
+			return
 		}
 
 		if status.State == svc.Stopped {
@@ -190,9 +199,6 @@ func main() {
 				logger.Info("Manager service started, UI should appear shortly")
 				time.Sleep(2 * time.Second)
 			}
-		} else {
-			// Service is running, manager will launch UI automatically if needed
-			logger.Info("Manager service is already running")
 		}
 
 		// Exit - the manager service will handle launching the UI

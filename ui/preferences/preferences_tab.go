@@ -3,10 +3,12 @@
 package preferences
 
 import (
+	"net"
 	"strings"
 
 	"github.com/fosrl/newt/logger"
 	"github.com/fosrl/windows/config"
+	browser "github.com/pkg/browser"
 	"github.com/tailscale/walk"
 	"github.com/tailscale/win"
 )
@@ -50,6 +52,18 @@ func (pt *PreferencesTab) Create(parent *walk.TabWidget) (*walk.TabPage, error) 
 	contentLayout.SetSpacing(16)
 	contentContainer.SetLayout(contentLayout)
 
+	// Tip link to docs for settings
+	settingsDocLink, err := walk.NewLinkLabel(contentContainer)
+	if err != nil {
+		return nil, err
+	}
+	const settingsDocURL = "https://docs.pangolin.net/manage/clients/configure-client"
+	settingsDocLink.SetText(`Tip: <a href="` + settingsDocURL + `">See the docs for more information on these settings</a>`)
+	settingsDocLink.SetAlignment(walk.AlignHNearVNear)
+	settingsDocLink.LinkActivated().Attach(func(link *walk.LinkLabelLink) {
+		browser.OpenURL(settingsDocURL)
+	})
+
 	// DNS Settings section title
 	dnsSectionTitle, err := walk.NewLabel(contentContainer)
 	if err != nil {
@@ -86,7 +100,7 @@ func (pt *PreferencesTab) Create(parent *walk.TabWidget) (*walk.TabPage, error) 
 	if err != nil {
 		return nil, err
 	}
-	dnsOverrideLabel.SetText("DNS Override")
+	dnsOverrideLabel.SetText("Enable Aliases (DNS Override)")
 	dnsOverrideLabel.SetMinMaxSize(walk.Size{Width: 200, Height: 0}, walk.Size{Width: 200, Height: 0})
 
 	// DNS Override checkbox
@@ -104,8 +118,9 @@ func (pt *PreferencesTab) Create(parent *walk.TabWidget) (*walk.TabPage, error) 
 	if err != nil {
 		return nil, err
 	}
-	descLabel.SetText("When enabled, the tunnel uses custom DNS servers to resolve internal resources and aliases. External queries use your configured upstream DNS.")
+	descLabel.SetText("When enabled, the client uses custom DNS servers to resolve internal\nresources and aliases. This overrides your system’s default DNS settings.\nQueries that cannot be resolved as a Pangolin resource will be forwarded\nto your configured Upstream DNS Server.")
 	descLabel.SetTextColor(walk.RGB(100, 100, 100))
+	descLabel.SetMinMaxSize(walk.Size{}, walk.Size{Width: 400, Height: 0})
 
 	// DNS Tunnel section
 	dnsTunnelContainer, err := walk.NewComposite(contentContainer)
@@ -132,7 +147,7 @@ func (pt *PreferencesTab) Create(parent *walk.TabWidget) (*walk.TabPage, error) 
 	if err != nil {
 		return nil, err
 	}
-	dnsTunnelLabel.SetText("DNS Tunnel")
+	dnsTunnelLabel.SetText("DNS Over Tunnel")
 	dnsTunnelLabel.SetMinMaxSize(walk.Size{Width: 200, Height: 0}, walk.Size{Width: 200, Height: 0})
 
 	// DNS Tunnel checkbox
@@ -150,8 +165,9 @@ func (pt *PreferencesTab) Create(parent *walk.TabWidget) (*walk.TabPage, error) 
 	if err != nil {
 		return nil, err
 	}
-	dnsTunnelDescLabel.SetText("When enabled, DNS queries are sent through the tunnel to a resource. A private resource must be created for the address for it to work and resolve to the correct site.")
+	dnsTunnelDescLabel.SetText("When enabled, DNS queries are routed through the tunnel for\nremote resolution. To ensure queries are tunneled correctly,\nyou must define the DNS server as a Pangolin resource and\nenter its address as an Upstream DNS Server.")
 	dnsTunnelDescLabel.SetTextColor(walk.RGB(100, 100, 100))
+	dnsTunnelDescLabel.SetMinMaxSize(walk.Size{}, walk.Size{Width: 400, Height: 0})
 
 	// Primary DNS Server section
 	primaryDNSContainer, err := walk.NewComposite(contentContainer)
@@ -245,6 +261,11 @@ func (pt *PreferencesTab) Cleanup() {
 	// Nothing to clean up for now
 }
 
+// isValidIPAddress validates if a string is a valid IP address (IPv4 or IPv6)
+func isValidIPAddress(ip string) bool {
+	return net.ParseIP(ip) != nil
+}
+
 // onSave handles the save button click and saves all DNS settings
 func (pt *PreferencesTab) onSave() {
 	// Get current values from UI
@@ -267,6 +288,50 @@ func (pt *PreferencesTab) onSave() {
 			Owner:         owner,
 			Title:         "Invalid Input",
 			Content:       "Primary DNS Server cannot be empty.",
+			IconSystem:    walk.TaskDialogSystemIconWarning,
+			CommonButtons: win.TDCBF_OK_BUTTON,
+		})
+		return
+	}
+
+	// Validate primary DNS is a valid IP address
+	if !isValidIPAddress(primaryDNS) {
+		// Restore to current config value
+		currentValue := pt.configManager.GetPrimaryDNS()
+		pt.primaryDNSEdit.SetText(currentValue)
+		var owner walk.Form
+		if pt.window != nil {
+			owner = pt.window
+		}
+		td := walk.NewTaskDialog()
+		_, _ = td.Show(walk.TaskDialogOpts{
+			Owner:         owner,
+			Title:         "Invalid Input",
+			Content:       "Primary DNS Server must be a valid IP address.",
+			IconSystem:    walk.TaskDialogSystemIconWarning,
+			CommonButtons: win.TDCBF_OK_BUTTON,
+		})
+		return
+	}
+
+	// Validate secondary DNS is a valid IP address (if provided)
+	if secondaryDNS != "" && !isValidIPAddress(secondaryDNS) {
+		// Restore to current config value
+		currentValue := pt.configManager.GetSecondaryDNS()
+		if currentValue == "" {
+			pt.secondaryDNSEdit.SetText("")
+		} else {
+			pt.secondaryDNSEdit.SetText(currentValue)
+		}
+		var owner walk.Form
+		if pt.window != nil {
+			owner = pt.window
+		}
+		td := walk.NewTaskDialog()
+		_, _ = td.Show(walk.TaskDialogOpts{
+			Owner:         owner,
+			Title:         "Invalid Input",
+			Content:       "Secondary DNS Server must be a valid IP address.",
 			IconSystem:    walk.TaskDialogSystemIconWarning,
 			CommonButtons: win.TDCBF_OK_BUTTON,
 		})

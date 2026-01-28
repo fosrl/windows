@@ -63,14 +63,25 @@ func (service *managerService) Execute(args []string, r <-chan svc.ChangeRequest
 		// Also check if it can be elevated via UAC
 		if !isAdmin {
 			// Try to get linked token (UAC elevation token)
+			// This works for users in Administrators group
 			linkedToken, err := userToken.GetLinkedToken()
 			if err == nil {
 				isAdmin = linkedToken.IsElevated()
 				linkedToken.Close()
 			}
+
+			// If still not elevated, check if user is in Administrators group
+			// (can be elevated via UAC, even if not currently elevated)
+			if !isAdmin {
+				adminGroupSid, err := windows.CreateWellKnownSid(windows.WinBuiltinAdministratorsSid)
+				if err == nil {
+					isAdminMember, err := userToken.IsMember(adminGroupSid)
+					isAdmin = isAdminMember && err == nil
+				}
+			}
 		}
-		isOperator := false
 		// TODO: Implement LimitedOperatorUI support when config management is added
+		// isOperator := false
 		// if !isAdmin && conf.AdminBool("LimitedOperatorUI") && operatorGroupSid != nil {
 		// 	linkedToken, err := userToken.GetLinkedToken()
 		// 	var impersonationToken windows.Token
@@ -86,10 +97,14 @@ func (service *managerService) Execute(args []string, r <-chan svc.ChangeRequest
 		// 		impersonationToken.Close()
 		// 	}
 		// }
-		if !isAdmin && !isOperator {
-			userToken.Close()
-			return
-		}
+		// Allow all logged-in users to run the UI
+		// The manager service is already running (installed/started with elevation),
+		// so it can handle privileged operations. The UI runs in user context.
+		// Standard users who can elevate via UAC (enter admin password) should be able to use the app.
+		// if !isAdmin && !isOperator {
+		// 	userToken.Close()
+		// 	return
+		// }
 		user, err := userToken.GetTokenUser()
 		if err != nil {
 			logger.Error("Unable to lookup user from token: %v", err)
@@ -111,20 +126,25 @@ func (service *managerService) Execute(args []string, r <-chan svc.ChangeRequest
 		if isAdmin {
 			if userToken.IsElevated() {
 				elevatedToken = userToken
+				runToken = elevatedToken
 			} else {
-				elevatedToken, err = userToken.GetLinkedToken()
-				userToken.Close()
-				if err != nil {
-					logger.Error("Unable to elevate token: %v", err)
-					return
-				}
-				if !elevatedToken.IsElevated() {
-					elevatedToken.Close()
-					logger.Error("Linked token is not elevated")
-					return
+				// Try to get linked token (UAC elevation token)
+				linkedToken, err := userToken.GetLinkedToken()
+				if err == nil && linkedToken.IsElevated() {
+					elevatedToken = linkedToken
+					runToken = elevatedToken
+					userToken.Close()
+				} else {
+					if linkedToken != 0 {
+						linkedToken.Close()
+					}
+					// User is in Administrators group but not currently elevated
+					// Allow UI to start with non-elevated token, use zero token for IPC
+					// (IPC server can handle zero token for operations that don't require elevation)
+					elevatedToken = 0
+					runToken = userToken
 				}
 			}
-			runToken = elevatedToken
 		} else {
 			runToken = userToken
 		}

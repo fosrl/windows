@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"os/user"
+	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
@@ -18,6 +19,7 @@ import (
 	"unsafe"
 
 	"github.com/fosrl/newt/logger"
+	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/registry"
 )
 
@@ -66,7 +68,7 @@ func GatherFingerprintInfo() *Fingerprint {
 		Architecture:        runtime.GOARCH,
 		DeviceModel:         deviceModel,
 		SerialNumber:        serialNumber,
-		PlatformFingerprint: computePlatformFingerprint(),
+		PlatformFingerprint: computePlatformFingerprint(serialNumber),
 	}
 }
 
@@ -119,20 +121,25 @@ func getWindowsVersion() (string, string) {
 
 	_, _, _ = proc.Call(uintptr(unsafe.Pointer(&info)))
 
-	osVersion := strings.TrimSpace(
-		strings.Join([]string{
-			"Windows",
-			strconv.FormatUint(uint64(info.dwMajorVersion), 10),
-			strconv.FormatUint(uint64(info.dwMinorVersion), 10),
-			"Build",
-			strconv.FormatUint(uint64(info.dwBuildNumber), 10),
-		}, " "),
+	marketingName := "Windows 10"
+	if info.dwMajorVersion == 10 && info.dwBuildNumber >= 22000 {
+		marketingName = "Windows 11"
+	} else if info.dwMajorVersion < 10 {
+		marketingName = fmt.Sprintf("Windows %d", info.dwMajorVersion)
+	}
+
+	osVersionFull := fmt.Sprintf("%s (%d.%d.%d)",
+		marketingName,
+		info.dwMajorVersion,
+		info.dwMinorVersion,
+		info.dwBuildNumber,
 	)
 
-	return osVersion, osVersion
+	return osVersionFull, osVersionFull
 }
 
 func getWindowsModelAndSerial() (string, string) {
+	// Get model name from registry (this method works)
 	k, err := registry.OpenKey(
 		registry.LOCAL_MACHINE,
 		`SYSTEM\CurrentControlSet\Control\SystemInformation`,
@@ -144,16 +151,40 @@ func getWindowsModelAndSerial() (string, string) {
 	defer k.Close()
 
 	model, _, _ := k.GetStringValue("SystemProductName")
-	serial, _, _ := k.GetStringValue("BIOSSerialNumber")
+
+	// Get serial number using WMI/CIM (registry method doesn't work)
+	command := "Get-CimInstance Win32_ComputerSystemProduct | Select-Object -ExpandProperty IdentifyingNumber"
+	cmd := exec.Command(getPowerShellPath(), "-Command", command)
+	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+	out, err := cmd.Output()
+
+	var serial string
+	if err == nil {
+		serial = strings.TrimSpace(string(out))
+	}
 
 	return model, serial
+}
+
+// getPowerShellPath returns the full path to PowerShell executable.
+// It uses the Windows system directory to construct the path, which ensures
+// PowerShell can be found even when it's not in PATH (e.g., in service contexts).
+func getPowerShellPath() string {
+	systemDir, err := windows.GetSystemDirectory()
+	if err != nil {
+		// Fallback to "powershell.exe" if system directory lookup fails
+		logger.Debug("Posture check: Failed to get system directory, falling back to 'powershell.exe': %v", err)
+		return "powershell.exe"
+	}
+	// PowerShell is typically located at %SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe
+	return filepath.Join(systemDir, "WindowsPowerShell", "v1.0", "powershell.exe")
 }
 
 func windowsDiskEncrypted() bool {
 	command := "Get-BitLockerVolume -MountPoint 'C:' | Select-Object -ExpandProperty VolumeStatus"
 	logger.Debug("Posture check: Disk Encryption - Executing PowerShell command: %s", command)
 
-	cmd := exec.Command("powershell.exe", "-Command", command)
+	cmd := exec.Command(getPowerShellPath(), "-Command", command)
 	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
 	out, err := cmd.Output()
 
@@ -177,7 +208,7 @@ func windowsFirewallEnabled() bool {
 	command := "(Get-NetFirewallProfile | Where-Object { $_.Enabled -eq $true }).Count -gt 0"
 	logger.Debug("Posture check: Firewall - Executing PowerShell command: %s", command)
 
-	cmd := exec.Command("powershell.exe", "-Command", command)
+	cmd := exec.Command(getPowerShellPath(), "-Command", command)
 	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
 	out, err := cmd.Output()
 
@@ -201,7 +232,7 @@ func windowsTPMAvailable() bool {
 	command := "Get-Tpm | Select-Object -ExpandProperty TpmPresent"
 	logger.Debug("Posture check: TPM - Executing PowerShell command: %s", command)
 
-	cmd := exec.Command("powershell.exe", "-Command", command)
+	cmd := exec.Command(getPowerShellPath(), "-Command", command)
 	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
 	out, err := cmd.Output()
 
@@ -233,7 +264,7 @@ func windowsAntivirusEnabled() bool {
 	command := "Get-CimInstance -Namespace 'root/SecurityCenter2' -ClassName AntiVirusProduct | Select-Object -ExpandProperty productState"
 	logger.Debug("Posture check: Antivirus - Executing PowerShell command: %s", command)
 
-	cmd := exec.Command("powershell.exe", "-Command", command)
+	cmd := exec.Command(getPowerShellPath(), "-Command", command)
 	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
 	out, err := cmd.Output()
 	if err != nil {
@@ -331,12 +362,17 @@ func (p *PostureChecks) ToMap() map[string]any {
 	return m
 }
 
-func computePlatformFingerprint() string {
+func computePlatformFingerprint(serialNumber string) string {
 	parts := []string{
 		runtime.GOOS,
 		runtime.GOARCH,
 		cpuFingerprint(),
 		dmiFingerprint(),
+	}
+
+	// Add serial number to fingerprint if available
+	if serialNumber != "" {
+		parts = append(parts, "serial="+normalize(serialNumber))
 	}
 
 	fmt.Println("parts")
