@@ -10,7 +10,7 @@ require (
 	github.com/tailscale/walk v0.0.0-20251016200523-963e260a8227
 	github.com/tailscale/win v0.0.0-20250213223159-5992cb43ca35
 	github.com/zalando/go-keyring v0.2.6
-	golang.org/x/crypto v0.46.0
+	golang.org/x/crypto v0.47.0
 	golang.org/x/sys v0.40.0
 )
 
