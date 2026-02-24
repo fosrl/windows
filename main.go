@@ -95,15 +95,23 @@ func main() {
 		if err != nil {
 			if err == managers.ErrManagerAlreadyRunning {
 				logger.Info("Manager service is already running")
-				// Wait a bit for UI to appear
-				time.Sleep(5 * time.Second)
+				// Request UI launch so user gets the UI from this run (e.g. first launch raced with another)
+				time.Sleep(2 * time.Second)
+				managers.RequestUILaunch()
 				return
 			}
 			logger.Fatal("Failed to install manager service: %v", err)
 		}
 		logger.Info("Manager service installed successfully")
-		// Wait a bit for service to start and UI to appear
-		time.Sleep(5 * time.Second)
+		// Wait for service to start and listen on the UI launch pipe, then request UI so first launch shows UI without a second run
+		time.Sleep(2 * time.Second)
+		if managers.RequestUILaunch() {
+			logger.Info("UI launch requested successfully")
+		} else {
+			// Retry once in case the pipe wasn't ready yet
+			time.Sleep(2 * time.Second)
+			managers.RequestUILaunch()
+		}
 		return
 	}
 

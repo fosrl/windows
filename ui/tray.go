@@ -578,10 +578,11 @@ func setupMenu() error {
 	// Separator before Quit (if watermark is shown, this will be after it)
 	actions.Add(walk.NewSeparatorAction())
 
-	// Create quit action — only closes the UI process; manager service keeps running
+	// Create quit action — stops any active tunnels via manager, then closes the UI process; manager service keeps running
 	quitAction = walk.NewAction()
 	quitAction.SetText("Quit")
 	quitAction.Triggered().Attach(func() {
+		_ = managers.IPCClientStopAllTunnels() // stop tunnels before exiting; ignore errors (e.g. no manager connection)
 		walk.App().Exit(0)
 	})
 	actions.Add(quitAction)

@@ -178,26 +178,27 @@ func (lt *LogsTab) isAtBottom() bool {
 	if len(lt.model.items) == 0 {
 		return true
 	}
+	return lt.isLastRowVisible(len(lt.model.items) - 1)
+}
 
-	// Check if the last item is visible
-	lastIndex := len(lt.model.items) - 1
+// isLastRowVisible returns true if the row at lastIndex is visible or within auto-scroll threshold of the bottom.
+// Use this when the model has already been updated (e.g. in Synchronize) to check "was user at bottom" before the update.
+func (lt *LogsTab) isLastRowVisible(lastIndex int) bool {
+	if lastIndex < 0 {
+		return true
+	}
 	if lt.logView.ItemVisible(lastIndex) {
 		return true
 	}
-
-	// Check if we're within the threshold of the bottom
-	// If any of the last N items are visible, consider it "at bottom"
 	thresholdStart := lastIndex - autoScrollThreshold
 	if thresholdStart < 0 {
 		thresholdStart = 0
 	}
-
 	for i := thresholdStart; i <= lastIndex; i++ {
 		if lt.logView.ItemVisible(i) {
 			return true
 		}
 	}
-
 	return false
 }
 
@@ -419,6 +420,8 @@ func (mdl *logModel) readNewLines() {
 	}
 
 	mdl.mu.Lock()
+	// Last row index before we append; used in Synchronize to check "was user at bottom" (view still shows old count there)
+	lastIndexBeforeAppend := len(mdl.items) - 1
 	mdl.items = append(mdl.items, newItems...)
 	if len(mdl.items) > maxLogLinesDisplayed {
 		mdl.items = mdl.items[len(mdl.items)-maxLogLinesDisplayed:]
@@ -434,9 +437,10 @@ func (mdl *logModel) readNewLines() {
 				logger.Error("Logs tab panic in readNewLines: %v\n%s", r, debug.Stack())
 			}
 		}()
+		// Check if user was at bottom using the *previous* last row (view hasn't updated yet, so this is correct)
+		wasAtBottom := mdl.lt.isLastRowVisible(lastIndexBeforeAppend) && len(mdl.lt.logView.SelectedIndexes()) <= 1
 		mdl.PublishRowsReset()
-		// Compute isAtBottom on UI thread; UI must not be accessed from the goroutine
-		if mdl.lt.isAtBottom() && len(mdl.lt.logView.SelectedIndexes()) <= 1 {
+		if wasAtBottom {
 			mdl.lt.scrollToBottom()
 		}
 	})

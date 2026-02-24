@@ -32,6 +32,7 @@ const (
 	UpdateMethodType
 	StartTunnelMethodType
 	StopTunnelMethodType
+	StopAllTunnelsMethodType
 )
 
 var (
@@ -241,6 +242,18 @@ func IPCClientStopTunnel() error {
 	defer rpcMutex.Unlock()
 
 	err := rpcEncoder.Encode(StopTunnelMethodType)
+	if err != nil {
+		return err
+	}
+	err = rpcDecodeError()
+	return err
+}
+
+func IPCClientStopAllTunnels() error {
+	rpcMutex.Lock()
+	defer rpcMutex.Unlock()
+
+	err := rpcEncoder.Encode(StopAllTunnelsMethodType)
 	if err != nil {
 		return err
 	}

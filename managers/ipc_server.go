@@ -152,6 +152,36 @@ func (s *ManagerService) StopTunnel() error {
 	return nil
 }
 
+func (s *ManagerService) StopAllTunnels() error {
+	tunnel.SetStateChangeCallback(func(state TunnelState) {
+		IPCServerNotifyTunnelStateChange(state)
+	})
+	tunnel.SetInstallTunnelCallback(InstallTunnel)
+	tunnel.SetUninstallTunnelCallback(func(name string) error {
+		return UninstallTunnel(name)
+	})
+
+	activeTunnelsLock.Lock()
+	tunnelNames := make([]string, 0, len(activeTunnels))
+	for name := range activeTunnels {
+		tunnelNames = append(tunnelNames, name)
+	}
+	activeTunnelsLock.Unlock()
+
+	for _, name := range tunnelNames {
+		logger.Info("Stopping tunnel: %s", name)
+		if err := UninstallTunnel(name); err != nil {
+			logger.Error("Failed to stop tunnel %s: %v", name, err)
+			// Continue stopping other tunnels even if one fails
+		} else {
+			activeTunnelsLock.Lock()
+			delete(activeTunnels, name)
+			activeTunnelsLock.Unlock()
+		}
+	}
+	return nil
+}
+
 func (s *ManagerService) ServeConn(reader io.Reader, writer io.Writer) {
 	decoder := gob.NewDecoder(reader)
 	encoder := gob.NewEncoder(writer)
@@ -198,6 +228,12 @@ func (s *ManagerService) ServeConn(reader io.Reader, writer io.Writer) {
 			}
 		case StopTunnelMethodType:
 			retErr := s.StopTunnel()
+			err = encoder.Encode(errToString(retErr))
+			if err != nil {
+				return
+			}
+		case StopAllTunnelsMethodType:
+			retErr := s.StopAllTunnels()
 			err = encoder.Encode(errToString(retErr))
 			if err != nil {
 				return
