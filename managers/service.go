@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net"
 	"os"
+	"path/filepath"
 	"runtime"
 	"strconv"
 	"sync"
@@ -270,6 +271,29 @@ func (service *managerService) Execute(args []string, r <-chan svc.ChangeRequest
 	}
 
 	changes <- svc.Status{State: svc.Running, Accepts: svc.AcceptStop | svc.AcceptSessionChange}
+
+	// If restart-ui-after-update flag exists (written before MSI run), launch UI for active session then remove flag.
+	go func() {
+		flagPath := filepath.Join(config.GetProgramDataDir(), "restart-ui-after-update.flag")
+		if _, statErr := os.Stat(flagPath); statErr != nil {
+			return
+		}
+		sessionID := windows.WTSGetActiveConsoleSessionId()
+		if sessionID == 0 {
+			logger.Info("Restart-ui flag present but no active console session, removing flag")
+			_ = os.Remove(flagPath)
+			return
+		}
+		procsLock.Lock()
+		aliveSessions[sessionID] = true
+		procsLock.Unlock()
+		requestUILaunchChan <- sessionID
+		if err := os.Remove(flagPath); err != nil && !os.IsNotExist(err) {
+			logger.Error("Failed to remove restart-ui flag: %v", err)
+		} else {
+			logger.Info("Launched UI for session %d after update and removed restart-ui flag", sessionID)
+		}
+	}()
 
 	uninstall := false
 loop:

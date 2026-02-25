@@ -9,6 +9,8 @@ import (
 	"hash"
 	"io"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -18,6 +20,7 @@ import (
 	"golang.org/x/sys/windows"
 
 	"github.com/fosrl/newt/logger"
+	"github.com/fosrl/windows/config"
 	"github.com/fosrl/windows/elevate"
 	"github.com/fosrl/windows/updater/winhttp"
 	"github.com/fosrl/windows/version"
@@ -376,12 +379,26 @@ func DownloadVerifyAndExecute(userToken uintptr) (progress chan DownloadProgress
 
 		logger.Info("Updater: Starting MSI installation")
 		progress <- DownloadProgress{Activity: "Installing update"}
+
+		restartUIFlagPath := filepath.Join(config.GetProgramDataDir(), "restart-ui-after-update.flag")
+		if err := os.MkdirAll(config.GetProgramDataDir(), 0o755); err != nil {
+			logger.Error("Updater: Failed to create ProgramData dir for restart flag: %v", err)
+		} else if err := os.WriteFile(restartUIFlagPath, nil, 0o644); err != nil {
+			logger.Error("Updater: Failed to write restart-ui flag file: %v", err)
+		} else {
+			logger.Info("Updater: Wrote restart-ui flag at %s", restartUIFlagPath)
+		}
+
 		err = runMsi(file, userToken)
 		if err != nil {
 			logger.Error("Updater: MSI installation failed: %v", err)
+			if removeErr := os.Remove(restartUIFlagPath); removeErr != nil && !os.IsNotExist(removeErr) {
+				logger.Error("Updater: Failed to remove restart-ui flag after MSI failure: %v", removeErr)
+			}
 			progress <- DownloadProgress{Error: err}
 			return
 		}
+		// Flag file left in place so next start can start the UI automatically, then delete the file
 		logger.Info("Updater: MSI installation completed successfully")
 
 		logger.Info("Updater: Update process complete")
