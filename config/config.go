@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"unsafe"
 
@@ -25,10 +26,11 @@ const (
 
 // Config represents the application configuration
 type Config struct {
-	DNSOverride  *bool   `json:"dnsOverride,omitempty"`
-	DNSTunnel    *bool   `json:"dnsTunnel,omitempty"`
-	PrimaryDNS   *string `json:"primaryDNS,omitempty"`
-	SecondaryDNS *string `json:"secondaryDNS,omitempty"`
+	DNSOverride       *bool   `json:"dnsOverride,omitempty"`
+	DNSTunnel         *bool   `json:"dnsTunnel,omitempty"`
+	PrimaryDNS        *string `json:"primaryDNS,omitempty"`
+	SecondaryDNS      *string `json:"secondaryDNS,omitempty"`
+	DefaultServerURL  *string `json:"defaultServerURL,omitempty"`
 }
 
 // ConfigManager manages loading and saving of application configuration
@@ -187,6 +189,33 @@ func (cm *ConfigManager) GetSecondaryDNS() string {
 	return ""
 }
 
+// GetDefaultServerURL returns the default server URL from config or empty string if not set
+func (cm *ConfigManager) GetDefaultServerURL() string {
+	cm.mu.RLock()
+	defer cm.mu.RUnlock()
+
+	if cm.config != nil && cm.config.DefaultServerURL != nil {
+		return strings.TrimSpace(*cm.config.DefaultServerURL)
+	}
+	return ""
+}
+
+// SetDefaultServerURL sets the default server URL and saves to config
+func (cm *ConfigManager) SetDefaultServerURL(value string) bool {
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+
+	// Get current config and copy it to preserve all fields
+	cfg := cm.getConfigCopy()
+	value = strings.TrimSpace(value)
+	if value == "" {
+		cfg.DefaultServerURL = nil
+	} else {
+		cfg.DefaultServerURL = &value
+	}
+	return cm.save(cfg)
+}
+
 // SetDNSOverride sets the DNS override setting and saves to config
 func (cm *ConfigManager) SetDNSOverride(value bool) bool {
 	cm.mu.Lock()
@@ -259,6 +288,10 @@ func (cm *ConfigManager) getConfigCopy() *Config {
 	if cm.config.SecondaryDNS != nil {
 		secondaryDNS := *cm.config.SecondaryDNS
 		cfg.SecondaryDNS = &secondaryDNS
+	}
+	if cm.config.DefaultServerURL != nil {
+		defaultServerURL := *cm.config.DefaultServerURL
+		cfg.DefaultServerURL = &defaultServerURL
 	}
 	return cfg
 }

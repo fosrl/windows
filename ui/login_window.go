@@ -741,7 +741,7 @@ func ShowLoginDialog(
 		}
 	}()
 
-	// When opened from re-auth (session expired), skip hosting selection and start device auth immediately
+	// When opened from re-auth (session expired) or with default server URL set, skip hosting selection and start device auth immediately
 	go func() {
 		time.Sleep(150 * time.Millisecond) // Let the dialog become visible
 		walk.App().Synchronize(func() {
@@ -757,6 +757,20 @@ func ShowLoginDialog(
 				isLoggingIn = true
 				updateUI()
 				go performLogin()
+				return
+			}
+			if configManager != nil {
+				defaultURL := configManager.GetDefaultServerURL()
+				normalizedURL := normalizeURL(defaultURL)
+				if normalizedURL != "" {
+					temporaryHostname = normalizedURL
+					selfHostedURL = normalizedURL
+					hostingOpt = hostingSelfHosted
+					currentState = stateDeviceAuthCode
+					isLoggingIn = true
+					updateUI()
+					go performLogin()
+				}
 			}
 		})
 	}()
