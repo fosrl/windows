@@ -65,11 +65,19 @@ func NewConfigManager() *ConfigManager {
 	return cm
 }
 
-// GetConfig returns the current configuration
+// GetConfig returns the current configuration (do not modify; use GetConfigCopy for that)
 func (cm *ConfigManager) GetConfig() *Config {
 	cm.mu.RLock()
 	defer cm.mu.RUnlock()
 	return cm.config
+}
+
+// GetConfigCopy returns a deep copy of the current configuration.
+// Callers can modify the copy and pass it to Save to update only specific fields while preserving others.
+func (cm *ConfigManager) GetConfigCopy() *Config {
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+	return cm.getConfigCopy()
 }
 
 // load loads the configuration from the file

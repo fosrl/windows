@@ -347,10 +347,12 @@ func (pt *PreferencesTab) onSave() {
 		return
 	}
 
-	// Get current config and create a copy to modify
-	cfg := &config.Config{}
+	// Start from current config so we only update DNS fields and preserve others (e.g. defaultServerURL, userSettingsDisabled)
+	cfg := pt.configManager.GetConfigCopy()
+	if cfg == nil {
+		cfg = &config.Config{}
+	}
 
-	// Set DNS settings
 	dnsOverrideVal := dnsOverride
 	dnsTunnelVal := dnsTunnel
 	primaryDNSVal := primaryDNS
@@ -363,7 +365,6 @@ func (pt *PreferencesTab) onSave() {
 		cfg.SecondaryDNS = nil
 	}
 
-	// Save all settings at once
 	success := pt.configManager.Save(cfg)
 
 	if success {
