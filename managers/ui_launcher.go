@@ -5,6 +5,7 @@ package managers
 import (
 	"encoding/binary"
 	"io"
+	"time"
 
 	"github.com/Microsoft/go-winio"
 	"github.com/fosrl/newt/logger"
@@ -65,4 +66,28 @@ func RequestUILaunch() bool {
 		logger.Error("Unexpected response from manager service: %d", response)
 		return false
 	}
+}
+
+// RequestUILaunchWithRetry calls RequestUILaunch repeatedly with exponential backoff until
+// it succeeds or the timeout is reached. Backoff: 200ms, 400ms, 800ms, 1600ms, cap at 2s.
+func RequestUILaunchWithRetry(timeout time.Duration) bool {
+	deadline := time.Now().Add(timeout)
+	attempt := 0
+	for time.Now().Before(deadline) {
+		if RequestUILaunch() {
+			return true
+		}
+		// Exponential backoff: 200*2^attempt ms, cap 2000ms
+		backoff := 200 * (1 << attempt)
+		if backoff > 2000 {
+			backoff = 2000
+		}
+		sleep := time.Duration(backoff) * time.Millisecond
+		if time.Now().Add(sleep).After(deadline) {
+			break
+		}
+		time.Sleep(sleep)
+		attempt++
+	}
+	return false
 }
