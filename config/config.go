@@ -32,6 +32,7 @@ type Config struct {
 	SecondaryDNS         *string `json:"secondaryDNS,omitempty"`
 	DefaultServerURL     *string `json:"defaultServerURL,omitempty"`
 	UserSettingsDisabled *bool   `json:"userSettingsDisabled,omitempty"`
+	AuthPath             *string `json:"authPath,omitempty"`
 }
 
 // ConfigManager manages loading and saving of application configuration
@@ -246,6 +247,32 @@ func (cm *ConfigManager) SetUserSettingsDisabled(disabled bool) bool {
 	return cm.save(cfg)
 }
 
+// GetAuthPath returns the auth path query value for login URLs, or empty string if not set
+func (cm *ConfigManager) GetAuthPath() string {
+	cm.mu.RLock()
+	defer cm.mu.RUnlock()
+
+	if cm.config != nil && cm.config.AuthPath != nil {
+		return strings.TrimSpace(*cm.config.AuthPath)
+	}
+	return ""
+}
+
+// SetAuthPath sets the auth path and saves to config
+func (cm *ConfigManager) SetAuthPath(value string) bool {
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+
+	cfg := cm.getConfigCopy()
+	value = strings.TrimSpace(value)
+	if value == "" {
+		cfg.AuthPath = nil
+	} else {
+		cfg.AuthPath = &value
+	}
+	return cm.save(cfg)
+}
+
 // SetDNSOverride sets the DNS override setting and saves to config
 func (cm *ConfigManager) SetDNSOverride(value bool) bool {
 	cm.mu.Lock()
@@ -326,6 +353,10 @@ func (cm *ConfigManager) getConfigCopy() *Config {
 	if cm.config.UserSettingsDisabled != nil {
 		userSettingsDisabled := *cm.config.UserSettingsDisabled
 		cfg.UserSettingsDisabled = &userSettingsDisabled
+	}
+	if cm.config.AuthPath != nil {
+		authPath := *cm.config.AuthPath
+		cfg.AuthPath = &authPath
 	}
 	return cfg
 }

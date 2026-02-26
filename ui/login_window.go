@@ -66,6 +66,19 @@ func normalizeURL(url string) string {
 	return url
 }
 
+// appendAuthPathToURL appends the authPath query param to baseURL when authPath is non-empty
+func appendAuthPathToURL(baseURL string, authPath string) string {
+	authPath = strings.TrimSpace(authPath)
+	if authPath == "" {
+		return baseURL
+	}
+	sep := "?"
+	if strings.Contains(baseURL, "?") {
+		sep = "&"
+	}
+	return baseURL + sep + "authPath=" + url.QueryEscape(authPath)
+}
+
 // Checks relative to executable first, then falls back to installed location
 func getIconsPath() string {
 	// Try relative to executable first
@@ -288,6 +301,9 @@ func ShowLoginDialog(
 								autoOpenURL += "&user=" + url.QueryEscape(activeAccount.Email)
 							}
 						}
+						if configManager != nil {
+							autoOpenURL = appendAuthPathToURL(autoOpenURL, configManager.GetAuthPath())
+						}
 						openBrowser(autoOpenURL)
 					}
 				}
@@ -295,6 +311,9 @@ func ShowLoginDialog(
 			// Update manual URL label
 			if temporaryHostname != "" && manualURLLabel != nil {
 				manualURL := fmt.Sprintf("%s/auth/login/device", temporaryHostname)
+				if configManager != nil {
+					manualURL = appendAuthPathToURL(manualURL, configManager.GetAuthPath())
+				}
 				manualURLLabel.SetText(manualURL)
 			}
 		})
@@ -482,9 +501,13 @@ func ShowLoginDialog(
 								Text:     "Open Browser",
 								Visible:  false,
 								OnClicked: func() {
-									url := authManager.DeviceAuthLoginURL()
-									if url != nil {
-										openBrowser(*url)
+									loginURL := authManager.DeviceAuthLoginURL()
+									if loginURL != nil {
+										u := *loginURL
+										if configManager != nil {
+											u = appendAuthPathToURL(u, configManager.GetAuthPath())
+										}
+										openBrowser(u)
 									}
 								},
 							},
