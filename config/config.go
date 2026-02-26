@@ -26,11 +26,12 @@ const (
 
 // Config represents the application configuration
 type Config struct {
-	DNSOverride       *bool   `json:"dnsOverride,omitempty"`
-	DNSTunnel         *bool   `json:"dnsTunnel,omitempty"`
-	PrimaryDNS        *string `json:"primaryDNS,omitempty"`
-	SecondaryDNS      *string `json:"secondaryDNS,omitempty"`
-	DefaultServerURL  *string `json:"defaultServerURL,omitempty"`
+	DNSOverride          *bool   `json:"dnsOverride,omitempty"`
+	DNSTunnel            *bool   `json:"dnsTunnel,omitempty"`
+	PrimaryDNS           *string `json:"primaryDNS,omitempty"`
+	SecondaryDNS         *string `json:"secondaryDNS,omitempty"`
+	DefaultServerURL     *string `json:"defaultServerURL,omitempty"`
+	UserSettingsDisabled *bool   `json:"userSettingsDisabled,omitempty"`
 }
 
 // ConfigManager manages loading and saving of application configuration
@@ -216,6 +217,27 @@ func (cm *ConfigManager) SetDefaultServerURL(value string) bool {
 	return cm.save(cfg)
 }
 
+// GetUserSettingsDisabled returns whether user settings are disabled (e.g. by admin policy)
+func (cm *ConfigManager) GetUserSettingsDisabled() bool {
+	cm.mu.RLock()
+	defer cm.mu.RUnlock()
+
+	if cm.config != nil && cm.config.UserSettingsDisabled != nil {
+		return *cm.config.UserSettingsDisabled
+	}
+	return false
+}
+
+// SetUserSettingsDisabled sets whether user settings are disabled and saves to config
+func (cm *ConfigManager) SetUserSettingsDisabled(disabled bool) bool {
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+
+	cfg := cm.getConfigCopy()
+	cfg.UserSettingsDisabled = &disabled
+	return cm.save(cfg)
+}
+
 // SetDNSOverride sets the DNS override setting and saves to config
 func (cm *ConfigManager) SetDNSOverride(value bool) bool {
 	cm.mu.Lock()
@@ -292,6 +314,10 @@ func (cm *ConfigManager) getConfigCopy() *Config {
 	if cm.config.DefaultServerURL != nil {
 		defaultServerURL := *cm.config.DefaultServerURL
 		cfg.DefaultServerURL = &defaultServerURL
+	}
+	if cm.config.UserSettingsDisabled != nil {
+		userSettingsDisabled := *cm.config.UserSettingsDisabled
+		cfg.UserSettingsDisabled = &userSettingsDisabled
 	}
 	return cfg
 }
