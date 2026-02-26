@@ -15,7 +15,7 @@ all: clean rsrc build
 build: rsrc
 	@echo "Building Windows executable (GUI mode)..."
 	@mkdir -p $(BUILD_DIR)
-	GOOS=$(GOOS) GOARCH=$(GOARCH) go build -ldflags="-H windowsgui" -o $(BUILD_DIR)/$(BINARY_NAME).exe
+	GOOS=$(GOOS) GOARCH=$(GOARCH) go build -ldflags="-s -w -H windowsgui" -o $(BUILD_DIR)/$(BINARY_NAME).exe
 	@echo "Build complete: $(BUILD_DIR)/$(BINARY_NAME).exe"
 
 
