@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"unsafe"
 
@@ -17,18 +18,29 @@ const (
 	AppName            = "Pangolin"
 	DefaultHostname    = "https://app.pangolin.net"
 	ConfigFileName     = "pangolin.json"
-	LogLevel           = "debug" // Centralized log level for the application
-	DefaultPrimaryDNS  = "9.9.9.9"
+	LogLevel           = "info"
+	DefaultPrimaryDNS  = "1.1.1.1"
 	DefaultDNSOverride = true
 	DefaultDNSTunnel   = false
 )
 
-// Config represents the application configuration
+// Config represents the per-user application configuration stored under
+// %LOCALAPPDATA%\Pangolin\pangolin.json (or %APPDATA% as a fallback).
 type Config struct {
-	DNSOverride  *bool   `json:"dnsOverride,omitempty"`
-	DNSTunnel    *bool   `json:"dnsTunnel,omitempty"`
-	PrimaryDNS   *string `json:"primaryDNS,omitempty"`
-	SecondaryDNS *string `json:"secondaryDNS,omitempty"`
+	DNSOverride          *bool   `json:"dnsOverride,omitempty"`
+	DNSTunnel            *bool   `json:"dnsTunnel,omitempty"`
+	PrimaryDNS           *string `json:"primaryDNS,omitempty"`
+	SecondaryDNS         *string `json:"secondaryDNS,omitempty"`
+	DefaultServerURL     *string `json:"defaultServerURL,omitempty"`
+	UserSettingsDisabled *bool   `json:"userSettingsDisabled,omitempty"`
+	AuthPath             *string `json:"authPath,omitempty"`
+}
+
+// SystemConfig represents machine-wide configuration stored under
+// %ProgramData%\Pangolin\pangolin.json. This is used by background
+// services (manager, tunnel, etc.) and for global settings like log level.
+type SystemConfig struct {
+	LogLevel *string `json:"logLevel,omitempty"`
 }
 
 // ConfigManager manages loading and saving of application configuration
@@ -62,11 +74,19 @@ func NewConfigManager() *ConfigManager {
 	return cm
 }
 
-// GetConfig returns the current configuration
+// GetConfig returns the current configuration (do not modify; use GetConfigCopy for that)
 func (cm *ConfigManager) GetConfig() *Config {
 	cm.mu.RLock()
 	defer cm.mu.RUnlock()
 	return cm.config
+}
+
+// GetConfigCopy returns a deep copy of the current configuration.
+// Callers can modify the copy and pass it to Save to update only specific fields while preserving others.
+func (cm *ConfigManager) GetConfigCopy() *Config {
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+	return cm.getConfigCopy()
 }
 
 // load loads the configuration from the file
@@ -156,13 +176,13 @@ func (cm *ConfigManager) GetDNSOverride() bool {
 
 // GetDNSTunnel returns the DNS tunnel setting from config or false if not set
 func (cm *ConfigManager) GetDNSTunnel() bool {
-    cm.mu.RLock()
-    defer cm.mu.RUnlock()
+	cm.mu.RLock()
+	defer cm.mu.RUnlock()
 
-    if cm.config != nil && cm.config.DNSTunnel != nil {
-        return *cm.config.DNSTunnel
-    }
-    return DefaultDNSTunnel
+	if cm.config != nil && cm.config.DNSTunnel != nil {
+		return *cm.config.DNSTunnel
+	}
+	return DefaultDNSTunnel
 }
 
 // GetPrimaryDNS returns the primary DNS server from config or the default value
@@ -187,6 +207,80 @@ func (cm *ConfigManager) GetSecondaryDNS() string {
 	return ""
 }
 
+// GetDefaultServerURL returns the default server URL from config or empty string if not set
+func (cm *ConfigManager) GetDefaultServerURL() string {
+	cm.mu.RLock()
+	defer cm.mu.RUnlock()
+
+	if cm.config != nil && cm.config.DefaultServerURL != nil {
+		return strings.TrimSpace(*cm.config.DefaultServerURL)
+	}
+	return ""
+}
+
+// SetDefaultServerURL sets the default server URL and saves to config
+func (cm *ConfigManager) SetDefaultServerURL(value string) bool {
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+
+	// Get current config and copy it to preserve all fields
+	cfg := cm.getConfigCopy()
+	value = strings.TrimSpace(value)
+	if value == "" {
+		cfg.DefaultServerURL = nil
+	} else {
+		cfg.DefaultServerURL = &value
+	}
+	return cm.save(cfg)
+}
+
+// GetUserSettingsDisabled returns whether user settings are disabled (e.g. by admin policy)
+func (cm *ConfigManager) GetUserSettingsDisabled() bool {
+	cm.mu.RLock()
+	defer cm.mu.RUnlock()
+
+	if cm.config != nil && cm.config.UserSettingsDisabled != nil {
+		return *cm.config.UserSettingsDisabled
+	}
+	return false
+}
+
+// SetUserSettingsDisabled sets whether user settings are disabled and saves to config
+func (cm *ConfigManager) SetUserSettingsDisabled(disabled bool) bool {
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+
+	cfg := cm.getConfigCopy()
+	cfg.UserSettingsDisabled = &disabled
+	return cm.save(cfg)
+}
+
+// GetAuthPath returns the auth path query value for login URLs, or empty string if not set
+func (cm *ConfigManager) GetAuthPath() string {
+	cm.mu.RLock()
+	defer cm.mu.RUnlock()
+
+	if cm.config != nil && cm.config.AuthPath != nil {
+		return strings.TrimSpace(*cm.config.AuthPath)
+	}
+	return ""
+}
+
+// SetAuthPath sets the auth path and saves to config
+func (cm *ConfigManager) SetAuthPath(value string) bool {
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+
+	cfg := cm.getConfigCopy()
+	value = strings.TrimSpace(value)
+	if value == "" {
+		cfg.AuthPath = nil
+	} else {
+		cfg.AuthPath = &value
+	}
+	return cm.save(cfg)
+}
+
 // SetDNSOverride sets the DNS override setting and saves to config
 func (cm *ConfigManager) SetDNSOverride(value bool) bool {
 	cm.mu.Lock()
@@ -200,13 +294,13 @@ func (cm *ConfigManager) SetDNSOverride(value bool) bool {
 
 // SetDNSTunnel sets the DNS tunnel setting and saves to config
 func (cm *ConfigManager) SetDNSTunnel(value bool) bool {
-    cm.mu.Lock()
-    defer cm.mu.Unlock()
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
 
-    // Get current config and copy it to preserve all fields
-    cfg := cm.getConfigCopy()
-    cfg.DNSTunnel = &value
-    return cm.save(cfg)
+	// Get current config and copy it to preserve all fields
+	cfg := cm.getConfigCopy()
+	cfg.DNSTunnel = &value
+	return cm.save(cfg)
 }
 
 // SetPrimaryDNS sets the primary DNS server and saves to config
@@ -235,6 +329,34 @@ func (cm *ConfigManager) SetSecondaryDNS(value string) bool {
 	return cm.save(cfg)
 }
 
+func LoadSystemConfig() *SystemConfig {
+	configPath := filepath.Join(GetProgramDataDir(), ConfigFileName)
+
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		return &SystemConfig{}
+	}
+
+	var cfg SystemConfig
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		return &SystemConfig{}
+	}
+
+	return &cfg
+}
+
+// GetSystemLogLevel returns the log level from the system config file
+func GetSystemLogLevel() string {
+	cfg := LoadSystemConfig()
+	if cfg.LogLevel != nil {
+		level := strings.TrimSpace(*cfg.LogLevel)
+		if level != "" {
+			return level
+		}
+	}
+	return LogLevel
+}
+
 // getConfigCopy creates a deep copy of the current config
 // Caller must hold the lock
 func (cm *ConfigManager) getConfigCopy() *Config {
@@ -249,9 +371,9 @@ func (cm *ConfigManager) getConfigCopy() *Config {
 		cfg.DNSOverride = &dnsOverride
 	}
 	if cm.config.DNSTunnel != nil {
-        dnsTunnel := *cm.config.DNSTunnel
-        cfg.DNSTunnel = &dnsTunnel
-    }
+		dnsTunnel := *cm.config.DNSTunnel
+		cfg.DNSTunnel = &dnsTunnel
+	}
 	if cm.config.PrimaryDNS != nil {
 		primaryDNS := *cm.config.PrimaryDNS
 		cfg.PrimaryDNS = &primaryDNS
@@ -259,6 +381,18 @@ func (cm *ConfigManager) getConfigCopy() *Config {
 	if cm.config.SecondaryDNS != nil {
 		secondaryDNS := *cm.config.SecondaryDNS
 		cfg.SecondaryDNS = &secondaryDNS
+	}
+	if cm.config.DefaultServerURL != nil {
+		defaultServerURL := *cm.config.DefaultServerURL
+		cfg.DefaultServerURL = &defaultServerURL
+	}
+	if cm.config.UserSettingsDisabled != nil {
+		userSettingsDisabled := *cm.config.UserSettingsDisabled
+		cfg.UserSettingsDisabled = &userSettingsDisabled
+	}
+	if cm.config.AuthPath != nil {
+		authPath := *cm.config.AuthPath
+		cfg.AuthPath = &authPath
 	}
 	return cfg
 }

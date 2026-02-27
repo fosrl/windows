@@ -11,6 +11,7 @@ import (
 	"runtime"
 	"strconv"
 	"sync"
+	"syscall"
 	"unsafe"
 
 	"github.com/Microsoft/go-winio"
@@ -36,6 +37,12 @@ func (service *managerService) Execute(args []string, r <-chan svc.ChangeRequest
 
 	logger.Info("Pangolin Manager service starting")
 
+	// WTSQueryUserToken requires SeTcbPrivilege (act as part of OS); enable it for this process.
+	// Without it, WTSQueryUserToken returns error 1314 on some systems even when running as LocalSystem.
+	if err := enableSeTcbPrivilege(); err != nil {
+		logger.Error("Failed to enable SeTcbPrivilege (WTSQueryUserToken may fail): %v", err)
+	}
+
 	path, err := os.Executable()
 	if err != nil {
 		logger.Error("Failed to determine executable path: %v", err)
@@ -56,11 +63,18 @@ func (service *managerService) Execute(args []string, r <-chan svc.ChangeRequest
 			procsLock.Unlock()
 		}()
 
+		logger.Debug("UI launch (service): startProcess called for session %d", session)
 		var userToken windows.Token
 		err := windows.WTSQueryUserToken(session, &userToken)
 		if err != nil {
+			logger.Error("UI launch (service): startProcess WTSQueryUserToken(session %d) failed: %v", session, err)
+			var errno syscall.Errno
+			if errors.As(err, &errno) {
+				logger.Error("UI launch (service): Windows error code %d (1314=privilege not held, 1008=token does not exist)", uint32(errno))
+			}
 			return
 		}
+		logger.Debug("UI launch (service): startProcess WTSQueryUserToken(session %d) succeeded", session)
 		// Check if token is elevated
 		isAdmin := userToken.IsElevated()
 		// Also check if it can be elevated via UAC
@@ -393,27 +407,38 @@ func handleUILaunchConn(conn net.Conn, requestCh chan<- uint32, procs map[uint32
 		logger.Error("UI launch pipe: failed to read session ID: %v", err)
 		return
 	}
+	logger.Debug("UI launch (service): request received for session %d", sessionID)
 
 	var response uint32
 	procsLock.Lock()
 	if _, ok := procs[sessionID]; ok {
 		response = 1 // already running
 		procsLock.Unlock()
+		logger.Debug("UI launch (service): session %d already has UI process, responding 1", sessionID)
 	} else {
 		// Validate session is active (e.g. user is logged in).
+		logger.Debug("UI launch (service): calling WTSQueryUserToken(session %d)", sessionID)
 		var token windows.Token
 		if err := windows.WTSQueryUserToken(sessionID, &token); err != nil {
+			logger.Error("UI launch pipe: WTSQueryUserToken(session %d) failed: %v", sessionID, err)
+			var errno syscall.Errno
+			if errors.As(err, &errno) {
+				logger.Error("UI launch (service): Windows error code %d (1314=privilege not held, 1008=token does not exist)", uint32(errno))
+			}
 			response = 2 // session not found or not active
 			procsLock.Unlock()
 		} else {
 			token.Close()
 			aliveSessions[sessionID] = true
 			procsLock.Unlock()
+			logger.Debug("UI launch (service): WTSQueryUserToken(session %d) succeeded", sessionID)
 			select {
 			case requestCh <- sessionID:
 				response = 0 // success
+				logger.Debug("UI launch (service): responding 0 (launching UI for session %d)", sessionID)
 			default:
 				response = 2 // channel full or service shutting down
+				logger.Debug("UI launch (service): request channel full or service shutting down, responding 2")
 			}
 		}
 	}
@@ -421,6 +446,30 @@ func handleUILaunchConn(conn net.Conn, requestCh chan<- uint32, procs map[uint32
 	if err := binary.Write(conn, binary.LittleEndian, response); err != nil {
 		logger.Error("UI launch pipe: failed to write response: %v", err)
 	}
+}
+
+// enableSeTcbPrivilege enables SeTcbPrivilege (act as part of the operating system) on the
+// current process token. WTSQueryUserToken requires this privilege; without it, it returns
+// error 1314 (required privilege not held) on some systems even when the service runs as LocalSystem.
+func enableSeTcbPrivilege() error {
+	logger.Debug("UI launch (service): enabling SeTcbPrivilege on process token")
+	var h windows.Token
+	if err := windows.OpenProcessToken(windows.CurrentProcess(), windows.TOKEN_QUERY|windows.TOKEN_ADJUST_PRIVILEGES, &h); err != nil {
+		return err
+	}
+	defer h.Close()
+	var privileges windows.Tokenprivileges
+	privileges.PrivilegeCount = 1
+	privileges.Privileges[0].Attributes = windows.SE_PRIVILEGE_ENABLED
+	if err := windows.LookupPrivilegeValue(nil, windows.StringToUTF16Ptr("SeTcbPrivilege"), &privileges.Privileges[0].Luid); err != nil {
+		return err
+	}
+	err := windows.AdjustTokenPrivileges(h, false, &privileges, uint32(unsafe.Sizeof(privileges)), nil, nil)
+	if err != nil {
+		return err
+	}
+	logger.Debug("UI launch (service): SeTcbPrivilege enabled successfully")
+	return nil
 }
 
 func Run() error {

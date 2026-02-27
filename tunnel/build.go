@@ -21,9 +21,9 @@ func (s *tunnelService) buildTunnel(config Config) error {
 	// Create context for OLM
 	olmContext := context.Background()
 
-	// Create OLM GlobalConfig with hardcoded values from Swift
+	// Create OLM GlobalConfig with values derived from system config
 	olmInitConfig := olmpkg.OlmConfig{
-		LogLevel:   configpkg.LogLevel,
+		LogLevel:   configpkg.GetSystemLogLevel(),
 		EnableAPI:  true,
 		SocketPath: OLMNamedPipePath,
 		Version:    version.Number,

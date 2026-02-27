@@ -188,7 +188,7 @@ func (c *APIClient) makeRequest(method, path string, body []byte) ([]byte, *http
 		req.Header.Set("Cookie", fmt.Sprintf("%s=%s", c.sessionCookieName, c.sessionToken))
 	}
 
-	logger.Info("Making request to: %s", fullURL)
+	logger.Debug("Making request to: %s", fullURL)
 
 	resp, err := c.client.Do(req)
 	if err != nil {

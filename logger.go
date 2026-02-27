@@ -14,10 +14,10 @@ import (
 	"github.com/fosrl/newt/logger"
 )
 
-// stringToLogLevel converts a string log level to logger.LogLevel
-// Returns INFO as default if the string doesn't match any known level
+// stringToLogLevel converts a string log level to logger.LogLevel.
+// Returns INFO as default if the string doesn't match any known level.
 func stringToLogLevel(levelStr string) logger.LogLevel {
-	switch strings.ToUpper(levelStr) {
+	switch strings.ToLower(levelStr) {
 	case "debug":
 		return logger.DEBUG
 	case "info":
@@ -29,7 +29,7 @@ func stringToLogLevel(levelStr string) logger.LogLevel {
 	case "fatal":
 		return logger.FATAL
 	default:
-		return logger.DEBUG // Default to INFO if unknown
+		return logger.INFO
 	}
 }
 
@@ -38,8 +38,9 @@ func setupLogging() {
 	// Initialize the logger and set log level FIRST, before any logging calls
 	logInstance := logger.GetLogger()
 
-	// Set the log level from centralized config immediately
-	logLevel := stringToLogLevel(config.LogLevel)
+	// Resolve log level from system config file (with built-in default fallback)
+	logLevelStr := config.GetSystemLogLevel()
+	logLevel := stringToLogLevel(logLevelStr)
 	logInstance.SetLevel(logLevel)
 
 	// Create log directory if it doesn't exist
@@ -68,7 +69,7 @@ func setupLogging() {
 	// Set the custom logger output
 	logInstance.SetOutput(file)
 
-	logger.Info("Pangolin logging initialized - log file: %s, log level: %s", logFile, config.LogLevel)
+	logger.Info("Pangolin logging initialized - log file: %s, log level: %s", logFile, logLevelStr)
 }
 
 // rotateLogFile handles daily log rotation
@@ -101,8 +102,7 @@ func rotateLogFile(logDir string, logFile string) error {
 		return fmt.Errorf("failed to rotate log file: %v", err)
 	}
 
-	// Clean up old log files (keep last 30 days)
-	cleanupOldLogFiles(logDir, 30)
+	cleanupOldLogFiles(logDir, 3)
 	return nil
 }
 

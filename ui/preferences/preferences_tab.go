@@ -15,14 +15,15 @@ import (
 
 // PreferencesTab handles the preferences/settings tab
 type PreferencesTab struct {
-	tabPage                    *walk.TabPage
-	dnsOverrideCheckBox        *walk.CheckBox
-	dnsTunnelCheckBox          *walk.CheckBox
-	primaryDNSEdit             *walk.LineEdit
-	secondaryDNSEdit           *walk.LineEdit
-	saveButton                 *walk.PushButton
-	configManager              *config.ConfigManager
-	window                     *PreferencesWindow
+	tabPage             *walk.TabPage
+	contentContainer    *walk.Composite
+	dnsOverrideCheckBox *walk.CheckBox
+	dnsTunnelCheckBox   *walk.CheckBox
+	primaryDNSEdit      *walk.LineEdit
+	secondaryDNSEdit    *walk.LineEdit
+	saveButton          *walk.PushButton
+	configManager       *config.ConfigManager
+	window              *PreferencesWindow
 }
 
 // NewPreferencesTab creates a new preferences tab
@@ -43,17 +44,17 @@ func (pt *PreferencesTab) Create(parent *walk.TabWidget) (*walk.TabPage, error) 
 	pt.tabPage.SetLayout(walk.NewVBoxLayout())
 
 	// Content container - match the structure of logs/olm tabs
-	contentContainer, err := walk.NewComposite(pt.tabPage)
+	pt.contentContainer, err = walk.NewComposite(pt.tabPage)
 	if err != nil {
 		return nil, err
 	}
 	contentLayout := walk.NewVBoxLayout()
 	contentLayout.SetMargins(walk.Margins{})
 	contentLayout.SetSpacing(16)
-	contentContainer.SetLayout(contentLayout)
+	pt.contentContainer.SetLayout(contentLayout)
 
 	// Tip link to docs for settings
-	settingsDocLink, err := walk.NewLinkLabel(contentContainer)
+	settingsDocLink, err := walk.NewLinkLabel(pt.contentContainer)
 	if err != nil {
 		return nil, err
 	}
@@ -65,7 +66,7 @@ func (pt *PreferencesTab) Create(parent *walk.TabWidget) (*walk.TabPage, error) 
 	})
 
 	// DNS Settings section title
-	dnsSectionTitle, err := walk.NewLabel(contentContainer)
+	dnsSectionTitle, err := walk.NewLabel(pt.contentContainer)
 	if err != nil {
 		return nil, err
 	}
@@ -76,7 +77,7 @@ func (pt *PreferencesTab) Create(parent *walk.TabWidget) (*walk.TabPage, error) 
 	}
 
 	// DNS Override section
-	dnsOverrideContainer, err := walk.NewComposite(contentContainer)
+	dnsOverrideContainer, err := walk.NewComposite(pt.contentContainer)
 	if err != nil {
 		return nil, err
 	}
@@ -123,7 +124,7 @@ func (pt *PreferencesTab) Create(parent *walk.TabWidget) (*walk.TabPage, error) 
 	descLabel.SetMinMaxSize(walk.Size{}, walk.Size{Width: 400, Height: 0})
 
 	// DNS Tunnel section
-	dnsTunnelContainer, err := walk.NewComposite(contentContainer)
+	dnsTunnelContainer, err := walk.NewComposite(pt.contentContainer)
 	if err != nil {
 		return nil, err
 	}
@@ -170,7 +171,7 @@ func (pt *PreferencesTab) Create(parent *walk.TabWidget) (*walk.TabPage, error) 
 	dnsTunnelDescLabel.SetMinMaxSize(walk.Size{}, walk.Size{Width: 400, Height: 0})
 
 	// Primary DNS Server section
-	primaryDNSContainer, err := walk.NewComposite(contentContainer)
+	primaryDNSContainer, err := walk.NewComposite(pt.contentContainer)
 	if err != nil {
 		return nil, err
 	}
@@ -195,7 +196,7 @@ func (pt *PreferencesTab) Create(parent *walk.TabWidget) (*walk.TabPage, error) 
 	walk.NewHSpacer(primaryDNSContainer)
 
 	// Secondary DNS Server section
-	secondaryDNSContainer, err := walk.NewComposite(contentContainer)
+	secondaryDNSContainer, err := walk.NewComposite(pt.contentContainer)
 	if err != nil {
 		return nil, err
 	}
@@ -220,7 +221,7 @@ func (pt *PreferencesTab) Create(parent *walk.TabWidget) (*walk.TabPage, error) 
 	walk.NewHSpacer(secondaryDNSContainer)
 
 	// Add spacer to fill remaining space
-	walk.NewVSpacer(contentContainer)
+	walk.NewVSpacer(pt.contentContainer)
 
 	// Buttons will be created in AfterAdd() after tab is added to widget tree
 
@@ -254,6 +255,14 @@ func (pt *PreferencesTab) AfterAdd() {
 	pt.saveButton.Clicked().Attach(func() {
 		pt.onSave()
 	})
+
+	// When user settings are disabled (e.g. by admin), disable the entire form
+	if pt.configManager != nil && pt.configManager.GetUserSettingsDisabled() {
+		if pt.contentContainer != nil {
+			pt.contentContainer.SetEnabled(false)
+		}
+		pt.saveButton.SetEnabled(false)
+	}
 }
 
 // Cleanup cleans up resources when the tab is closed
@@ -338,10 +347,12 @@ func (pt *PreferencesTab) onSave() {
 		return
 	}
 
-	// Get current config and create a copy to modify
-	cfg := &config.Config{}
+	// Start from current config so we only update DNS fields and preserve others (e.g. defaultServerURL, userSettingsDisabled)
+	cfg := pt.configManager.GetConfigCopy()
+	if cfg == nil {
+		cfg = &config.Config{}
+	}
 
-	// Set DNS settings
 	dnsOverrideVal := dnsOverride
 	dnsTunnelVal := dnsTunnel
 	primaryDNSVal := primaryDNS
@@ -354,7 +365,6 @@ func (pt *PreferencesTab) onSave() {
 		cfg.SecondaryDNS = nil
 	}
 
-	// Save all settings at once
 	success := pt.configManager.Save(cfg)
 
 	if success {

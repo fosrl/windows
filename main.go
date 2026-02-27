@@ -40,6 +40,22 @@ func showMessageBox(text, caption string) {
 	procMessageBoxW.Call(0, uintptr(unsafe.Pointer(textPtr)), uintptr(unsafe.Pointer(captionPtr)), mbOK)
 }
 
+// waitForServiceRunning polls service state until Running or timeout. Returns true if Running.
+func waitForServiceRunning(service *mgr.Service, timeout time.Duration) bool {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		status, err := service.Query()
+		if err != nil {
+			return false
+		}
+		if status.State == svc.Running {
+			return true
+		}
+		time.Sleep(300 * time.Millisecond)
+	}
+	return false
+}
+
 func execElevatedManagerServiceInstaller() error {
 	path, err := os.Executable()
 	if err != nil {
@@ -95,22 +111,14 @@ func main() {
 		if err != nil {
 			if err == managers.ErrManagerAlreadyRunning {
 				logger.Info("Manager service is already running")
-				// Request UI launch so user gets the UI from this run (e.g. first launch raced with another)
-				time.Sleep(2 * time.Second)
-				managers.RequestUILaunch()
+				managers.RequestUILaunchWithRetry(15 * time.Second)
 				return
 			}
 			logger.Fatal("Failed to install manager service: %v", err)
 		}
 		logger.Info("Manager service installed successfully")
-		// Wait for service to start and listen on the UI launch pipe, then request UI so first launch shows UI without a second run
-		time.Sleep(2 * time.Second)
-		if managers.RequestUILaunch() {
-			logger.Info("UI launch requested successfully")
-		} else {
-			// Retry once in case the pipe wasn't ready yet
-			time.Sleep(2 * time.Second)
-			managers.RequestUILaunch()
+		if managers.RequestUILaunchWithRetry(15 * time.Second) {
+			logger.Debug("UI launch requested successfully")
 		}
 		return
 	}
@@ -177,8 +185,7 @@ func main() {
 		}
 
 		if status.State == svc.Running || status.State == svc.StartPending {
-			// Service is running but pipe failed earlier; try UI launch once more
-			if managers.RequestUILaunch() {
+			if managers.RequestUILaunchWithRetry(15 * time.Second) {
 				return
 			}
 			logger.Error("Could not start Pangolin. Please try again or contact your administrator.")
@@ -200,13 +207,14 @@ func main() {
 						logger.Info("User cancelled elevation, cannot start service")
 						return
 					}
-					time.Sleep(2 * time.Second)
-					status, err = service.Query()
-					if err != nil {
-						logger.Fatal("Failed to query service status after start: %v", err)
-					}
-					if status.State == svc.Stopped {
-						logger.Fatal("Service failed to start. Please start it manually or run as administrator.")
+					if !waitForServiceRunning(service, 30*time.Second) {
+						status, err = service.Query()
+						if err != nil {
+							logger.Fatal("Failed to query service status after start: %v", err)
+						}
+						if status.State == svc.Stopped {
+							logger.Fatal("Service failed to start. Please start it manually or run as administrator.")
+						}
 					}
 					logger.Info("Manager service started via elevation, UI should appear shortly")
 				} else {
@@ -214,12 +222,11 @@ func main() {
 				}
 			} else {
 				logger.Info("Manager service started, UI should appear shortly")
-				time.Sleep(2 * time.Second)
+				waitForServiceRunning(service, 30*time.Second)
 			}
 		}
 
-		// After install/start, try UI launch again so user gets the UI without relaunching
-		if managers.RequestUILaunch() {
+		if managers.RequestUILaunchWithRetry(15 * time.Second) {
 			return
 		}
 		return
