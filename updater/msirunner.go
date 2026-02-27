@@ -52,7 +52,7 @@ func runMsi(msi *tempFile, userToken uintptr) error {
 	logger.Debug("Updater: Getting system directory")
 	system32, err := windows.GetSystemDirectory()
 	if err != nil {
-		logger.Debug("Updater: Failed to get system directory: %v", err)
+		logger.Error("Updater: Failed to get system directory: %v", err)
 		return err
 	}
 	logger.Debug("Updater: System directory: %s", system32)
@@ -60,7 +60,7 @@ func runMsi(msi *tempFile, userToken uintptr) error {
 	logger.Debug("Updater: Opening /dev/null for process I/O")
 	devNull, err := os.OpenFile(os.DevNull, os.O_RDWR, 0)
 	if err != nil {
-		logger.Debug("Updater: Failed to open /dev/null: %v", err)
+		logger.Error("Updater: Failed to open /dev/null: %v", err)
 		return err
 	}
 	defer devNull.Close()
@@ -83,7 +83,7 @@ func runMsi(msi *tempFile, userToken uintptr) error {
 
 	proc, err := os.StartProcess(msiexec, []string{msiexec, "/qb!-", "/i", filepath.Base(msiPath)}, attr)
 	if err != nil {
-		logger.Debug("Updater: Failed to start msiexec process: %v", err)
+		logger.Error("Updater: Failed to start msiexec process: %v", err)
 		return fmt.Errorf("failed to start msiexec: %w", err)
 	}
 	logger.Debug("Updater: msiexec process started (PID: %d)", proc.Pid)
@@ -91,13 +91,13 @@ func runMsi(msi *tempFile, userToken uintptr) error {
 	logger.Debug("Updater: Waiting for msiexec to complete")
 	state, err := proc.Wait()
 	if err != nil {
-		logger.Debug("Updater: Error waiting for msiexec: %v", err)
+		logger.Error("Updater: Error waiting for msiexec: %v", err)
 		return err
 	}
 	logger.Debug("Updater: msiexec completed with exit code: %d", state.ExitCode())
 
 	if !state.Success() {
-		logger.Debug("Updater: msiexec failed with exit code: %d", state.ExitCode())
+		logger.Error("Updater: msiexec failed with exit code: %d", state.ExitCode())
 		return &exec.ExitError{ProcessState: state}
 	}
 	logger.Debug("Updater: MSI installation completed successfully")
@@ -109,11 +109,11 @@ func msiTempFile() (*tempFile, error) {
 	var randBytes [32]byte
 	n, err := rand.Read(randBytes[:])
 	if err != nil {
-		logger.Debug("Updater: Failed to generate random bytes: %v", err)
+		logger.Error("Updater: Failed to generate random bytes: %v", err)
 		return nil, err
 	}
 	if n != int(len(randBytes)) {
-		logger.Debug("Updater: Insufficient random bytes generated: %d", n)
+		logger.Error("Updater: Insufficient random bytes generated: %d", n)
 		return nil, errors.New("Unable to generate random bytes")
 	}
 	logger.Debug("Updater: Generated random filename")
@@ -121,7 +121,7 @@ func msiTempFile() (*tempFile, error) {
 	logger.Debug("Updater: Creating security descriptor")
 	sd, err := windows.SecurityDescriptorFromString("O:SYD:PAI(A;;FA;;;SY)(A;;FR;;;BA)")
 	if err != nil {
-		logger.Debug("Updater: Failed to create security descriptor: %v", err)
+		logger.Error("Updater: Failed to create security descriptor: %v", err)
 		return nil, err
 	}
 	sa := &windows.SecurityAttributes{
@@ -132,7 +132,7 @@ func msiTempFile() (*tempFile, error) {
 	logger.Debug("Updater: Getting Windows directory")
 	windir, err := windows.GetWindowsDirectory()
 	if err != nil {
-		logger.Debug("Updater: Failed to get Windows directory: %v", err)
+		logger.Error("Updater: Failed to get Windows directory: %v", err)
 		return nil, err
 	}
 	name := filepath.Join(windir, "Temp", hex.EncodeToString(randBytes[:]))
@@ -143,7 +143,7 @@ func msiTempFile() (*tempFile, error) {
 	fileHandle, err := windows.CreateFile(name16, windows.GENERIC_WRITE|windows.DELETE, 0, sa, windows.CREATE_NEW, windows.FILE_ATTRIBUTE_TEMPORARY, 0)
 	runtime.KeepAlive(sd)
 	if err != nil {
-		logger.Debug("Updater: Failed to create temporary file: %v (path: %s)", err, name)
+		logger.Error("Updater: Failed to create temporary file: %v (path: %s)", err, name)
 		return nil, fmt.Errorf("failed to create temporary file: %w", err)
 	}
 	logger.Debug("Updater: Temporary file created successfully")
