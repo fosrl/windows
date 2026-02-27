@@ -407,7 +407,7 @@ func handleUILaunchConn(conn net.Conn, requestCh chan<- uint32, procs map[uint32
 		logger.Error("UI launch pipe: failed to read session ID: %v", err)
 		return
 	}
-	logger.Info("UI launch (service): request received for session %d", sessionID)
+	logger.Debug("UI launch (service): request received for session %d", sessionID)
 
 	var response uint32
 	procsLock.Lock()
@@ -468,7 +468,7 @@ func enableSeTcbPrivilege() error {
 	if err != nil {
 		return err
 	}
-	logger.Info("UI launch (service): SeTcbPrivilege enabled successfully")
+	logger.Debug("UI launch (service): SeTcbPrivilege enabled successfully")
 	return nil
 }
 

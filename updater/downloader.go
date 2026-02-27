@@ -60,21 +60,21 @@ func (u *UpdateFound) Name() string {
 }
 
 func CheckForUpdate() (updateFound *UpdateFound, err error) {
-	logger.Info("Updater: CheckForUpdate() called")
+	logger.Debug("Updater: CheckForUpdate() called")
 	updateFound, _, _, err = checkForUpdate(false)
 	if err != nil {
-		logger.Error("Updater: CheckForUpdate failed: %v", err)
+		logger.Debug("Updater: CheckForUpdate failed: %v", err)
 	} else if updateFound == nil {
-		logger.Info("Updater: CheckForUpdate completed - no update found")
+		logger.Debug("Updater: CheckForUpdate completed - no update found")
 	} else {
-		logger.Info("Updater: CheckForUpdate completed - update found: %s", updateFound.name)
+		logger.Debug("Updater: CheckForUpdate completed - update found: %s", updateFound.name)
 	}
 	return
 }
 
 func checkForUpdate(keepSession bool) (*UpdateFound, *winhttp.Session, *winhttp.Connection, error) {
-	logger.Info("Updater: checkForUpdate() started (keepSession=%v)", keepSession)
-	logger.Info("Updater: Current version: %s, Architecture: %s", version.Number, version.Arch())
+	logger.Debug("Updater: checkForUpdate() started (keepSession=%v)", keepSession)
+	logger.Debug("Updater: Current version: %s, Architecture: %s", version.Number, version.Arch())
 
 	// // Allow bypassing official version check for development/testing
 	// // Set PANGOLIN_ALLOW_DEV_UPDATES=1 to enable updates on unsigned builds
@@ -91,73 +91,73 @@ func checkForUpdate(keepSession bool) (*UpdateFound, *winhttp.Session, *winhttp.
 	// 	logger.Info("Updater: Development mode enabled - allowing updates on unsigned build")
 	// }
 
-	logger.Info("Updater: Creating WinHTTP session with User-Agent: %s", version.UserAgent())
+	logger.Debug("Updater: Creating WinHTTP session with User-Agent: %s", version.UserAgent())
 	session, err := winhttp.NewSession(version.UserAgent())
 	if err != nil {
-		logger.Error("Updater: Failed to create WinHTTP session: %v", err)
+		logger.Debug("Updater: Failed to create WinHTTP session: %v", err)
 		return nil, nil, nil, err
 	}
-	logger.Info("Updater: WinHTTP session created successfully")
+	logger.Debug("Updater: WinHTTP session created successfully")
 	defer func() {
 		if err != nil || !keepSession {
-			logger.Info("Updater: Closing WinHTTP session")
+			logger.Debug("Updater: Closing WinHTTP session")
 			session.Close()
 		}
 	}()
 
-	logger.Info("Updater: Connecting to update server: %s:%d (HTTPS=%v)", updateServerHost, updateServerPort, updateServerUseHttps)
+	logger.Debug("Updater: Connecting to update server: %s:%d (HTTPS=%v)", updateServerHost, updateServerPort, updateServerUseHttps)
 	connection, err := session.Connect(updateServerHost, updateServerPort, updateServerUseHttps)
 	if err != nil {
-		logger.Error("Updater: Failed to connect to update server: %v", err)
+		logger.Debug("Updater: Failed to connect to update server: %v", err)
 		return nil, nil, nil, err
 	}
-	logger.Info("Updater: Connected to update server successfully")
+	logger.Debug("Updater: Connected to update server successfully")
 	defer func() {
 		if err != nil || !keepSession {
-			logger.Info("Updater: Closing connection")
+			logger.Debug("Updater: Closing connection")
 			connection.Close()
 		}
 	}()
 
-	logger.Info("Updater: Fetching manifest from: %s", latestVersionPath)
+	logger.Debug("Updater: Fetching manifest from: %s", latestVersionPath)
 	response, err := connection.Get(latestVersionPath, true)
 	if err != nil {
-		logger.Error("Updater: Failed to fetch manifest: %v", err)
+		logger.Debug("Updater: Failed to fetch manifest: %v", err)
 		return nil, nil, nil, err
 	}
 	defer response.Close()
-	logger.Info("Updater: Manifest response received")
+	logger.Debug("Updater: Manifest response received")
 
 	var fileList [1024 * 512] /* 512 KiB */ byte
 	bytesRead, err := response.Read(fileList[:])
 	if err != nil && (err != io.EOF || bytesRead == 0) {
-		logger.Error("Updater: Failed to read manifest data: %v (bytesRead=%d)", err, bytesRead)
+		logger.Debug("Updater: Failed to read manifest data: %v (bytesRead=%d)", err, bytesRead)
 		return nil, nil, nil, err
 	}
-	logger.Info("Updater: Read %d bytes from manifest", bytesRead)
+	logger.Debug("Updater: Read %d bytes from manifest", bytesRead)
 
-	logger.Info("Updater: Parsing manifest file list")
+	logger.Debug("Updater: Parsing manifest file list")
 	files, err := readFileList(fileList[:bytesRead])
 	if err != nil {
-		logger.Error("Updater: Failed to parse manifest: %v", err)
+		logger.Debug("Updater: Failed to parse manifest: %v", err)
 		return nil, nil, nil, err
 	}
-	logger.Info("Updater: Manifest parsed successfully, found %d files", len(files))
+	logger.Debug("Updater: Manifest parsed successfully, found %d files", len(files))
 
-	logger.Info("Updater: Searching for update candidate")
+	logger.Debug("Updater: Searching for update candidate")
 	updateFound, err := findCandidate(files)
 	if err != nil {
-		logger.Error("Updater: Error finding candidate: %v", err)
+		logger.Debug("Updater: Error finding candidate: %v", err)
 		return nil, nil, nil, err
 	}
 	if updateFound == nil {
-		logger.Info("Updater: No update candidate found")
+		logger.Debug("Updater: No update candidate found")
 	} else {
-		logger.Info("Updater: Update candidate found: %s", updateFound.name)
+		logger.Debug("Updater: Update candidate found: %s", updateFound.name)
 	}
 
 	if keepSession {
-		logger.Info("Updater: Keeping session and connection open")
+		logger.Debug("Updater: Keeping session and connection open")
 		return updateFound, session, connection, nil
 	}
 	return updateFound, nil, nil, nil
@@ -182,32 +182,32 @@ func DownloadVerifyAndExecute(userToken uintptr) (progress chan DownloadProgress
 		logger.Info("Updater: Checking for update...")
 		update, session, connection, err := checkForUpdate(true)
 		if err != nil {
-			logger.Error("Updater: Update check failed: %v", err)
+			logger.Info("Updater: Update check failed: %v", err)
 			progress <- DownloadProgress{Error: err}
 			return
 		}
 		defer connection.Close()
 		defer session.Close()
 		if update == nil {
-			logger.Error("Updater: No update was found")
+			logger.Info("Updater: No update was found")
 			progress <- DownloadProgress{Error: errors.New("No update was found")}
 			return
 		}
 		logger.Info("Updater: Update found: %s", update.name)
 
 		progress <- DownloadProgress{Activity: "Creating temporary file"}
-		logger.Info("Updater: Creating temporary file for MSI")
+		logger.Debug("Updater: Creating temporary file for MSI")
 		file, err := msiTempFile()
 		if err != nil {
-			logger.Error("Updater: Failed to create temporary file: %v", err)
+			logger.Debug("Updater: Failed to create temporary file: %v", err)
 			progress <- DownloadProgress{Error: err}
 			return
 		}
-		logger.Info("Updater: Temporary file created: %s", file.Name())
+		logger.Debug("Updater: Temporary file created: %s", file.Name())
 		progress <- DownloadProgress{Activity: fmt.Sprintf("Msi destination is %#q", file.Name())}
 		defer func() {
 			if file != nil {
-				logger.Info("Updater: Cleaning up temporary file: %s", file.Name())
+				logger.Debug("Updater: Cleaning up temporary file: %s", file.Name())
 				file.Delete()
 			}
 		}()
@@ -222,7 +222,7 @@ func DownloadVerifyAndExecute(userToken uintptr) (progress chan DownloadProgress
 		// Get download location from manifest (required)
 		downloadLocation := update.downloadLocation
 		if downloadLocation == "" {
-			logger.Error("Updater: Download location not specified in manifest for file: %s", update.name)
+			logger.Debug("Updater: Download location not specified in manifest for file: %s", update.name)
 			progress <- DownloadProgress{Error: errors.New("download location not specified in manifest")}
 			return
 		}
@@ -230,12 +230,12 @@ func DownloadVerifyAndExecute(userToken uintptr) (progress chan DownloadProgress
 		// Check if downloadLocation is a full URL (http:// or https://)
 		if strings.HasPrefix(downloadLocation, "http://") || strings.HasPrefix(downloadLocation, "https://") {
 			// Full URL - download from external source
-			logger.Info("Updater: Downloading MSI from external URL: %s", downloadLocation)
+			logger.Debug("Updater: Downloading MSI from external URL: %s", downloadLocation)
 
 			// Parse the URL to extract host, port, and path
 			parsedURL, err := url.Parse(downloadLocation)
 			if err != nil {
-				logger.Error("Updater: Failed to parse download URL: %v", err)
+				logger.Debug("Updater: Failed to parse download URL: %v", err)
 				progress <- DownloadProgress{Error: fmt.Errorf("invalid download URL: %w", err)}
 				return
 			}
@@ -243,7 +243,7 @@ func DownloadVerifyAndExecute(userToken uintptr) (progress chan DownloadProgress
 			// Determine if HTTPS
 			isHTTPS := parsedURL.Scheme == "https"
 			if parsedURL.Scheme != "http" && parsedURL.Scheme != "https" {
-				logger.Error("Updater: Unsupported URL scheme: %s", parsedURL.Scheme)
+				logger.Debug("Updater: Unsupported URL scheme: %s", parsedURL.Scheme)
 				progress <- DownloadProgress{Error: fmt.Errorf("unsupported URL scheme: %s", parsedURL.Scheme)}
 				return
 			}
@@ -251,7 +251,7 @@ func DownloadVerifyAndExecute(userToken uintptr) (progress chan DownloadProgress
 			// Extract host and port
 			host := parsedURL.Hostname()
 			if host == "" {
-				logger.Error("Updater: Missing host in download URL")
+				logger.Debug("Updater: Missing host in download URL")
 				progress <- DownloadProgress{Error: errors.New("missing host in download URL")}
 				return
 			}
@@ -268,7 +268,7 @@ func DownloadVerifyAndExecute(userToken uintptr) (progress chan DownloadProgress
 			} else {
 				portNum, err := strconv.ParseUint(portStr, 10, 16)
 				if err != nil {
-					logger.Error("Updater: Invalid port in download URL: %v", err)
+					logger.Debug("Updater: Invalid port in download URL: %v", err)
 					progress <- DownloadProgress{Error: fmt.Errorf("invalid port in download URL: %w", err)}
 					return
 				}
@@ -287,12 +287,12 @@ func DownloadVerifyAndExecute(userToken uintptr) (progress chan DownloadProgress
 				downloadPath = "/"
 			}
 
-			logger.Info("Updater: Connecting to external download server: %s:%d (HTTPS=%v)", host, port, isHTTPS)
+			logger.Debug("Updater: Connecting to external download server: %s:%d (HTTPS=%v)", host, port, isHTTPS)
 
 			// Create a new session for the external download
 			downloadSession, err = winhttp.NewSession(version.UserAgent())
 			if err != nil {
-				logger.Error("Updater: Failed to create WinHTTP session for external download: %v", err)
+				logger.Debug("Updater: Failed to create WinHTTP session for external download: %v", err)
 				progress <- DownloadProgress{Error: err}
 				return
 			}
@@ -301,66 +301,66 @@ func DownloadVerifyAndExecute(userToken uintptr) (progress chan DownloadProgress
 			// Connect to the external host
 			downloadConnection, err = downloadSession.Connect(host, port, isHTTPS)
 			if err != nil {
-				logger.Error("Updater: Failed to connect to external download server: %v", err)
+				logger.Debug("Updater: Failed to connect to external download server: %v", err)
 				progress <- DownloadProgress{Error: err}
 				return
 			}
 			defer downloadConnection.Close()
 
-			logger.Info("Updater: Downloading MSI from path: %s", downloadPath)
+			logger.Debug("Updater: Downloading MSI from path: %s", downloadPath)
 			response, err = downloadConnection.Get(downloadPath, false)
 			if err != nil {
-				logger.Error("Updater: Failed to download MSI from external URL: %v", err)
+				logger.Debug("Updater: Failed to download MSI from external URL: %v", err)
 				progress <- DownloadProgress{Error: err}
 				return
 			}
 		} else {
 			// Relative path - download from update server
-			logger.Info("Updater: Downloading MSI from update server: %s", downloadLocation)
+			logger.Debug("Updater: Downloading MSI from update server: %s", downloadLocation)
 			response, err = connection.Get(downloadLocation, false)
 			if err != nil {
-				logger.Error("Updater: Failed to download MSI: %v", err)
+				logger.Debug("Updater: Failed to download MSI: %v", err)
 				progress <- DownloadProgress{Error: err}
 				return
 			}
 		}
 		defer response.Close()
-		logger.Info("Updater: MSI download response received")
+		logger.Debug("Updater: MSI download response received")
 
 		length, err := response.Length()
 		if err == nil {
-			logger.Info("Updater: MSI file size: %d bytes", length)
+			logger.Debug("Updater: MSI file size: %d bytes", length)
 			dp.BytesTotal = length
 			progress <- dp
 		} else {
-			logger.Warn("Updater: Could not determine MSI file size: %v", err)
+			logger.Debug("Updater: Could not determine MSI file size: %v", err)
 		}
 
-		logger.Info("Updater: Initializing BLAKE2b-256 hasher for verification")
+		logger.Debug("Updater: Initializing BLAKE2b-256 hasher for verification")
 		hasher, err := blake2b.New256(nil)
 		if err != nil {
-			logger.Error("Updater: Failed to create hasher: %v", err)
+			logger.Debug("Updater: Failed to create hasher: %v", err)
 			progress <- DownloadProgress{Error: err}
 			return
 		}
 		pm := &progressHashWatcher{&dp, progress, hasher}
-		logger.Info("Updater: Starting download (max 100 MiB)")
+		logger.Debug("Updater: Starting download (max 100 MiB)")
 		bytesWritten, err := io.Copy(file, io.TeeReader(io.LimitReader(response, 1024*1024*100 /* 100 MiB */), pm))
 		if err != nil {
-			logger.Error("Updater: Download failed: %v (bytes written: %d)", err, bytesWritten)
+			logger.Debug("Updater: Download failed: %v (bytes written: %d)", err, bytesWritten)
 			progress <- DownloadProgress{Error: err}
 			return
 		}
-		logger.Info("Updater: Download completed: %d bytes written", bytesWritten)
+		logger.Debug("Updater: Download completed: %d bytes written", bytesWritten)
 
 		calculatedHash := hasher.Sum(nil)
-		logger.Info("Updater: Verifying hash - calculated: %x, expected: %x", calculatedHash, update.hash)
+		logger.Debug("Updater: Verifying hash - calculated: %x, expected: %x", calculatedHash, update.hash)
 		if !hmac.Equal(calculatedHash, update.hash[:]) {
-			logger.Error("Updater: Hash verification failed!")
+			logger.Debug("Updater: Hash verification failed!")
 			progress <- DownloadProgress{Error: errors.New("The downloaded update has the wrong hash")}
 			return
 		}
-		logger.Info("Updater: Hash verification passed")
+		logger.Debug("Updater: Hash verification passed")
 
 		// // Skip authenticode verification in development mode
 		// devMode := os.Getenv("PANGOLIN_ALLOW_DEV_UPDATES") == "1"
@@ -382,18 +382,18 @@ func DownloadVerifyAndExecute(userToken uintptr) (progress chan DownloadProgress
 
 		restartUIFlagPath := filepath.Join(config.GetProgramDataDir(), "restart-ui-after-update.flag")
 		if err := os.MkdirAll(config.GetProgramDataDir(), 0o755); err != nil {
-			logger.Error("Updater: Failed to create ProgramData dir for restart flag: %v", err)
+			logger.Debug("Updater: Failed to create ProgramData dir for restart flag: %v", err)
 		} else if err := os.WriteFile(restartUIFlagPath, nil, 0o644); err != nil {
-			logger.Error("Updater: Failed to write restart-ui flag file: %v", err)
+			logger.Debug("Updater: Failed to write restart-ui flag file: %v", err)
 		} else {
-			logger.Info("Updater: Wrote restart-ui flag at %s", restartUIFlagPath)
+			logger.Debug("Updater: Wrote restart-ui flag at %s", restartUIFlagPath)
 		}
 
 		err = runMsi(file, userToken)
 		if err != nil {
-			logger.Error("Updater: MSI installation failed: %v", err)
+			logger.Info("Updater: MSI installation failed: %v", err)
 			if removeErr := os.Remove(restartUIFlagPath); removeErr != nil && !os.IsNotExist(removeErr) {
-				logger.Error("Updater: Failed to remove restart-ui flag after MSI failure: %v", removeErr)
+				logger.Debug("Updater: Failed to remove restart-ui flag after MSI failure: %v", removeErr)
 			}
 			progress <- DownloadProgress{Error: err}
 			return
@@ -414,7 +414,7 @@ func DownloadVerifyAndExecute(userToken uintptr) (progress chan DownloadProgress
 			isElevated := processToken.IsElevated()
 			processToken.Close()
 			if !isElevated {
-				logger.Error("Updater: Process is not running with admin privileges")
+				logger.Info("Updater: Process is not running with admin privileges")
 				progress <- DownloadProgress{Error: errors.New("update requires administrator privileges. Please run the application as administrator")}
 				return progress
 			}
@@ -428,7 +428,7 @@ func DownloadVerifyAndExecute(userToken uintptr) (progress chan DownloadProgress
 				return nil
 			})
 			if err != nil {
-				logger.Error("Updater: Failed to elevate to SYSTEM: %v", err)
+				logger.Info("Updater: Failed to elevate to SYSTEM: %v", err)
 				progress <- DownloadProgress{Error: fmt.Errorf("failed to elevate privileges: %w. Make sure the application is running as administrator", err)}
 			}
 		}()
@@ -457,19 +457,19 @@ func StartBackgroundUpdateChecker(interval time.Duration, callback UpdateFoundCa
 
 		for {
 			// Check for updates
-			logger.Info("Background update check: checking for updates...")
+			logger.Debug("Background update check: checking for updates...")
 			update, err := CheckForUpdate()
 			if err != nil {
-				logger.Error("Background update check failed: %v", err)
+				logger.Debug("Background update check failed: %v", err)
 				// Don't call callback for errors, just log
 			} else if update != nil {
-				logger.Info("Background update check: update found: %s", update.Name())
+				logger.Debug("Background update check: update found: %s", update.Name())
 				// Call the callback to notify about the update
 				if callback != nil {
 					callback(update)
 				}
 			} else {
-				logger.Info("Background update check: no update available")
+				logger.Debug("Background update check: no update available")
 			}
 
 			// Wait for next tick

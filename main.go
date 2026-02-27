@@ -118,7 +118,7 @@ func main() {
 		}
 		logger.Info("Manager service installed successfully")
 		if managers.RequestUILaunchWithRetry(15 * time.Second) {
-			logger.Info("UI launch requested successfully")
+			logger.Debug("UI launch requested successfully")
 		}
 		return
 	}

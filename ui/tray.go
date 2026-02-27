@@ -474,9 +474,6 @@ func setupMenu() error {
 	checkUpdateAction.SetText("Check for Updates")
 	checkUpdateAction.Triggered().Attach(func() {
 		go func() {
-			logger.Info("Checking for updates via manager...")
-			logger.Info("Current version: %s", version.Number)
-
 			// Check update state via manager IPC
 			updateState, err := managers.IPCClientUpdateState()
 			if err != nil {

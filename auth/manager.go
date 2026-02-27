@@ -475,7 +475,7 @@ func (am *AuthManager) RefreshOrganizations() error {
 	am.organizations = newOrgs
 	am.mu.Unlock()
 
-	logger.Info("Organizations refreshed successfully: %d orgs", len(newOrgs))
+	logger.Debug("Organizations refreshed successfully: %d orgs", len(newOrgs))
 	return nil
 }
 
