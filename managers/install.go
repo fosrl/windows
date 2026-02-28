@@ -175,7 +175,7 @@ func InstallTunnel(configJSON string) error {
 	if err := os.MkdirAll(configDir, 0755); err != nil {
 		return fmt.Errorf("failed to create config directory: %w", err)
 	}
-	configPath := filepath.Join(configDir, name+".json")
+	configPath := filepath.Join(configDir, sanitizeServiceName(name)+".json")
 	if err := os.WriteFile(configPath, []byte(configJSON), 0600); err != nil {
 		return fmt.Errorf("failed to write config file: %w", err)
 	}
@@ -229,7 +229,7 @@ func UninstallTunnel(name string) error {
 
 	// Clean up config file
 	configDir := filepath.Join(os.Getenv("ProgramData"), config.AppName, "Tunnels")
-	configPath := filepath.Join(configDir, name+".json")
+	configPath := filepath.Join(configDir, sanitizeServiceName(name)+".json")
 	os.Remove(configPath) // Best effort cleanup
 
 	return nil
