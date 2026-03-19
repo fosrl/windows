@@ -38,9 +38,10 @@ type Config struct {
 }
 
 // SystemConfig represents machine-wide configuration stored under
-// %ProgramData%\Pangolin\pangolin.json. This is used by background
-// services (manager, tunnel, etc.) and for global settings like log level.
+// %ProgramData%\Pangolin\pangolin.json. It supports the same settings as
+// per-user config plus system-only fields like log level.
 type SystemConfig struct {
+	Config
 	LogLevel *string `json:"logLevel,omitempty"`
 }
 
@@ -93,26 +94,15 @@ func (cm *ConfigManager) GetConfigCopy() *Config {
 // load loads the configuration from the file
 // Returns a default config if the file doesn't exist or can't be read
 func (cm *ConfigManager) load() *Config {
-	// Check if file exists
-	if _, err := os.Stat(cm.configPath); os.IsNotExist(err) {
-		return &Config{}
+	// Load machine-wide defaults first, then overlay user-specific values.
+	merged := configFromSystemConfig(LoadSystemConfig())
+
+	userCfg, ok := cm.loadUserConfig()
+	if !ok {
+		return merged
 	}
 
-	// Read file
-	data, err := os.ReadFile(cm.configPath)
-	if err != nil {
-		logger.Error("Error loading config: %v", err)
-		return &Config{}
-	}
-
-	// Parse JSON
-	var config Config
-	if err := json.Unmarshal(data, &config); err != nil {
-		logger.Error("Error parsing config: %v", err)
-		return &Config{}
-	}
-
-	return &config
+	return mergeConfig(merged, userCfg)
 }
 
 // Load loads the configuration from the file
@@ -373,42 +363,118 @@ func GetSystemLogLevel() string {
 // getConfigCopy creates a deep copy of the current config
 // Caller must hold the lock
 func (cm *ConfigManager) getConfigCopy() *Config {
-	if cm.config == nil {
+	return copyConfig(cm.config)
+}
+
+// loadUserConfig loads the per-user config from disk.
+func (cm *ConfigManager) loadUserConfig() (*Config, bool) {
+	if _, err := os.Stat(cm.configPath); os.IsNotExist(err) {
+		return nil, false
+	}
+
+	data, err := os.ReadFile(cm.configPath)
+	if err != nil {
+		logger.Error("Error loading config: %v", err)
+		return nil, false
+	}
+
+	var cfg Config
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		logger.Error("Error parsing config: %v", err)
+		return nil, false
+	}
+
+	return &cfg, true
+}
+
+// configFromSystemConfig extracts shared config fields from system config.
+func configFromSystemConfig(sys *SystemConfig) *Config {
+	if sys == nil {
+		return &Config{}
+	}
+	return copyConfig(&sys.Config)
+}
+
+// mergeConfig overlays override values onto base values.
+func mergeConfig(base, override *Config) *Config {
+	merged := copyConfig(base)
+	if override == nil {
+		return merged
+	}
+
+	if override.DNSOverride != nil {
+		v := *override.DNSOverride
+		merged.DNSOverride = &v
+	}
+	if override.DNSTunnel != nil {
+		v := *override.DNSTunnel
+		merged.DNSTunnel = &v
+	}
+	if override.PrimaryDNS != nil {
+		v := *override.PrimaryDNS
+		merged.PrimaryDNS = &v
+	}
+	if override.SecondaryDNS != nil {
+		v := *override.SecondaryDNS
+		merged.SecondaryDNS = &v
+	}
+	if override.DefaultServerURL != nil {
+		v := *override.DefaultServerURL
+		merged.DefaultServerURL = &v
+	}
+	if override.UserSettingsDisabled != nil {
+		v := *override.UserSettingsDisabled
+		merged.UserSettingsDisabled = &v
+	}
+	if override.AuthPath != nil {
+		v := *override.AuthPath
+		merged.AuthPath = &v
+	}
+	if override.OpenStatusTabOnConnect != nil {
+		v := *override.OpenStatusTabOnConnect
+		merged.OpenStatusTabOnConnect = &v
+	}
+
+	return merged
+}
+
+// copyConfig creates a deep copy of all pointer fields.
+func copyConfig(src *Config) *Config {
+	if src == nil {
 		return &Config{}
 	}
 
-	// Create a new config and copy all pointer fields
 	cfg := &Config{}
-	if cm.config.DNSOverride != nil {
-		dnsOverride := *cm.config.DNSOverride
+	if src.DNSOverride != nil {
+		dnsOverride := *src.DNSOverride
 		cfg.DNSOverride = &dnsOverride
 	}
-	if cm.config.DNSTunnel != nil {
-		dnsTunnel := *cm.config.DNSTunnel
+	if src.DNSTunnel != nil {
+		dnsTunnel := *src.DNSTunnel
 		cfg.DNSTunnel = &dnsTunnel
 	}
-	if cm.config.PrimaryDNS != nil {
-		primaryDNS := *cm.config.PrimaryDNS
+	if src.PrimaryDNS != nil {
+		primaryDNS := *src.PrimaryDNS
 		cfg.PrimaryDNS = &primaryDNS
 	}
-	if cm.config.SecondaryDNS != nil {
-		secondaryDNS := *cm.config.SecondaryDNS
+	if src.SecondaryDNS != nil {
+		secondaryDNS := *src.SecondaryDNS
 		cfg.SecondaryDNS = &secondaryDNS
 	}
-	if cm.config.DefaultServerURL != nil {
-		defaultServerURL := *cm.config.DefaultServerURL
+	if src.DefaultServerURL != nil {
+		defaultServerURL := *src.DefaultServerURL
 		cfg.DefaultServerURL = &defaultServerURL
 	}
-	if cm.config.UserSettingsDisabled != nil {
-		userSettingsDisabled := *cm.config.UserSettingsDisabled
+	if src.UserSettingsDisabled != nil {
+		userSettingsDisabled := *src.UserSettingsDisabled
 		cfg.UserSettingsDisabled = &userSettingsDisabled
 	}
-	if cm.config.AuthPath != nil {
-		authPath := *cm.config.AuthPath
+	if src.AuthPath != nil {
+		authPath := *src.AuthPath
 		cfg.AuthPath = &authPath
 	}
-	if cm.config.OpenStatusTabOnConnect != nil {
-		openStatusTabOnConnect := *cm.config.OpenStatusTabOnConnect
+	if src.OpenStatusTabOnConnect != nil {
+		openStatusTabOnConnect := *src.OpenStatusTabOnConnect
 		cfg.OpenStatusTabOnConnect = &openStatusTabOnConnect
 	}
 	return cfg
