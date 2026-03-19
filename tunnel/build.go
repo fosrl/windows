@@ -4,6 +4,7 @@ package tunnel
 
 import (
 	"context"
+	"sync"
 	"time"
 
 	"github.com/fosrl/newt/logger"
@@ -46,8 +47,19 @@ func (s *tunnelService) buildTunnel(config Config) error {
 		return err
 	}
 
-	fp := fingerprint.GatherFingerprintInfo().ToMap()
-	postures := fingerprint.GatherPostureChecks().ToMap()
+	var fp map[string]any
+	var postures map[string]any
+	var gatherWg sync.WaitGroup
+	gatherWg.Add(2)
+	go func() {
+		defer gatherWg.Done()
+		fp = fingerprint.GatherFingerprintInfo().ToMap()
+	}()
+	go func() {
+		defer gatherWg.Done()
+		postures = fingerprint.GatherPostureChecks().ToMap()
+	}()
+	gatherWg.Wait()
 
 	olmConfig := olmpkg.TunnelConfig{
 		Endpoint:             config.Endpoint,

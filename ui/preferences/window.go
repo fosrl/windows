@@ -43,7 +43,8 @@ var (
 
 // ShowPreferencesWindow shows the preferences window (creates if needed, or brings to front).
 // It accepts a tunnel manager to enable OLM status polling, a config manager for settings, and a tray icon for notifications.
-func ShowPreferencesWindow(owner walk.Form, tm *tunnel.Manager, cm *config.ConfigManager, trayIcon *walk.NotifyIcon) error {
+// initialTabIndex selects the tab to show (0-based, following the order in NewPreferencesWindow).
+func ShowPreferencesWindow(owner walk.Form, tm *tunnel.Manager, cm *config.ConfigManager, trayIcon *walk.NotifyIcon, initialTabIndex int) error {
 	preferencesWindowMutex.Lock()
 	defer preferencesWindowMutex.Unlock()
 
@@ -54,6 +55,16 @@ func ShowPreferencesWindow(owner walk.Form, tm *tunnel.Manager, cm *config.Confi
 			hwnd := preferencesWindowInstance.Handle()
 			win.ShowWindow(hwnd, win.SW_RESTORE)
 			win.SetForegroundWindow(hwnd)
+
+			// Switch to requested tab before returning.
+			if preferencesWindowInstance.tabWidget != nil {
+				pageCount := preferencesWindowInstance.tabWidget.Pages().Len()
+				if initialTabIndex >= 0 && initialTabIndex < pageCount {
+					if err := preferencesWindowInstance.tabWidget.SetCurrentIndex(initialTabIndex); err != nil {
+						logger.Error("Failed to set preferences tab index: %v", err)
+					}
+				}
+			}
 			return nil
 		}
 		// Window was closed, clear the reference
@@ -81,6 +92,16 @@ func ShowPreferencesWindow(owner walk.Form, tm *tunnel.Manager, cm *config.Confi
 			tab.Cleanup()
 		}
 	})
+
+	// Switch to requested tab before showing the window.
+	if pw.tabWidget != nil {
+		pageCount := pw.tabWidget.Pages().Len()
+		if initialTabIndex >= 0 && initialTabIndex < pageCount {
+			if err := pw.tabWidget.SetCurrentIndex(initialTabIndex); err != nil {
+				logger.Error("Failed to set preferences tab index: %v", err)
+			}
+		}
+	}
 
 	// Show the dialog (non-modal, doesn't block)
 	pw.SetVisible(true)

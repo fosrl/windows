@@ -44,7 +44,11 @@ type peerWidgets struct {
 	endpointLabel *walk.Label
 	indicator     *walk.Label
 	statusLabel   *walk.Label
+	firstSeen     time.Time
+	rowVisible    bool
 }
+
+const peerConnectingTimeout = 10 * time.Second
 
 // OLMStatusTab handles the OLM status viewing tab
 type OLMStatusTab struct {
@@ -73,15 +77,24 @@ type OLMStatusTab struct {
 
 	// Current status (protected by mu)
 	currentStatus *tunnel.OLMStatusResponse
+	// Current tunnel state (protected by mu)
+	currentTunnelState tunnel.State
 	displayMode   DisplayMode
 }
 
 // NewOLMStatusTab creates a new OLM status tab
 func NewOLMStatusTab(tm *tunnel.Manager) *OLMStatusTab {
+	var state tunnel.State
+	if tm != nil {
+		state = tm.State()
+	} else {
+		state = tunnel.StateStopped
+	}
 	return &OLMStatusTab{
 		tunnelManager: tm,
 		quit:          make(chan bool),
 		peerWidgets:   make(map[int]*peerWidgets),
+		currentTunnelState: state,
 		displayMode:   DisplayModeFormatted, // Default to formatted view
 	}
 }
@@ -140,6 +153,14 @@ func (ost *OLMStatusTab) Create(parent *walk.TabWidget) (*walk.TabPage, error) {
 	// Create status widgets once (will be updated, not recreated)
 	if err := ost.createStatusWidgets(); err != nil {
 		return nil, err
+	}
+
+	// Seed the UI with the current tunnel state immediately so transitional phases
+	// (e.g. Registering...) show up even before OLM status returns a response.
+	if ost.tunnelManager != nil {
+		ost.mu.Lock()
+		ost.currentTunnelState = ost.tunnelManager.State()
+		ost.mu.Unlock()
 	}
 
 	// Peers section
@@ -380,6 +401,7 @@ func (ost *OLMStatusTab) pollOLMStatus() {
 		// Just set status to nil and show disconnected state
 		ost.mu.Lock()
 		ost.currentStatus = nil
+		ost.currentTunnelState = tunnel.StateStopped
 		ost.mu.Unlock()
 		walk.App().Synchronize(func() {
 			ost.updateUI()
@@ -390,11 +412,22 @@ func (ost *OLMStatusTab) pollOLMStatus() {
 	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
 
+	lastState := ost.tunnelManager.State()
 	for {
 		select {
 		case <-ost.quit:
 			return
 		case <-ticker.C:
+			// Always read tunnel state so the UI can move out of "Disconnected"
+			// even when OLM status isn't available yet.
+			state := ost.tunnelManager.State()
+			stateChanged := state != lastState
+			if stateChanged {
+				ost.mu.Lock()
+				ost.currentTunnelState = state
+				ost.mu.Unlock()
+			}
+
 			status, err := ost.tunnelManager.GetOLMStatus()
 			if err != nil {
 				// Show disconnected state instead of error message
@@ -406,9 +439,15 @@ func (ost *OLMStatusTab) pollOLMStatus() {
 					walk.App().Synchronize(func() {
 						ost.updateUI()
 					})
+				} else if stateChanged {
+					ost.mu.Unlock()
+					walk.App().Synchronize(func() {
+						ost.updateUI()
+					})
 				} else {
 					ost.mu.Unlock()
 				}
+				lastState = state
 				continue
 			}
 
@@ -417,10 +456,12 @@ func (ost *OLMStatusTab) pollOLMStatus() {
 			ost.currentStatus = status
 			ost.mu.Unlock()
 
-			// Update UI
+			// Update UI (state or OLM details changed)
 			walk.App().Synchronize(func() {
 				ost.updateUI()
 			})
+
+			lastState = state
 		}
 	}
 }
@@ -434,6 +475,7 @@ func (ost *OLMStatusTab) updateUI() {
 	}()
 	ost.mu.Lock()
 	status := ost.currentStatus
+	tstate := ost.currentTunnelState
 	ost.mu.Unlock()
 
 	// Check which tab is actually visible (outside lock)
@@ -442,7 +484,7 @@ func (ost *OLMStatusTab) updateUI() {
 	// Only update the active tab
 	if currentIndex == 0 {
 		// Formatted tab is active
-		ost.updateFormattedView(status)
+		ost.updateFormattedView(status, tstate)
 	} else {
 		// JSON tab is active
 		ost.updateJSONView(status)
@@ -471,32 +513,31 @@ func (ost *OLMStatusTab) updateJSONView(status *tunnel.OLMStatusResponse) {
 }
 
 // updateFormattedView updates the formatted view by updating existing widgets
-func (ost *OLMStatusTab) updateFormattedView(status *tunnel.OLMStatusResponse) {
+func (ost *OLMStatusTab) updateFormattedView(status *tunnel.OLMStatusResponse, state tunnel.State) {
 	// No need to set visibility - tabs handle that automatically
 
 	if ost.statusWidgets == nil {
 		return
 	}
 
-	if status == nil {
-		// Show disconnected state
+	// Update overall connection status from tunnel state (matches tray behavior).
+	switch state {
+	case tunnel.StateRunning:
+		ost.statusWidgets.statusIndicator.SetTextColor(walk.RGB(0, 200, 0))
+	case tunnel.StateStopped:
 		ost.statusWidgets.statusIndicator.SetTextColor(walk.RGB(150, 150, 150))
-		ost.statusWidgets.statusText.SetText("Disconnected")
+	default:
+		ost.statusWidgets.statusIndicator.SetTextColor(walk.RGB(255, 200, 0))
+	}
+	ost.statusWidgets.statusText.SetText(state.DisplayText())
+
+	if status == nil {
 		ost.statusWidgets.versionRow.SetVisible(false)
 		ost.statusWidgets.agentRow.SetVisible(false)
 		ost.statusWidgets.orgRow.SetVisible(false)
 		ost.updatePeersList(status)
 		return
 	}
-
-	// Update status
-	connected := status.Connected
-	if connected {
-		ost.statusWidgets.statusIndicator.SetTextColor(walk.RGB(0, 200, 0))
-	} else {
-		ost.statusWidgets.statusIndicator.SetTextColor(walk.RGB(150, 150, 150))
-	}
-	ost.statusWidgets.statusText.SetText(ost.formatStatus(status.Connected, status.Registered))
 
 	// Update version
 	if status.Version != "" {
@@ -531,7 +572,10 @@ func (ost *OLMStatusTab) formatStatus(connected, registered bool) string {
 	if connected {
 		return "Connected"
 	}
-	return "Disconnected"
+	if registered {
+		return "Connecting..."
+	}
+	return "Registering..."
 }
 
 // updatePeersList updates the peers container, reusing existing widgets when possible
@@ -542,6 +586,8 @@ func (ost *OLMStatusTab) updatePeersList(status *tunnel.OLMStatusResponse) {
 		for _, pw := range ost.peerWidgets {
 			if pw.row != nil {
 				pw.row.SetVisible(false)
+				pw.rowVisible = false
+				pw.firstSeen = time.Time{}
 			}
 		}
 		ost.mu.Unlock()
@@ -597,22 +643,46 @@ func (ost *OLMStatusTab) updatePeersList(status *tunnel.OLMStatusResponse) {
 					pw.endpointLabel.SetVisible(false)
 				}
 			}
-			if pw.indicator != nil {
-				if peer.Connected {
-					pw.indicator.SetTextColor(walk.RGB(0, 200, 0))
-				} else {
-					pw.indicator.SetTextColor(walk.RGB(150, 150, 150))
-				}
-			}
-			if pw.statusLabel != nil {
-				if peer.Connected {
-					pw.statusLabel.SetText("Connected")
-				} else {
-					pw.statusLabel.SetText("Disconnected")
-				}
-			}
+
+			// Mark as visible and (re)start the "first seen" timer when it becomes
+			// visible again (e.g. reappears after being hidden).
 			if pw.row != nil {
 				pw.row.SetVisible(true)
+			}
+			if !pw.rowVisible || pw.firstSeen.IsZero() {
+				pw.firstSeen = time.Now()
+			}
+			pw.rowVisible = true
+
+			// Update per-site status with a 10-second connecting window.
+			if peer.Connected {
+				if pw.indicator != nil {
+					pw.indicator.SetTextColor(walk.RGB(0, 200, 0))
+				}
+				if pw.statusLabel != nil {
+					pw.statusLabel.SetText("Connected")
+				}
+			} else {
+				// Not connected yet: show "Connecting" until timeout, then "Disconnected".
+				if pw.firstSeen.IsZero() {
+					pw.firstSeen = time.Now()
+				}
+				elapsed := time.Since(pw.firstSeen)
+				if elapsed >= peerConnectingTimeout {
+					if pw.indicator != nil {
+						pw.indicator.SetTextColor(walk.RGB(150, 150, 150))
+					}
+					if pw.statusLabel != nil {
+						pw.statusLabel.SetText("Disconnected")
+					}
+				} else {
+					if pw.indicator != nil {
+						pw.indicator.SetTextColor(walk.RGB(255, 200, 0))
+					}
+					if pw.statusLabel != nil {
+						pw.statusLabel.SetText("Connecting")
+					}
+				}
 			}
 		}
 	}
@@ -621,6 +691,8 @@ func (ost *OLMStatusTab) updatePeersList(status *tunnel.OLMStatusResponse) {
 	for siteID, pw := range ost.peerWidgets {
 		if !seenPeers[siteID] && pw.row != nil {
 			pw.row.SetVisible(false)
+			pw.rowVisible = false
+			pw.firstSeen = time.Time{}
 		}
 	}
 	ost.mu.Unlock()
@@ -644,6 +716,10 @@ func (ost *OLMStatusTab) createPeerWidget(siteID int, name, endpoint string, con
 		return nil
 	}
 	ost.mu.Unlock()
+
+	// Record first time this peer widget was created (used for the connecting timeout).
+	pw.firstSeen = time.Now()
+	pw.rowVisible = true
 
 	row, err := walk.NewComposite(ost.peersContainer)
 	if err != nil {
@@ -704,14 +780,15 @@ func (ost *OLMStatusTab) createPeerWidget(siteID int, name, endpoint string, con
 	if connected {
 		pw.indicator.SetTextColor(walk.RGB(0, 200, 0))
 	} else {
-		pw.indicator.SetTextColor(walk.RGB(150, 150, 150))
+		// When a site first shows up but isn't connected yet, show it as "Connecting".
+		pw.indicator.SetTextColor(walk.RGB(255, 200, 0))
 	}
 	pw.indicator.SetMinMaxSize(walk.Size{Width: 12, Height: 12}, walk.Size{Width: 12, Height: 12})
 
 	// Status text
 	statusText := "Connected"
 	if !connected {
-		statusText = "Disconnected"
+		statusText = "Connecting"
 	}
 	pw.statusLabel, err = walk.NewLabel(statusContainer)
 	if err != nil {
