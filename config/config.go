@@ -27,13 +27,14 @@ const (
 // Config represents the per-user application configuration stored under
 // %LOCALAPPDATA%\Pangolin\pangolin.json (or %APPDATA% as a fallback).
 type Config struct {
-	DNSOverride          *bool   `json:"dnsOverride,omitempty"`
-	DNSTunnel            *bool   `json:"dnsTunnel,omitempty"`
-	PrimaryDNS           *string `json:"primaryDNS,omitempty"`
-	SecondaryDNS         *string `json:"secondaryDNS,omitempty"`
-	DefaultServerURL     *string `json:"defaultServerURL,omitempty"`
-	UserSettingsDisabled *bool   `json:"userSettingsDisabled,omitempty"`
-	AuthPath             *string `json:"authPath,omitempty"`
+	DNSOverride            *bool   `json:"dnsOverride,omitempty"`
+	DNSTunnel              *bool   `json:"dnsTunnel,omitempty"`
+	PrimaryDNS             *string `json:"primaryDNS,omitempty"`
+	SecondaryDNS           *string `json:"secondaryDNS,omitempty"`
+	DefaultServerURL       *string `json:"defaultServerURL,omitempty"`
+	UserSettingsDisabled   *bool   `json:"userSettingsDisabled,omitempty"`
+	AuthPath               *string `json:"authPath,omitempty"`
+	OpenStatusTabOnConnect *bool   `json:"openStatusTabOnConnect,omitempty"`
 }
 
 // SystemConfig represents machine-wide configuration stored under
@@ -266,6 +267,18 @@ func (cm *ConfigManager) GetAuthPath() string {
 	return ""
 }
 
+// GetOpenStatusTabOnConnect returns whether the tray Connect action should
+// open the preferences window directly on the Status tab after a successful connect.
+func (cm *ConfigManager) GetOpenStatusTabOnConnect() bool {
+	cm.mu.RLock()
+	defer cm.mu.RUnlock()
+
+	if cm.config != nil && cm.config.OpenStatusTabOnConnect != nil {
+		return *cm.config.OpenStatusTabOnConnect
+	}
+	return false
+}
+
 // SetAuthPath sets the auth path and saves to config
 func (cm *ConfigManager) SetAuthPath(value string) bool {
 	cm.mu.Lock()
@@ -393,6 +406,10 @@ func (cm *ConfigManager) getConfigCopy() *Config {
 	if cm.config.AuthPath != nil {
 		authPath := *cm.config.AuthPath
 		cfg.AuthPath = &authPath
+	}
+	if cm.config.OpenStatusTabOnConnect != nil {
+		openStatusTabOnConnect := *cm.config.OpenStatusTabOnConnect
+		cfg.OpenStatusTabOnConnect = &openStatusTabOnConnect
 	}
 	return cfg
 }

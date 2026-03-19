@@ -53,11 +53,26 @@ func GatherFingerprintInfo() *Fingerprint {
 		username = u.Username
 	}
 
-	hostname, _ := os.Hostname()
+	var hostname string
+	var osVersion string
+	var kernelVersion string
+	var deviceModel string
+	var serialNumber string
+	var wg sync.WaitGroup
 
-	osVersion, kernelVersion := getWindowsVersion()
+	wg.Go(func() {
+		hostname, _ = os.Hostname()
+	})
 
-	deviceModel, serialNumber := getWindowsModelAndSerial()
+	wg.Go(func() {
+		osVersion, kernelVersion = getWindowsVersion()
+	})
+
+	wg.Go(func() {
+		deviceModel, serialNumber = getWindowsModelAndSerial()
+	})
+
+	wg.Wait()
 
 	return &Fingerprint{
 		Username:            username,

@@ -336,6 +336,24 @@ func setupMenu() error {
 				}
 			} else if currentState == tunnel.StateStopped {
 				// Connect
+				// If enabled, open preferences immediately on the Status tab,
+				// but before starting the tunnel.
+				if configManager != nil && configManager.GetOpenStatusTabOnConnect() {
+					walk.App().Synchronize(func() {
+						if err := preferences.ShowPreferencesWindow(mainWindow, tunnelManager, configManager, trayIcon, 1); err != nil {
+							logger.Error("Failed to show preferences window: %v", err)
+							td := walk.NewTaskDialog()
+							_, _ = td.Show(walk.TaskDialogOpts{
+								Owner:         mainWindow,
+								Title:         "Error",
+								Content:       fmt.Sprintf("Failed to open preferences window: %v", err),
+								IconSystem:    walk.TaskDialogSystemIconError,
+								CommonButtons: win.TDCBF_OK_BUTTON,
+							})
+						}
+					})
+				}
+
 				err := tunnelManager.Connect()
 				if err != nil {
 					logger.Error("Failed to start tunnel: %v", err)
@@ -543,7 +561,7 @@ func setupMenu() error {
 						})
 					}
 				}()
-				if err := preferences.ShowPreferencesWindow(mainWindow, tunnelManager, configManager, trayIcon); err != nil {
+				if err := preferences.ShowPreferencesWindow(mainWindow, tunnelManager, configManager, trayIcon, 0); err != nil {
 					logger.Error("Failed to show preferences window: %v", err)
 					td := walk.NewTaskDialog()
 					_, _ = td.Show(walk.TaskDialogOpts{
