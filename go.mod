@@ -1,17 +1,17 @@
 module github.com/fosrl/windows
 
-go 1.25
+go 1.25.0
 
 require (
 	github.com/Microsoft/go-winio v0.6.2
-	github.com/fosrl/newt v1.10.1
-	github.com/fosrl/olm v1.4.3
+	github.com/fosrl/newt v1.10.3
+	github.com/fosrl/olm v1.4.4
 	github.com/pkg/browser v0.0.0-20240102092130-5ac0b6a4141c
 	github.com/tailscale/walk v0.0.0-20251016200523-963e260a8227
 	github.com/tailscale/win v0.0.0-20250213223159-5992cb43ca35
 	github.com/zalando/go-keyring v0.2.6
-	golang.org/x/crypto v0.46.0
-	golang.org/x/sys v0.40.0
+	golang.org/x/crypto v0.48.0
+	golang.org/x/sys v0.41.0
 )
 
 require (
@@ -25,11 +25,11 @@ require (
 	github.com/vishvananda/netlink v1.3.1 // indirect
 	github.com/vishvananda/netns v0.0.5 // indirect
 	golang.org/x/exp v0.0.0-20251113190631-e25ba8c21ef6 // indirect
-	golang.org/x/mod v0.31.0 // indirect
-	golang.org/x/net v0.48.0 // indirect
+	golang.org/x/mod v0.32.0 // indirect
+	golang.org/x/net v0.51.0 // indirect
 	golang.org/x/sync v0.19.0 // indirect
 	golang.org/x/time v0.12.0 // indirect
-	golang.org/x/tools v0.40.0 // indirect
+	golang.org/x/tools v0.41.0 // indirect
 	golang.zx2c4.com/wintun v0.0.0-20230126152724-0fa3db229ce2 // indirect
 	golang.zx2c4.com/wireguard v0.0.0-20250521234502-f333402bd9cb // indirect
 	golang.zx2c4.com/wireguard/wgctrl v0.0.0-20241231184526-a9ab2273dd10 // indirect
