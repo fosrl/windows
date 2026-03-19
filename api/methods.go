@@ -168,6 +168,22 @@ func (c *APIClient) ListUserOrgs(userId string) (*ListUserOrgsResponse, error) {
 	return &response, nil
 }
 
+// GetUserResources lists the private resources a user has access to within an organization.
+func (c *APIClient) GetUserResources(orgId string) (*GetUserResourcesResponse, error) {
+	path := fmt.Sprintf("/org/%s/user-resources", orgId)
+	data, resp, err := c.makeRequest("GET", path, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var response GetUserResourcesResponse
+	if err := c.parseResponse(data, resp, &response); err != nil {
+		return nil, err
+	}
+
+	return &response, nil
+}
+
 // CreateOlm creates an OLM for a user
 func (c *APIClient) CreateOlm(userId, name string) (*CreateOlmResponse, error) {
 	requestBody := CreateOlmRequest{

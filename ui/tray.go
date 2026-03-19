@@ -5,8 +5,10 @@ package ui
 import (
 	"errors"
 	"fmt"
+	"os/exec"
 	"path/filepath"
 	"runtime/debug"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -69,11 +71,101 @@ var (
 	accountMenu        *walk.Menu
 	moreMenu           *walk.Menu
 	orgActions         map[string]*walk.Action
+	resourcesActions   map[int]*walk.Action
 	accountActions     map[string]*walk.Action
 	noOrgsAction       *walk.Action
 	noAccountsAction   *walk.Action
 	menuUpdateMutex    sync.Mutex
+
+	resourcesCountAction *walk.Action
+	loginSeparatorAction *walk.Action
+
+	resourcesCacheMu        sync.RWMutex
+	resourcesCache          map[string]resourcesCacheEntry // keyed by userId-orgId
+	resourcesDisplayedMu    sync.RWMutex
+	resourcesDisplayedOrgId string
+	resourcesDisplayedKey   string
 )
+
+type resourcesCacheEntry struct {
+	key           string
+	siteResources []api.GetUserResourcesSiteResource
+}
+
+func normalizeAlias(alias *string) string {
+	if alias == nil {
+		return ""
+	}
+	return strings.TrimSpace(*alias)
+}
+
+func resourcesKey(siteResources []api.GetUserResourcesSiteResource) string {
+	// Sort to make equality independent of ordering.
+	sorted := append([]api.GetUserResourcesSiteResource(nil), siteResources...)
+	sort.Slice(sorted, func(i, j int) bool {
+		return sorted[i].SiteResourceId < sorted[j].SiteResourceId
+	})
+
+	var b strings.Builder
+	b.WriteString("n=")
+	b.WriteString(fmt.Sprintf("%d;", len(sorted)))
+	for _, sr := range sorted {
+		alias := normalizeAlias(sr.Alias)
+		// alias comparison logic relies on "non-empty alias".
+		b.WriteString(fmt.Sprintf("%d|%s|%s|%s;", sr.SiteResourceId, sr.Name, strings.TrimSpace(sr.Destination), alias))
+	}
+	return b.String()
+}
+
+type ResourceKind string
+
+const (
+	ResourceKindRDP ResourceKind = "rdp"
+)
+
+// resourceKindForSiteResource returns the kind for a site resource.
+// For now we treat all resources as RDP so we can validate launch behavior end-to-end.
+func resourceKindForSiteResource(_ api.GetUserResourcesSiteResource) ResourceKind {
+	return ResourceKindRDP
+}
+
+func launchResourceByKind(kind ResourceKind, sr api.GetUserResourcesSiteResource, host string) error {
+	switch kind {
+	case ResourceKindRDP:
+		return launchRDP(host)
+	default:
+		return fmt.Errorf("unsupported resource kind: %s", kind)
+	}
+}
+
+func launchRDP(host string) error {
+	// Use Start (not Run) so the tray UI doesn't block.
+	host = strings.TrimSpace(host)
+	// mstsc expects /v:<host>. Since exec.Command doesn't apply shell escaping,
+	// passing quotes here can end up being treated as literal characters.
+	host = strings.Trim(host, `"`)
+
+	cmd := exec.Command("mstsc", fmt.Sprintf("/v:%s", host))
+	return cmd.Start()
+}
+
+func isCidrSiteResource(sr api.GetUserResourcesSiteResource) bool {
+	return sr.Mode == "cidr"
+}
+
+func filterHostSiteResources(siteResources []api.GetUserResourcesSiteResource) []api.GetUserResourcesSiteResource {
+	if len(siteResources) == 0 {
+		return nil
+	}
+	out := make([]api.GetUserResourcesSiteResource, 0, len(siteResources))
+	for _, sr := range siteResources {
+		if isCidrSiteResource(sr) {
+			continue
+		}
+		out = append(out, sr)
+	}
+	return out
+}
 
 // updateTrayTooltip updates the tray icon tooltip to show the current tunnel state
 func updateTrayTooltip(state tunnel.State) {
@@ -215,6 +307,103 @@ func handleMenuOpen() {
 			} else {
 				// Update menu again after orgs refresh
 				updateMenu()
+			}
+		}
+
+		// Refresh resources for the currently selected organization
+		if authManager.IsAuthenticated() && !authManager.SessionExpired() {
+			// Only load/show resources when the tunnel is connected.
+			connected := false
+			if tunnelManager != nil {
+				connected = tunnelManager.IsConnected()
+			} else {
+				connectMutex.RLock()
+				connected = isConnected
+				connectMutex.RUnlock()
+			}
+			if !connected {
+				return
+			}
+
+			currentOrg := authManager.CurrentOrg()
+			orgID := ""
+			if currentOrg != nil {
+				orgID = currentOrg.Id
+			}
+
+			currentUser := authManager.CurrentUser()
+			userID := ""
+			if currentUser != nil {
+				userID = currentUser.UserId
+			}
+
+			if orgID != "" && userID != "" {
+				cacheKey := fmt.Sprintf("%s-%s", userID, orgID)
+
+				// Show cached resources immediately.
+				var cachedResources []api.GetUserResourcesSiteResource
+				var cachedKey string
+				resourcesCacheMu.RLock()
+				entry, ok := resourcesCache[cacheKey]
+				if ok {
+					cachedResources = entry.siteResources
+					cachedKey = entry.key
+				}
+				resourcesCacheMu.RUnlock()
+
+				walk.App().Synchronize(func() {
+					updateResourcesTrayResources(filterHostSiteResources(cachedResources)) // nil clears old items
+					resourcesDisplayedMu.Lock()
+					resourcesDisplayedOrgId = orgID
+					resourcesDisplayedKey = cachedKey
+					resourcesDisplayedMu.Unlock()
+				})
+
+				// Fetch fresh resources in the background.
+				go func(fetchOrgId string, fetchCacheKey string) {
+					resourcesResp, err := apiClient.GetUserResources(fetchOrgId)
+					if err != nil {
+						logger.Error("Failed to fetch user resources: %v", err)
+						return
+					}
+
+					newSiteResources := filterHostSiteResources(resourcesResp.SiteResources)
+					newKey := resourcesKey(newSiteResources)
+
+					// Compare against the latest cached key for this org.
+					resourcesCacheMu.RLock()
+					currentCachedKey := resourcesCache[fetchCacheKey].key
+					resourcesCacheMu.RUnlock()
+
+					if currentCachedKey == newKey {
+						return // No meaningful changes; keep current UI list.
+					}
+
+					walk.App().Synchronize(func() {
+						// Ensure org hasn't changed while fetching.
+						if !authManager.IsAuthenticated() || authManager.SessionExpired() {
+							return
+						}
+						currentOrg := authManager.CurrentOrg()
+						if currentOrg == nil || currentOrg.Id != fetchOrgId {
+							return
+						}
+						if currentUser := authManager.CurrentUser(); currentUser == nil || currentUser.UserId != userID {
+							return
+						}
+
+						updateResourcesTrayResources(newSiteResources)
+
+						resourcesCacheMu.Lock()
+						resourcesCache[fetchCacheKey] = resourcesCacheEntry{key: newKey, siteResources: newSiteResources}
+						resourcesCacheMu.Unlock()
+
+						resourcesDisplayedMu.Lock()
+						resourcesDisplayedOrgId = fetchOrgId
+						resourcesDisplayedKey = newKey
+						resourcesDisplayedMu.Unlock()
+					})
+				}(orgID, cacheKey)
 			}
 		}
 	}()
@@ -394,8 +583,25 @@ func setupMenu() error {
 	orgsMenuAction.SetVisible(false) // Hidden initially
 	actions.Add(orgsMenuAction)
 
-	// Separator before login
+	// Separator before resources
 	actions.Add(walk.NewSeparatorAction())
+
+	// Resources section (top-level items, no nested "Resources" header menu)
+	resourcesCountAction = walk.NewAction()
+	resourcesCountAction.SetEnabled(false)
+	resourcesCountAction.SetText("0 Resources")
+	resourcesCountAction.SetVisible(false)
+	actions.Add(resourcesCountAction)
+	resourcesActions = make(map[int]*walk.Action)
+	resourcesCacheMu.Lock()
+	resourcesCache = make(map[string]resourcesCacheEntry)
+	resourcesDisplayedOrgId = ""
+	resourcesDisplayedKey = ""
+	resourcesCacheMu.Unlock()
+
+	// Separator before login
+	loginSeparatorAction = walk.NewSeparatorAction()
+	actions.Add(loginSeparatorAction)
 
 	// Create login action (only when no accounts are available)
 	loginAction = walk.NewAction()
@@ -721,6 +927,24 @@ func updateMenu() {
 		}
 		if orgsMenuAction != nil {
 			orgsMenuAction.SetVisible(showAuthSection && !sessionExpired)
+		}
+
+		// Resources should only show when the tunnel is connected.
+		connected := false
+		if tunnelManager != nil {
+			connected = tunnelManager.IsConnected()
+		} else {
+			connectMutex.RLock()
+			connected = isConnected
+			connectMutex.RUnlock()
+		}
+		resourcesVisible := showAuthSection && !sessionExpired && connected
+
+		if resourcesCountAction != nil {
+			resourcesCountAction.SetVisible(resourcesVisible)
+		}
+		for _, action := range resourcesActions {
+			action.SetVisible(resourcesVisible)
 		}
 
 		// Update tunnel state and organizations only when fully authenticated and not session expired
@@ -1188,6 +1412,114 @@ func updateOrganizations() {
 	}
 	orgsMenuAction.SetText(currentOrgName)
 	// Always show menu when authenticated (visibility controlled by updateMenu based on auth state)
+}
+
+// updateResourcesTrayResources updates the top-level resources section in the tray.
+// Each resource is shown as a top-level menu item whose submenu contains:
+// - a disabled row showing `alias` (if present) else `destination`
+// - a Copy action that copies the same value
+// This should be called on the UI thread.
+func updateResourcesTrayResources(siteResources []api.GetUserResourcesSiteResource) {
+	if contextMenu == nil || resourcesCountAction == nil || resourcesActions == nil {
+		return
+	}
+
+	// Clear existing resource actions so closures capture current values.
+	actions := contextMenu.Actions()
+	for _, action := range resourcesActions {
+		actions.Remove(action)
+	}
+	resourcesActions = make(map[int]*walk.Action)
+
+	// Update resources count
+	count := len(siteResources)
+	resourcesCountText := fmt.Sprintf("%d Resource", count)
+	if count != 1 {
+		resourcesCountText += "s"
+	}
+	resourcesCountAction.SetText(resourcesCountText)
+	resourcesCountAction.SetVisible(true)
+
+	// Insert new resource items right before the login separator.
+	insertionIndex := actions.Len()
+	if loginSeparatorAction != nil {
+		for i := 0; i < actions.Len(); i++ {
+			if actions.At(i) == loginSeparatorAction {
+				insertionIndex = i
+				break
+			}
+		}
+	}
+
+	for _, sr := range siteResources {
+		sr := sr
+
+		hoverVal := sr.Destination
+		if sr.Alias != nil {
+			aliasTrimmed := strings.TrimSpace(*sr.Alias)
+			if aliasTrimmed != "" {
+				hoverVal = aliasTrimmed
+			}
+		}
+		hostVal := sr.Destination
+		if sr.Alias != nil {
+			aliasTrimmed := strings.TrimSpace(*sr.Alias)
+			if aliasTrimmed != "" {
+				hostVal = aliasTrimmed
+			}
+		}
+
+		resourceSubMenu, err := walk.NewMenu()
+		if err != nil {
+			logger.Error("Failed to create resource submenu: %v", err)
+			continue
+		}
+
+		infoAction := walk.NewAction()
+		infoAction.SetEnabled(false)
+		infoAction.SetText(hoverVal)
+
+		copyAction := walk.NewAction()
+		copyAction.SetText("Copy")
+		copyAction.Triggered().Attach(func() {
+			copyToClipboard(hostVal)
+		})
+
+		openAction := walk.NewAction()
+		openAction.SetText("Open RDP")
+		openAction.Triggered().Attach(func() {
+			kind := resourceKindForSiteResource(sr)
+			// Launch in a goroutine so we never block the UI thread.
+			go func() {
+				if err := launchResourceByKind(kind, sr, hostVal); err != nil {
+					logger.Error("Failed to open RDP: %v", err)
+					walk.App().Synchronize(func() {
+						td := walk.NewTaskDialog()
+						_, _ = td.Show(walk.TaskDialogOpts{
+							Owner:         mainWindow,
+							Title:         "Open RDP Failed",
+							Content:       err.Error(),
+							IconSystem:    walk.TaskDialogSystemIconError,
+							CommonButtons: win.TDCBF_OK_BUTTON,
+						})
+					})
+				}
+			}()
+		})
+
+		resourceSubMenu.Actions().Add(infoAction)
+		resourceSubMenu.Actions().Add(walk.NewSeparatorAction())
+		resourceSubMenu.Actions().Add(openAction)
+		resourceSubMenu.Actions().Add(copyAction)
+
+		resourceMenuAction := walk.NewMenuAction(resourceSubMenu)
+		// Display name always.
+		resourceMenuAction.SetText(sr.Name)
+
+		actions.Insert(insertionIndex, resourceMenuAction)
+		resourcesActions[sr.SiteResourceId] = resourceMenuAction
+		insertionIndex++
+	}
 }
 
 // updateLoginAction updates the login button text and enabled state

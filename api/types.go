@@ -178,3 +178,26 @@ type ServerInfo struct {
 	EnterpriseLicenseValid bool    `json:"enterpriseLicenseValid"`
 	EnterpriseLicenseType  *string `json:"enterpriseLicenseType,omitempty"`
 }
+
+// GetUserResourcesResponse represents the `data` payload from:
+//   GET /org/:orgId/user-resources
+// We only model the fields we need for the tray resources list.
+type GetUserResourcesResponse struct {
+	Resources     []GetUserResource          `json:"resources,omitempty"`
+	SiteResources []GetUserResourcesSiteResource `json:"siteResources"`
+}
+
+type GetUserResource struct {
+	ResourceId int    `json:"resourceId"`
+	Name        string `json:"name"`
+	Domain      *string `json:"domain,omitempty"`
+}
+
+// GetUserResourcesSiteResource represents a site resource row.
+type GetUserResourcesSiteResource struct {
+	SiteResourceId int     `json:"siteResourceId"`
+	Name           string  `json:"name"`
+	Destination    string  `json:"destination"`
+	Mode           string  `json:"mode"`
+	Alias          *string `json:"alias,omitempty"`
+}
