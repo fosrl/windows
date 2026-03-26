@@ -189,7 +189,7 @@ func (tm *Manager) buildConfig() (Config, error) {
 		PingIntervalSeconds: 5,
 		PingTimeoutSeconds:  5,
 		Endpoint:            activeAccount.Hostname,
-		DNS:                 primaryDNS, // Use primary DNS without :53
+		DNS:                 "1.1.1.1", // HARDCODE THIS FOR NOW BUT TODO: FIGURE OUT HOW TO HANDLE THIS BETTER
 		OrgID:               currentOrg.Id,
 		InterfaceName:       "Pangolin",
 		UpstreamDNS:         upstreamDNS, // Each value has :53 appended
