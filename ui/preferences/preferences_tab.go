@@ -4,6 +4,7 @@ package preferences
 
 import (
 	"net"
+	"strconv"
 	"strings"
 
 	"github.com/fosrl/newt/logger"
@@ -21,10 +22,16 @@ type PreferencesTab struct {
 	dnsTunnelCheckBox   *walk.CheckBox
 	primaryDNSEdit      *walk.LineEdit
 	secondaryDNSEdit    *walk.LineEdit
+	mtuEdit             *walk.LineEdit
 	saveButton          *walk.PushButton
 	configManager       *config.ConfigManager
 	window              *PreferencesWindow
 }
+
+const (
+	minMTU = 576
+	maxMTU = 9000
+)
 
 // NewPreferencesTab creates a new preferences tab
 func NewPreferencesTab(cm *config.ConfigManager) *PreferencesTab {
@@ -220,6 +227,49 @@ func (pt *PreferencesTab) Create(parent *walk.TabWidget) (*walk.TabPage, error) 
 	// Spacer
 	walk.NewHSpacer(secondaryDNSContainer)
 
+	// Advanced section title
+	advancedSectionTitle, err := walk.NewLabel(pt.contentContainer)
+	if err != nil {
+		return nil, err
+	}
+	advancedSectionTitle.SetText("Advanced")
+	if font != nil {
+		advancedSectionTitle.SetFont(font)
+	}
+
+	// MTU section
+	mtuContainer, err := walk.NewComposite(pt.contentContainer)
+	if err != nil {
+		return nil, err
+	}
+	mtuLayout := walk.NewHBoxLayout()
+	mtuLayout.SetMargins(walk.Margins{})
+	mtuLayout.SetSpacing(12)
+	mtuContainer.SetLayout(mtuLayout)
+
+	mtuLabel, err := walk.NewLabel(mtuContainer)
+	if err != nil {
+		return nil, err
+	}
+	mtuLabel.SetText("MTU")
+	mtuLabel.SetMinMaxSize(walk.Size{Width: 200, Height: 0}, walk.Size{Width: 200, Height: 0})
+
+	if pt.mtuEdit, err = walk.NewLineEdit(mtuContainer); err != nil {
+		return nil, err
+	}
+	pt.mtuEdit.SetText(strconv.Itoa(pt.configManager.GetMTU()))
+
+	// Spacer
+	walk.NewHSpacer(mtuContainer)
+
+	mtuDescLabel, err := walk.NewLabel(pt.contentContainer)
+	if err != nil {
+		return nil, err
+	}
+	mtuDescLabel.SetText("Your sites must be configured to use the same MTU value.")
+	mtuDescLabel.SetTextColor(walk.RGB(100, 100, 100))
+	mtuDescLabel.SetMinMaxSize(walk.Size{}, walk.Size{Width: 400, Height: 0})
+
 	// Add spacer to fill remaining space
 	walk.NewVSpacer(pt.contentContainer)
 
@@ -282,6 +332,26 @@ func (pt *PreferencesTab) onSave() {
 	dnsTunnel := pt.dnsTunnelCheckBox.Checked()
 	primaryDNS := strings.TrimSpace(pt.primaryDNSEdit.Text())
 	secondaryDNS := strings.TrimSpace(pt.secondaryDNSEdit.Text())
+	mtuText := strings.TrimSpace(pt.mtuEdit.Text())
+	mtu, err := strconv.Atoi(mtuText)
+	if mtuText == "" || err != nil || mtu < minMTU || mtu > maxMTU {
+		// Restore to current config value
+		currentValue := strconv.Itoa(pt.configManager.GetMTU())
+		pt.mtuEdit.SetText(currentValue)
+		var owner walk.Form
+		if pt.window != nil {
+			owner = pt.window
+		}
+		td := walk.NewTaskDialog()
+		_, _ = td.Show(walk.TaskDialogOpts{
+			Owner:         owner,
+			Title:         "Invalid Input",
+			Content:       "MTU must be a whole number between 576 and 9000.",
+			IconSystem:    walk.TaskDialogSystemIconWarning,
+			CommonButtons: win.TDCBF_OK_BUTTON,
+		})
+		return
+	}
 
 	// Validate primary DNS (required)
 	if primaryDNS == "" {
@@ -356,9 +426,11 @@ func (pt *PreferencesTab) onSave() {
 	dnsOverrideVal := dnsOverride
 	dnsTunnelVal := dnsTunnel
 	primaryDNSVal := primaryDNS
+	mtuVal := mtu
 	cfg.DNSOverride = &dnsOverrideVal
 	cfg.DNSTunnel = &dnsTunnelVal
 	cfg.PrimaryDNS = &primaryDNSVal
+	cfg.MTU = &mtuVal
 	if secondaryDNS != "" {
 		cfg.SecondaryDNS = &secondaryDNS
 	} else {

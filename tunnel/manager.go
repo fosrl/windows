@@ -184,7 +184,7 @@ func (tm *Manager) buildConfig() (Config, error) {
 		ID:                  olmId,
 		Secret:              olmSecret,
 		UserToken:           userToken,
-		MTU:                 1280,
+		MTU:                 tm.configManager.GetMTU(),
 		Holepunch:           true,
 		PingIntervalSeconds: 5,
 		PingTimeoutSeconds:  5,
@@ -374,11 +374,11 @@ type OLMStatusError struct {
 // sessionExpiredErrorCodes are OLM/connection error codes that mean session expired or unauthorized.
 // When the connection reports one of these before fully established, we set session-expired state.
 var sessionExpiredErrorCodes = map[string]struct{}{
-	"UNAUTHORIZED":                        {},
-	"SESSION_EXPIRED":                     {},
-	"ORG_ACCESS_POLICY_SESSION_EXPIRED":   {},
-	"INVALID_USER_SESSION":                {},
-	"USER_ID_NOT_FOUND":                   {},
+	"UNAUTHORIZED":                      {},
+	"SESSION_EXPIRED":                   {},
+	"ORG_ACCESS_POLICY_SESSION_EXPIRED": {},
+	"INVALID_USER_SESSION":              {},
+	"USER_ID_NOT_FOUND":                 {},
 }
 
 // OLMStatusResponse represents the status response from OLM API

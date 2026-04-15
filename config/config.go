@@ -22,6 +22,7 @@ const (
 	DefaultPrimaryDNS  = "1.1.1.1"
 	DefaultDNSOverride = true
 	DefaultDNSTunnel   = false
+	DefaultMTU         = 1280
 )
 
 // Config represents the per-user application configuration stored under
@@ -31,6 +32,7 @@ type Config struct {
 	DNSTunnel              *bool   `json:"dnsTunnel,omitempty"`
 	PrimaryDNS             *string `json:"primaryDNS,omitempty"`
 	SecondaryDNS           *string `json:"secondaryDNS,omitempty"`
+	MTU                    *int    `json:"mtu,omitempty"`
 	DefaultServerURL       *string `json:"defaultServerURL,omitempty"`
 	UserSettingsDisabled   *bool   `json:"userSettingsDisabled,omitempty"`
 	AuthPath               *string `json:"authPath,omitempty"`
@@ -198,6 +200,17 @@ func (cm *ConfigManager) GetSecondaryDNS() string {
 	return ""
 }
 
+// GetMTU returns the MTU from config or default if not set
+func (cm *ConfigManager) GetMTU() int {
+	cm.mu.RLock()
+	defer cm.mu.RUnlock()
+
+	if cm.config != nil && cm.config.MTU != nil && *cm.config.MTU > 0 {
+		return *cm.config.MTU
+	}
+	return DefaultMTU
+}
+
 // GetDefaultServerURL returns the default server URL from config or empty string if not set
 func (cm *ConfigManager) GetDefaultServerURL() string {
 	cm.mu.RLock()
@@ -332,6 +345,17 @@ func (cm *ConfigManager) SetSecondaryDNS(value string) bool {
 	return cm.save(cfg)
 }
 
+// SetMTU sets the MTU and saves to config
+func (cm *ConfigManager) SetMTU(value int) bool {
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+
+	// Get current config and copy it to preserve all fields
+	cfg := cm.getConfigCopy()
+	cfg.MTU = &value
+	return cm.save(cfg)
+}
+
 func LoadSystemConfig() *SystemConfig {
 	configPath := filepath.Join(GetProgramDataDir(), ConfigFileName)
 
@@ -418,6 +442,10 @@ func mergeConfig(base, override *Config) *Config {
 		v := *override.SecondaryDNS
 		merged.SecondaryDNS = &v
 	}
+	if override.MTU != nil {
+		v := *override.MTU
+		merged.MTU = &v
+	}
 	if override.DefaultServerURL != nil {
 		v := *override.DefaultServerURL
 		merged.DefaultServerURL = &v
@@ -460,6 +488,10 @@ func copyConfig(src *Config) *Config {
 	if src.SecondaryDNS != nil {
 		secondaryDNS := *src.SecondaryDNS
 		cfg.SecondaryDNS = &secondaryDNS
+	}
+	if src.MTU != nil {
+		mtu := *src.MTU
+		cfg.MTU = &mtu
 	}
 	if src.DefaultServerURL != nil {
 		defaultServerURL := *src.DefaultServerURL
