@@ -29,55 +29,57 @@ import (
 )
 
 var (
-	trayIcon              *walk.NotifyIcon
-	contextMenu           *walk.Menu
-	mainWindow            *walk.MainWindow
-	hasUpdate             bool
-	updateMutex           sync.RWMutex
-	startupDialogShown    bool
-	startupDialogMutex    sync.Mutex
-	updateAction          *walk.Action
-	loadingAction         *walk.Action
-	statusAction          *walk.Action
-	reAuthLoginAction     *walk.Action
-	connectAction         *walk.Action
-	orgsMenuAction        *walk.Action
-	accountMenuAction     *walk.Action
-	loginAction           *walk.Action
-	logoutAction          *walk.Action
-	addAccountAction      *walk.Action
-	moreAction            *walk.Action
-	quitAction            *walk.Action
-	serverDownAction      *walk.Action
-	errorMessageAction    *walk.Action
-	watermarkAction       *walk.Action
-	updateFoundCb         *managers.UpdateFoundCallback
-	updateProgressCb      *managers.UpdateProgressCallback
-	managerStoppingCb     *managers.ManagerStoppingCallback
-	isConnected           bool
-	connectMutex          sync.RWMutex
-	isLoggedOut           bool
-	loggedOutMutex        sync.RWMutex
-	currentTunnelState    managers.TunnelState
-	tunnelStateMutex      sync.RWMutex
-	authManager           *auth.AuthManager
-	configManager         *config.ConfigManager
-	accountManager        *config.AccountManager
-	apiClient             *api.APIClient
-	tunnelManager         *tunnel.Manager
-	orgMenu               *walk.Menu
-	accountMenu           *walk.Menu
-	moreMenu              *walk.Menu
-	orgActions            map[string]*walk.Action
-	accountActions        map[string]*walk.Action
-	noOrgsAction          *walk.Action
-	noAccountsAction      *walk.Action
-	menuUpdateMutex       sync.Mutex
-	cliInstallAction      *walk.Action
-	cliInstalled          bool
-	cliInstalledMutex     sync.RWMutex
-	cliInstallInProgress  bool
-	cliInstallInProgressM sync.Mutex
+	trayIcon               *walk.NotifyIcon
+	contextMenu            *walk.Menu
+	mainWindow             *walk.MainWindow
+	hasUpdate              bool
+	updateMutex            sync.RWMutex
+	startupDialogShown     bool
+	startupDialogMutex     sync.Mutex
+	updateAction           *walk.Action
+	loadingAction          *walk.Action
+	statusAction           *walk.Action
+	reAuthLoginAction      *walk.Action
+	connectAction          *walk.Action
+	orgsMenuAction         *walk.Action
+	accountMenuAction      *walk.Action
+	loginAction            *walk.Action
+	logoutAction           *walk.Action
+	addAccountAction       *walk.Action
+	moreAction             *walk.Action
+	quitAction             *walk.Action
+	serverDownAction       *walk.Action
+	errorMessageAction     *walk.Action
+	watermarkAction        *walk.Action
+	updateFoundCb          *managers.UpdateFoundCallback
+	updateProgressCb       *managers.UpdateProgressCallback
+	managerStoppingCb      *managers.ManagerStoppingCallback
+	isConnected            bool
+	connectMutex           sync.RWMutex
+	isLoggedOut            bool
+	loggedOutMutex         sync.RWMutex
+	currentTunnelState     managers.TunnelState
+	tunnelStateMutex       sync.RWMutex
+	authManager            *auth.AuthManager
+	configManager          *config.ConfigManager
+	accountManager         *config.AccountManager
+	apiClient              *api.APIClient
+	tunnelManager          *tunnel.Manager
+	orgMenu                *walk.Menu
+	accountMenu            *walk.Menu
+	moreMenu               *walk.Menu
+	orgActions             map[string]*walk.Action
+	accountActions         map[string]*walk.Action
+	noOrgsAction           *walk.Action
+	noAccountsAction       *walk.Action
+	menuUpdateMutex        sync.Mutex
+	cliInstallAction       *walk.Action
+	cliInstalled           bool
+	cliInstalledMutex      sync.RWMutex
+	cliInstallInProgress   bool
+	cliInstallInProgressM  sync.Mutex
+	appUpdateProgressClose func()
+	appUpdateProgressLabel *walk.TextLabel
 )
 
 // updateTrayTooltip updates the tray icon tooltip to show the current tunnel state
@@ -1386,9 +1388,26 @@ func SetupTray(
 	})
 
 	updateProgressCb = managers.IPCClientRegisterUpdateProgress(func(dp updater.DownloadProgress) {
+		if len(dp.Activity) > 0 {
+			logger.Info("Update: %s", dp.Activity)
+		}
+		if dp.BytesTotal > 0 {
+			percent := float64(dp.BytesDownloaded) / float64(dp.BytesTotal) * 100
+			const mb = 1024 * 1024
+			dlMB := float64(dp.BytesDownloaded) / mb
+			totalMB := float64(dp.BytesTotal) / mb
+			logger.Info("Download progress: %.2f%% (%.2f / %.2f MB)", percent, dlMB, totalMB)
+		}
 		if dp.Error != nil {
 			logger.Error("Update error: %v", dp.Error)
-			walk.App().Synchronize(func() {
+		}
+		if dp.Complete {
+			logger.Info("Update complete! The application will restart.")
+		}
+
+		walk.App().Synchronize(func() {
+			if dp.Error != nil {
+				closeAppUpdateProgressUI()
 				td := walk.NewTaskDialog()
 				_, _ = td.Show(walk.TaskDialogOpts{
 					Owner:         mw,
@@ -1397,22 +1416,10 @@ func SetupTray(
 					IconSystem:    walk.TaskDialogSystemIconError,
 					CommonButtons: win.TDCBF_OK_BUTTON,
 				})
-			})
-			return
-		}
-
-		if len(dp.Activity) > 0 {
-			logger.Info("Update: %s", dp.Activity)
-		}
-
-		if dp.BytesTotal > 0 {
-			percent := float64(dp.BytesDownloaded) / float64(dp.BytesTotal) * 100
-			logger.Info("Download progress: %.1f%% (%d/%d bytes)", percent, dp.BytesDownloaded, dp.BytesTotal)
-		}
-
-		if dp.Complete {
-			logger.Info("Update complete! The application will restart.")
-			walk.App().Synchronize(func() {
+				return
+			}
+			if dp.Complete {
+				closeAppUpdateProgressUI()
 				td := walk.NewTaskDialog()
 				_, _ = td.Show(walk.TaskDialogOpts{
 					Owner:         mw,
@@ -1421,14 +1428,14 @@ func SetupTray(
 					IconSystem:    walk.TaskDialogSystemIconInformation,
 					CommonButtons: win.TDCBF_OK_BUTTON,
 				})
-			})
-			// Clear the update after installation starts
-			updateMutex.Lock()
-			hasUpdate = false
-			updateMutex.Unlock()
-			updateMenu()
-			// The MSI installer will handle the restart
-		}
+				updateMutex.Lock()
+				hasUpdate = false
+				updateMutex.Unlock()
+				updateMenu()
+				return
+			}
+			applyAppUpdateProgressLabel(dp)
+		})
 	})
 
 	// Check initial update state on startup
@@ -1598,6 +1605,71 @@ func SetupTray(
 	*/
 
 	return nil
+}
+
+// closeAppUpdateProgressUI must run on the UI thread.
+func closeAppUpdateProgressUI() {
+	if appUpdateProgressClose != nil {
+		appUpdateProgressClose()
+	}
+	appUpdateProgressClose = nil
+	appUpdateProgressLabel = nil
+}
+
+// applyAppUpdateProgressLabel must run on the UI thread. Updates status text only; the bar stays in marquee (loading) like the CLI install flow.
+func applyAppUpdateProgressLabel(dp updater.DownloadProgress) {
+	if appUpdateProgressLabel == nil {
+		return
+	}
+	text := dp.Activity
+	if text == "" {
+		text = "Working…"
+	}
+	appUpdateProgressLabel.SetText(text)
+}
+
+func newAppUpdateProgressDialog(mw *walk.MainWindow) func() {
+	dlg, err := walk.NewDialogWithFixedSize(mw)
+	if err != nil {
+		logger.Error("Failed to create app update progress dialog: %v", err)
+		return nil
+	}
+	dlg.SetTitle("Updating Pangolin")
+
+	v := walk.NewVBoxLayout()
+	v.SetMargins(walk.Margins{HNear: 20, VNear: 16, HFar: 20, VFar: 16})
+	v.SetSpacing(12)
+	dlg.SetLayout(v)
+
+	info, err := walk.NewTextLabel(dlg)
+	if err != nil {
+		logger.Error("Failed to create app update progress label: %v", err)
+		dlg.Close(0)
+		return nil
+	}
+	info.SetText("Preparing to download the update…")
+
+	pb, err := walk.NewProgressBar(dlg)
+	if err != nil {
+		logger.Error("Failed to create app update progress bar: %v", err)
+		dlg.Close(0)
+		return nil
+	}
+	if err := pb.SetMarqueeMode(true); err != nil {
+		logger.Error("Failed to enable app update progress marquee: %v", err)
+	}
+
+	_ = dlg.SetSize(walk.Size{Width: 420, Height: 0})
+	dlg.SetMinMaxSize(walk.Size{Width: 420, Height: 0}, walk.Size{Width: 500, Height: 200})
+	dlg.Show()
+
+	appUpdateProgressLabel = info
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			dlg.Close(0)
+		})
+	}
 }
 
 func newCLIInstallProgressDialog(mw *walk.MainWindow) (close func()) {
@@ -1772,14 +1844,22 @@ func triggerUpdate(mw *walk.MainWindow) {
 		return
 	}
 
-	// Trigger update via manager IPC
+	// Show progress before IPC so early updater events are reflected in the same window.
+	walk.App().Synchronize(func() {
+		closeAppUpdateProgressUI()
+		appUpdateProgressClose = newAppUpdateProgressDialog(mw)
+	})
+	if appUpdateProgressClose == nil {
+		logger.Error("App update progress dialog was not created; update will continue with tray notifications only")
+	}
+
 	logger.Info("Starting update download via manager...")
-	err := managers.IPCClientUpdate()
-	if err != nil {
+	if err := managers.IPCClientUpdate(); err != nil {
 		logger.Error("Failed to trigger update: %v", err)
 		walk.App().Synchronize(func() {
+			closeAppUpdateProgressUI()
 			td := walk.NewTaskDialog()
-			td.Show(walk.TaskDialogOpts{
+			_, _ = td.Show(walk.TaskDialogOpts{
 				Owner:         mw,
 				Title:         "Update Failed",
 				Content:       fmt.Sprintf("Failed to start update: %v", err),

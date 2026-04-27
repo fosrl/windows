@@ -204,7 +204,6 @@ func DownloadVerifyAndExecute(userToken uintptr) (progress chan DownloadProgress
 			return
 		}
 		logger.Debug("Updater: Temporary file created: %s", file.Name())
-		progress <- DownloadProgress{Activity: fmt.Sprintf("Msi destination is %#q", file.Name())}
 		defer func() {
 			if file != nil {
 				logger.Debug("Updater: Cleaning up temporary file: %s", file.Name())
