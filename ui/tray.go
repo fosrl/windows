@@ -73,6 +73,9 @@ var (
 	noOrgsAction       *walk.Action
 	noAccountsAction   *walk.Action
 	menuUpdateMutex    sync.Mutex
+	cliInstallAction   *walk.Action
+	cliInstalled       bool
+	cliInstalledMutex  sync.RWMutex
 )
 
 // updateTrayTooltip updates the tray icon tooltip to show the current tunnel state
@@ -542,6 +545,15 @@ func setupMenu() error {
 	})
 	moreMenu.Actions().Add(checkUpdateAction)
 
+	installCLIAction := walk.NewAction()
+	installCLIAction.SetText("Install Pangolin CLI")
+	installCLIAction.SetVisible(false)
+	installCLIAction.Triggered().Attach(func() {
+		go triggerCLIInstall(mainWindow)
+	})
+	cliInstallAction = installCLIAction
+	moreMenu.Actions().Add(installCLIAction)
+
 	// Preferences action
 	preferencesAction := walk.NewAction()
 	preferencesAction.SetText("Preferences")
@@ -763,7 +775,28 @@ func updateMenu() {
 		if updateAction != nil {
 			updateAction.SetVisible(hasUpdateLocal)
 		}
+
+		cliInstalledMutex.RLock()
+		cliInstalledLocal := cliInstalled
+		cliInstalledMutex.RUnlock()
+		if cliInstallAction != nil {
+			cliInstallAction.SetVisible(!cliInstalledLocal)
+		}
 	})
+}
+
+func refreshCLIInstallState() {
+	go func() {
+		installed, err := managers.IPCClientIsCLIInstalled()
+		if err != nil {
+			logger.Error("Failed to check CLI install state: %v", err)
+			return
+		}
+		cliInstalledMutex.Lock()
+		cliInstalled = installed
+		cliInstalledMutex.Unlock()
+		updateMenu()
+	}()
 }
 
 // updateTunnelState updates the tunnel status and connect button
@@ -1430,6 +1463,8 @@ func SetupTray(
 		}
 	}()
 
+	refreshCLIInstallState()
+
 	// Register for tunnel state change notifications via tunnel manager
 	tunnelManager.RegisterStateChangeCallback(func(state tunnel.State) {
 		logger.Info("Tunnel state changed: %s", state.String())
@@ -1552,6 +1587,72 @@ func SetupTray(
 	*/
 
 	return nil
+}
+
+func triggerCLIInstall(mw *walk.MainWindow) {
+	userAcceptedChan := make(chan bool, 1)
+
+	walk.App().Synchronize(func() {
+		td := walk.NewTaskDialog()
+		opts := walk.TaskDialogOpts{
+			Owner:         mw,
+			Title:         "Install Pangolin CLI",
+			Content:       "This will download and run the Pangolin CLI installer.\n\nWould you like to continue?",
+			IconSystem:    walk.TaskDialogSystemIconInformation,
+			CommonButtons: win.TDCBF_YES_BUTTON | win.TDCBF_NO_BUTTON,
+			DefaultButton: walk.TaskDialogDefaultButtonYes,
+		}
+		opts.CommonButtonClicked(win.TDCBF_YES_BUTTON).Attach(func() bool {
+			select {
+			case userAcceptedChan <- true:
+			default:
+			}
+			return false
+		})
+		opts.CommonButtonClicked(win.TDCBF_NO_BUTTON).Attach(func() bool {
+			select {
+			case userAcceptedChan <- false:
+			default:
+			}
+			return false
+		})
+		td.Show(opts)
+	})
+
+	userAccepted := <-userAcceptedChan
+	if !userAccepted {
+		logger.Info("User declined CLI installation")
+		return
+	}
+
+	logger.Info("Starting Pangolin CLI installer via manager...")
+	if err := managers.IPCClientInstallCLI(); err != nil {
+		logger.Error("Failed to install Pangolin CLI: %v", err)
+		walk.App().Synchronize(func() {
+			td := walk.NewTaskDialog()
+			_, _ = td.Show(walk.TaskDialogOpts{
+				Owner:         mw,
+				Title:         "CLI Install Failed",
+				Content:       fmt.Sprintf("Failed to install Pangolin CLI: %v", err),
+				IconSystem:    walk.TaskDialogSystemIconError,
+				CommonButtons: win.TDCBF_OK_BUTTON,
+			})
+		})
+		return
+	}
+
+	walk.App().Synchronize(func() {
+		td := walk.NewTaskDialog()
+		_, _ = td.Show(walk.TaskDialogOpts{
+			Owner:         mw,
+			Title:         "CLI Installed",
+			Content:       "Pangolin CLI was installed successfully and added to your PATH. You can now use the 'pangolin' command in your terminal.",
+			IconSystem:    walk.TaskDialogSystemIconInformation,
+			CommonButtons: win.TDCBF_OK_BUTTON,
+		})
+	})
+
+	refreshCLIInstallState()
 }
 
 // triggerUpdate asks the user for confirmation and then triggers the update via manager
