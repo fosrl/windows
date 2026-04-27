@@ -29,53 +29,55 @@ import (
 )
 
 var (
-	trayIcon           *walk.NotifyIcon
-	contextMenu        *walk.Menu
-	mainWindow         *walk.MainWindow
-	hasUpdate          bool
-	updateMutex        sync.RWMutex
-	startupDialogShown bool
-	startupDialogMutex sync.Mutex
-	updateAction       *walk.Action
-	loadingAction      *walk.Action
-	statusAction       *walk.Action
-	reAuthLoginAction  *walk.Action
-	connectAction      *walk.Action
-	orgsMenuAction     *walk.Action
-	accountMenuAction  *walk.Action
-	loginAction        *walk.Action
-	logoutAction       *walk.Action
-	addAccountAction   *walk.Action
-	moreAction         *walk.Action
-	quitAction         *walk.Action
-	serverDownAction   *walk.Action
-	errorMessageAction *walk.Action
-	watermarkAction    *walk.Action
-	updateFoundCb      *managers.UpdateFoundCallback
-	updateProgressCb   *managers.UpdateProgressCallback
-	managerStoppingCb  *managers.ManagerStoppingCallback
-	isConnected        bool
-	connectMutex       sync.RWMutex
-	isLoggedOut        bool
-	loggedOutMutex     sync.RWMutex
-	currentTunnelState managers.TunnelState
-	tunnelStateMutex   sync.RWMutex
-	authManager        *auth.AuthManager
-	configManager      *config.ConfigManager
-	accountManager     *config.AccountManager
-	apiClient          *api.APIClient
-	tunnelManager      *tunnel.Manager
-	orgMenu            *walk.Menu
-	accountMenu        *walk.Menu
-	moreMenu           *walk.Menu
-	orgActions         map[string]*walk.Action
-	accountActions     map[string]*walk.Action
-	noOrgsAction       *walk.Action
-	noAccountsAction   *walk.Action
-	menuUpdateMutex    sync.Mutex
-	cliInstallAction   *walk.Action
-	cliInstalled       bool
-	cliInstalledMutex  sync.RWMutex
+	trayIcon              *walk.NotifyIcon
+	contextMenu           *walk.Menu
+	mainWindow            *walk.MainWindow
+	hasUpdate             bool
+	updateMutex           sync.RWMutex
+	startupDialogShown    bool
+	startupDialogMutex    sync.Mutex
+	updateAction          *walk.Action
+	loadingAction         *walk.Action
+	statusAction          *walk.Action
+	reAuthLoginAction     *walk.Action
+	connectAction         *walk.Action
+	orgsMenuAction        *walk.Action
+	accountMenuAction     *walk.Action
+	loginAction           *walk.Action
+	logoutAction          *walk.Action
+	addAccountAction      *walk.Action
+	moreAction            *walk.Action
+	quitAction            *walk.Action
+	serverDownAction      *walk.Action
+	errorMessageAction    *walk.Action
+	watermarkAction       *walk.Action
+	updateFoundCb         *managers.UpdateFoundCallback
+	updateProgressCb      *managers.UpdateProgressCallback
+	managerStoppingCb     *managers.ManagerStoppingCallback
+	isConnected           bool
+	connectMutex          sync.RWMutex
+	isLoggedOut           bool
+	loggedOutMutex        sync.RWMutex
+	currentTunnelState    managers.TunnelState
+	tunnelStateMutex      sync.RWMutex
+	authManager           *auth.AuthManager
+	configManager         *config.ConfigManager
+	accountManager        *config.AccountManager
+	apiClient             *api.APIClient
+	tunnelManager         *tunnel.Manager
+	orgMenu               *walk.Menu
+	accountMenu           *walk.Menu
+	moreMenu              *walk.Menu
+	orgActions            map[string]*walk.Action
+	accountActions        map[string]*walk.Action
+	noOrgsAction          *walk.Action
+	noAccountsAction      *walk.Action
+	menuUpdateMutex       sync.Mutex
+	cliInstallAction      *walk.Action
+	cliInstalled          bool
+	cliInstalledMutex     sync.RWMutex
+	cliInstallInProgress  bool
+	cliInstallInProgressM sync.Mutex
 )
 
 // updateTrayTooltip updates the tray icon tooltip to show the current tunnel state
@@ -779,8 +781,17 @@ func updateMenu() {
 		cliInstalledMutex.RLock()
 		cliInstalledLocal := cliInstalled
 		cliInstalledMutex.RUnlock()
+		cliInstallInProgressM.Lock()
+		cliInstallRunning := cliInstallInProgress
+		cliInstallInProgressM.Unlock()
 		if cliInstallAction != nil {
 			cliInstallAction.SetVisible(!cliInstalledLocal)
+			cliInstallAction.SetEnabled(!cliInstallRunning)
+			if cliInstallRunning {
+				cliInstallAction.SetText("Installing CLI…")
+			} else {
+				cliInstallAction.SetText("Install Pangolin CLI")
+			}
 		}
 	})
 }
@@ -1589,6 +1600,49 @@ func SetupTray(
 	return nil
 }
 
+func newCLIInstallProgressDialog(mw *walk.MainWindow) (close func()) {
+	dlg, err := walk.NewDialogWithFixedSize(mw)
+	if err != nil {
+		logger.Error("Failed to create CLI install progress dialog: %v", err)
+		return nil
+	}
+	dlg.SetTitle("Installing Pangolin CLI")
+
+	v := walk.NewVBoxLayout()
+	v.SetMargins(walk.Margins{HNear: 20, VNear: 16, HFar: 20, VFar: 16})
+	v.SetSpacing(12)
+	dlg.SetLayout(v)
+
+	info, err := walk.NewTextLabel(dlg)
+	if err != nil {
+		logger.Error("Failed to create progress label: %v", err)
+		dlg.Close(0)
+		return nil
+	}
+	info.SetText("Downloading the installer, then running setup.")
+
+	pb, err := walk.NewProgressBar(dlg)
+	if err != nil {
+		logger.Error("Failed to create progress bar: %v", err)
+		dlg.Close(0)
+		return nil
+	}
+	if err := pb.SetMarqueeMode(true); err != nil {
+		logger.Error("Failed to enable progress marquee: %v", err)
+	}
+
+	_ = dlg.SetSize(walk.Size{Width: 420, Height: 0})
+	dlg.SetMinMaxSize(walk.Size{Width: 420, Height: 0}, walk.Size{Width: 500, Height: 200})
+	dlg.Show()
+
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			dlg.Close(0)
+		})
+	}
+}
+
 func triggerCLIInstall(mw *walk.MainWindow) {
 	userAcceptedChan := make(chan bool, 1)
 
@@ -1626,9 +1680,26 @@ func triggerCLIInstall(mw *walk.MainWindow) {
 	}
 
 	logger.Info("Starting Pangolin CLI installer via manager...")
+
+	var closeProgress func()
+	walk.App().Synchronize(func() {
+		cliInstallInProgressM.Lock()
+		cliInstallInProgress = true
+		cliInstallInProgressM.Unlock()
+		updateMenu()
+		closeProgress = newCLIInstallProgressDialog(mw)
+	})
+
 	if err := managers.IPCClientInstallCLI(); err != nil {
 		logger.Error("Failed to install Pangolin CLI: %v", err)
 		walk.App().Synchronize(func() {
+			if closeProgress != nil {
+				closeProgress()
+			}
+			cliInstallInProgressM.Lock()
+			cliInstallInProgress = false
+			cliInstallInProgressM.Unlock()
+			updateMenu()
 			td := walk.NewTaskDialog()
 			_, _ = td.Show(walk.TaskDialogOpts{
 				Owner:         mw,
@@ -1642,6 +1713,13 @@ func triggerCLIInstall(mw *walk.MainWindow) {
 	}
 
 	walk.App().Synchronize(func() {
+		if closeProgress != nil {
+			closeProgress()
+		}
+		cliInstallInProgressM.Lock()
+		cliInstallInProgress = false
+		cliInstallInProgressM.Unlock()
+		updateMenu()
 		td := walk.NewTaskDialog()
 		_, _ = td.Show(walk.TaskDialogOpts{
 			Owner:         mw,
