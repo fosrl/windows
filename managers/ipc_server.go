@@ -5,6 +5,7 @@ package managers
 import (
 	"bytes"
 	"encoding/gob"
+	"errors"
 	"io"
 	"os"
 	"sync"
@@ -94,6 +95,17 @@ func (s *ManagerService) Update() {
 			}
 		}
 	}()
+}
+
+func (s *ManagerService) IsCLIInstalled() bool {
+	return IsCLIInstalled()
+}
+
+func (s *ManagerService) InstallCLI() error {
+	if s.elevatedToken == 0 {
+		return errors.New("manager is not running with elevated privileges")
+	}
+	return InstallCLI(uintptr(s.elevatedToken))
 }
 
 func (s *ManagerService) StartTunnel(config tunnel.Config) error {
@@ -234,6 +246,18 @@ func (s *ManagerService) ServeConn(reader io.Reader, writer io.Writer) {
 			}
 		case StopAllTunnelsMethodType:
 			retErr := s.StopAllTunnels()
+			err = encoder.Encode(errToString(retErr))
+			if err != nil {
+				return
+			}
+		case IsCLIInstalledMethodType:
+			installed := s.IsCLIInstalled()
+			err = encoder.Encode(installed)
+			if err != nil {
+				return
+			}
+		case InstallCLIMethodType:
+			retErr := s.InstallCLI()
 			err = encoder.Encode(errToString(retErr))
 			if err != nil {
 				return

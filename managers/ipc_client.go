@@ -33,6 +33,8 @@ const (
 	StartTunnelMethodType
 	StopTunnelMethodType
 	StopAllTunnelsMethodType
+	IsCLIInstalledMethodType
+	InstallCLIMethodType
 )
 
 var (
@@ -259,6 +261,32 @@ func IPCClientStopAllTunnels() error {
 	}
 	err = rpcDecodeError()
 	return err
+}
+
+func IPCClientIsCLIInstalled() (installed bool, err error) {
+	rpcMutex.Lock()
+	defer rpcMutex.Unlock()
+
+	err = rpcEncoder.Encode(IsCLIInstalledMethodType)
+	if err != nil {
+		return false, err
+	}
+	err = rpcDecoder.Decode(&installed)
+	if err != nil {
+		return false, err
+	}
+	return installed, nil
+}
+
+func IPCClientInstallCLI() error {
+	rpcMutex.Lock()
+	defer rpcMutex.Unlock()
+
+	err := rpcEncoder.Encode(InstallCLIMethodType)
+	if err != nil {
+		return err
+	}
+	return rpcDecodeError()
 }
 
 func IPCClientRegisterTunnelStateChange(cb func(state TunnelState)) *TunnelStateChangeCallback {
