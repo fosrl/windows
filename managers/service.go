@@ -263,6 +263,7 @@ func (service *managerService) Execute(args []string, r <-chan svc.ChangeRequest
 	}
 
 	go checkForUpdates()
+
 	// TODO: Add driver cleanup when driver package is implemented
 	// go driver.UninstallLegacyWintun()
 

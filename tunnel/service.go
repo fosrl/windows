@@ -122,6 +122,9 @@ type Config struct {
 	UpstreamDNS         []string `json:"upstreamDns"`
 	OverrideDNS         bool     `json:"overrideDns"`
 	TunnelDNS           bool     `json:"tunnelDns"`
+
+	InitialFingerprint json.RawMessage `json:"initialFingerprint,omitempty"`
+	InitialPostures    json.RawMessage `json:"initialPostures,omitempty"`
 }
 
 func StartTunnel(config Config) error {
