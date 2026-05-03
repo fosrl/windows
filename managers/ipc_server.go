@@ -285,7 +285,7 @@ func IPCServerListen(reader, writer, events *os.File, elevatedToken windows.Toke
 	postureRefresherOnce.Do(func() {
 		go func() {
 			fingerprint.RefreshPostureMemory()
-			ticker := time.NewTicker(30 * time.Minute)
+			ticker := time.NewTicker(3 * time.Hour)
 			defer ticker.Stop()
 			for range ticker.C {
 				fingerprint.RefreshPostureMemory()
