@@ -8,8 +8,8 @@ github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c
 github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/dblohm7/wingoes v0.0.0-20231019175336-f6e33aa7cc34 h1:FBMro26TLQwBk+n4fbTSmSf3QUKb09pvW4fz49lxpl0=
 github.com/dblohm7/wingoes v0.0.0-20231019175336-f6e33aa7cc34/go.mod h1:6NCrWM5jRefaG7iN0iMShPalLsljHWBh9v1zxM2f8Xs=
-github.com/fosrl/newt v1.12.0 h1:IodzVlsprOYkHvKrXwDfDTh2ZMtXV6IG1rhUj6Jhd44=
-github.com/fosrl/newt v1.12.0/go.mod h1:IJW2sZ4WKKLRuxMz6oBm8PMyAEVkOxZk6d1OUV5/LPM=
+github.com/fosrl/newt v1.12.2 h1:k99iF+twyggRG+PZTXPYxDyqwM969FPsPfGhtlcttPI=
+github.com/fosrl/newt v1.12.2/go.mod h1:IJW2sZ4WKKLRuxMz6oBm8PMyAEVkOxZk6d1OUV5/LPM=
 github.com/fosrl/olm v1.5.0 h1:0iwTYljZj9SOp+0PEtUmy/CHnCzCGU71Iq/QQZsHLmE=
 github.com/fosrl/olm v1.5.0/go.mod h1:SxeQNFngDMgwrXpTWjt1gheyoZo2TltmNrQ2vXX7YT4=
 github.com/godbus/dbus/v5 v5.2.2 h1:TUR3TgtSVDmjiXOgAAyaZbYmIeP3DPkld3jgKGV8mXQ=

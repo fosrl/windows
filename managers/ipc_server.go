@@ -5,6 +5,7 @@ package managers
 import (
 	"bytes"
 	"encoding/gob"
+	"encoding/json"
 	"errors"
 	"io"
 	"os"
@@ -15,6 +16,7 @@ import (
 	"github.com/fosrl/newt/logger"
 	"golang.org/x/sys/windows"
 
+	"github.com/fosrl/windows/fingerprint"
 	"github.com/fosrl/windows/tunnel"
 	"github.com/fosrl/windows/updater"
 )
@@ -31,6 +33,8 @@ var (
 	quitManagersChan    = make(chan struct{}, 1)
 	activeTunnels       = make(map[string]bool) // Track active tunnel names
 	activeTunnelsLock   sync.RWMutex
+
+	postureRefresherOnce sync.Once
 )
 
 type ManagerService struct {
@@ -109,6 +113,15 @@ func (s *ManagerService) InstallCLI() error {
 }
 
 func (s *ManagerService) StartTunnel(config tunnel.Config) error {
+	if fp, postures, ok := fingerprint.SnapshotPostureMemory(); ok {
+		fpBytes, errFP := json.Marshal(fp)
+		postBytes, errPost := json.Marshal(postures)
+		if errFP == nil && errPost == nil && len(fpBytes) > 0 && len(postBytes) > 0 {
+			config.InitialFingerprint = fpBytes
+			config.InitialPostures = postBytes
+		}
+	}
+
 	// Set up callback to notify on state changes
 	tunnel.SetStateChangeCallback(func(state TunnelState) {
 		IPCServerNotifyTunnelStateChange(state)
@@ -269,6 +282,17 @@ func (s *ManagerService) ServeConn(reader io.Reader, writer io.Writer) {
 }
 
 func IPCServerListen(reader, writer, events *os.File, elevatedToken windows.Token) {
+	postureRefresherOnce.Do(func() {
+		go func() {
+			fingerprint.RefreshPostureMemory()
+			ticker := time.NewTicker(30 * time.Minute)
+			defer ticker.Stop()
+			for range ticker.C {
+				fingerprint.RefreshPostureMemory()
+			}
+		}()
+	})
+
 	service := &ManagerService{
 		events:        events,
 		elevatedToken: elevatedToken,

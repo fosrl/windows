@@ -4,6 +4,7 @@ package tunnel
 
 import (
 	"context"
+	"encoding/json"
 	"sync"
 	"time"
 
@@ -49,17 +50,27 @@ func (s *tunnelService) buildTunnel(config Config) error {
 
 	var fp map[string]any
 	var postures map[string]any
-	var gatherWg sync.WaitGroup
-	gatherWg.Add(2)
-	go func() {
-		defer gatherWg.Done()
-		fp = fingerprint.GatherFingerprintInfo().ToMap()
-	}()
-	go func() {
-		defer gatherWg.Done()
-		postures = fingerprint.GatherPostureChecks().ToMap()
-	}()
-	gatherWg.Wait()
+	cacheOK := false
+	if len(config.InitialFingerprint) > 0 && len(config.InitialPostures) > 0 {
+		if err := json.Unmarshal(config.InitialFingerprint, &fp); err == nil {
+			if err := json.Unmarshal(config.InitialPostures, &postures); err == nil {
+				cacheOK = len(fp) > 0 && len(postures) > 0
+			}
+		}
+	}
+	if !cacheOK {
+		var gatherWg sync.WaitGroup
+		gatherWg.Add(2)
+		go func() {
+			defer gatherWg.Done()
+			fp = fingerprint.GatherFingerprintInfo().ToMap()
+		}()
+		go func() {
+			defer gatherWg.Done()
+			postures = fingerprint.GatherPostureChecks().ToMap()
+		}()
+		gatherWg.Wait()
+	}
 
 	olmConfig := olmpkg.TunnelConfig{
 		Endpoint:             config.Endpoint,
