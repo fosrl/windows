@@ -91,32 +91,6 @@ func (s *tunnelService) buildTunnel(config Config) error {
 		InitialPostures:      postures,
 	}
 
-	s.fingerprintCtx, s.fingerprintCancel = context.WithCancel(context.Background())
-
-	go func() {
-		ticker := time.NewTicker(30 * time.Second)
-		defer ticker.Stop()
-
-		calcFingerprint := func() {
-			fp := fingerprint.GatherFingerprintInfo().ToMap()
-			postures := fingerprint.GatherPostureChecks().ToMap()
-
-			s.olm.SetFingerprint(fp)
-			s.olm.SetPostures(postures)
-		}
-
-		calcFingerprint()
-
-		for {
-			select {
-			case <-s.fingerprintCtx.Done():
-				return
-			case <-ticker.C:
-				calcFingerprint()
-			}
-		}
-	}()
-
 	s.olm.StartApi()
 
 	logger.Info("Starting OLM tunnel...")

@@ -10,10 +10,6 @@ import (
 func (s *tunnelService) destroyTunnel(config Config) {
 	logger.Debug("Destroy tunnel called")
 
-	s.fingerprintCancel()
-	s.fingerprintCancel = nil
-	s.fingerprintCtx = nil
-
 	s.olm.StopApi()
 	s.olm.StopTunnel()
 
