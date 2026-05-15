@@ -17,6 +17,7 @@ import (
 	"golang.org/x/sys/windows"
 
 	"github.com/fosrl/windows/fingerprint"
+	"github.com/fosrl/windows/managers/secretstore"
 	"github.com/fosrl/windows/tunnel"
 	"github.com/fosrl/windows/updater"
 )
@@ -35,12 +36,14 @@ var (
 	activeTunnelsLock   sync.RWMutex
 
 	postureRefresherOnce sync.Once
+	secretStore          = secretstore.NewStore()
 )
 
 type ManagerService struct {
-	events        *os.File
-	eventLock     sync.Mutex
-	elevatedToken windows.Token
+	events           *os.File
+	eventLock        sync.Mutex
+	elevatedToken    windows.Token
+	clientWindowsSID string
 }
 
 func (s *ManagerService) Quit(stopTunnelsOnQuit bool) (alreadyQuit bool, err error) {
@@ -207,6 +210,36 @@ func (s *ManagerService) StopAllTunnels() error {
 	return nil
 }
 
+func (s *ManagerService) GetUserSecrets(userID string) (secretstore.UserSecrets, error) {
+	if s.clientWindowsSID == "" {
+		return secretstore.UserSecrets{}, errors.New("manager IPC client is not bound to a windows user")
+	}
+	secrets, err := secretStore.Load(s.clientWindowsSID, userID)
+	if err != nil {
+		logger.Error("IPC server: GetUserSecrets() failed (userId=%s): %v", userID, err)
+	}
+	return secrets, err
+}
+
+func (s *ManagerService) SaveUserSecrets(userID string, update secretstore.SecretsUpdate) error {
+	if s.clientWindowsSID == "" {
+		return errors.New("manager IPC client is not bound to a windows user")
+	}
+	err := secretStore.Save(s.clientWindowsSID, userID, update)
+	if err != nil {
+		logger.Error("IPC server: SaveUserSecrets() failed (userId=%s): %v", userID, err)
+	}
+	return err
+}
+
+func (s *ManagerService) DeleteUserSecrets(userID string, flags secretstore.DeleteSecretsFlags) error {
+	if s.clientWindowsSID == "" {
+		return errors.New("manager IPC client is not bound to a windows user")
+	}
+	err := secretStore.Delete(s.clientWindowsSID, userID, flags)
+	return err
+}
+
 func (s *ManagerService) ServeConn(reader io.Reader, writer io.Writer) {
 	decoder := gob.NewDecoder(reader)
 	encoder := gob.NewEncoder(writer)
@@ -214,6 +247,7 @@ func (s *ManagerService) ServeConn(reader io.Reader, writer io.Writer) {
 		var methodType MethodType
 		err := decoder.Decode(&methodType)
 		if err != nil {
+			logger.Debug("IPC server: ServeConn decode method type failed: %v", err)
 			return
 		}
 		switch methodType {
@@ -275,13 +309,61 @@ func (s *ManagerService) ServeConn(reader io.Reader, writer io.Writer) {
 			if err != nil {
 				return
 			}
+		case GetUserSecretsMethodType:
+			var userID string
+			err := decoder.Decode(&userID)
+			if err != nil {
+				return
+			}
+			secrets, retErr := s.GetUserSecrets(userID)
+			err = encoder.Encode(secrets)
+			if err != nil {
+				return
+			}
+			err = encoder.Encode(errToString(retErr))
+			if err != nil {
+				return
+			}
+		case SaveUserSecretsMethodType:
+			var userID string
+			var update secretstore.SecretsUpdate
+			err := decoder.Decode(&userID)
+			if err != nil {
+				return
+			}
+			err = decoder.Decode(&update)
+			if err != nil {
+				return
+			}
+			retErr := s.SaveUserSecrets(userID, update)
+			err = encoder.Encode(errToString(retErr))
+			if err != nil {
+				return
+			}
+		case DeleteUserSecretsMethodType:
+			var userID string
+			var flags secretstore.DeleteSecretsFlags
+			err := decoder.Decode(&userID)
+			if err != nil {
+				return
+			}
+			err = decoder.Decode(&flags)
+			if err != nil {
+				return
+			}
+			retErr := s.DeleteUserSecrets(userID, flags)
+			err = encoder.Encode(errToString(retErr))
+			if err != nil {
+				return
+			}
 		default:
+			logger.Error("IPC server: ServeConn unknown method type %d, closing connection", methodType)
 			return
 		}
 	}
 }
 
-func IPCServerListen(reader, writer, events *os.File, elevatedToken windows.Token) {
+func IPCServerListen(reader, writer, events *os.File, elevatedToken windows.Token, clientWindowsSID string) {
 	postureRefresherOnce.Do(func() {
 		go func() {
 			fingerprint.RefreshPostureMemory()
@@ -294,8 +376,9 @@ func IPCServerListen(reader, writer, events *os.File, elevatedToken windows.Toke
 	})
 
 	service := &ManagerService{
-		events:        events,
-		elevatedToken: elevatedToken,
+		events:           events,
+		elevatedToken:    elevatedToken,
+		clientWindowsSID: clientWindowsSID,
 	}
 
 	go func() {

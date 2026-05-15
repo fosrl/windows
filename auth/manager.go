@@ -101,7 +101,8 @@ func (am *AuthManager) Initialize() error {
 
 	activeAccount, _ := am.accountManager.ActiveAccount()
 	if activeAccount != nil {
-		// Load session token from Keychain
+		logger.Debug("Auth: active account found (userId=%s), loading session token", activeAccount.UserID)
+		// Load session token from secrets store via manager IPC
 		token, found := am.secretManager.GetSessionToken(activeAccount.UserID)
 		if found && token != "" {
 			am.apiClient.UpdateBaseURL(activeAccount.Hostname)
@@ -153,8 +154,12 @@ func (am *AuthManager) Initialize() error {
 			_ = am.accountManager.UpdateAccountUserInfo(activeAccount.UserID, username, name)
 
 			// Update stored config with latest user info
-			return am.handleSuccessfulAuth(user, activeAccount.Hostname, token)
+			err = am.handleSuccessfulAuth(user, activeAccount.Hostname, token)
+			return err
 		}
+		logger.Debug("Auth: no session token for active account")
+	} else {
+		logger.Debug("Auth: no active account")
 	}
 
 	am.mu.Lock()
@@ -378,7 +383,10 @@ func (am *AuthManager) handleSuccessfulAuth(user *api.User, hostname string, tok
 
 	selectedOrgID := am.ensureOrgIsSelected(existingAccount)
 
-	_ = am.secretManager.SaveSessionToken(user.UserId, token)
+	if !am.secretManager.SaveSessionToken(user.UserId, token) {
+		logger.Error("Auth: SaveSessionToken() failed (userId=%s)", user.UserId)
+		return fmt.Errorf("failed to save session token")
+	}
 
 	var username string
 	if user.Username != nil {
