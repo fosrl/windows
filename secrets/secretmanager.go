@@ -3,114 +3,136 @@
 package secrets
 
 import (
-	"fmt"
+	"sync"
 
 	"github.com/fosrl/newt/logger"
-	"github.com/zalando/go-keyring"
+	"github.com/fosrl/windows/managers/secretstore"
 )
 
-// SecretManager is responsible for storing and retrieving secrets using the Windows Credential Manager
-type SecretManager struct {
-	service string
-}
+var credentialMigrationOnce sync.Once
 
-// NewSecretManager creates a new SecretManager instance
+// SecretManager stores and retrieves secrets via the manager service (DPAPI files as SYSTEM).
+type SecretManager struct{}
+
+// NewSecretManager creates a new SecretManager instance.
 func NewSecretManager() *SecretManager {
-	return &SecretManager{
-		service: "Pangolin: pangolin-windows",
-	}
+	return &SecretManager{}
 }
 
-// SaveSecret saves a secret value with the given key
-// Returns true if successful, false otherwise
-func (sm *SecretManager) saveSecret(key, value string) bool {
-	// Delete existing item if it exists (go-keyring doesn't have an update method)
-	_ = sm.deleteSecret(key)
-
-	err := keyring.Set(sm.service, key, value)
-	if err != nil {
-		logger.Error("Failed to save secret for key %s: %v", key, err)
+func (sm *SecretManager) ensureReady() bool {
+	if ipc == nil || !ipc.Ready() {
+		logger.Error("Secret manager requires an active manager IPC connection")
+		return false
 	}
-	return err == nil
+	credentialMigrationOnce.Do(func() {
+		logger.Info("Secrets: Credential Manager migration starting")
+		if err := migrateFromCredentialManager(); err != nil {
+			logger.Warn("Secrets: Credential Manager migration finished with error: %v", err)
+		} else {
+			logger.Info("Secrets: Credential Manager migration finished")
+		}
+	})
+	return true
 }
 
-// GetSecret retrieves a secret value for the given key
-// Returns the value if found, or an empty string and false if not found
-func (sm *SecretManager) getSecret(key string) (string, bool) {
-	value, err := keyring.Get(sm.service, key)
+func (sm *SecretManager) load(userID string) (secretstore.UserSecrets, bool) {
+	if !sm.ensureReady() {
+		return secretstore.UserSecrets{}, false
+	}
+	logger.Debug("Secrets: IPC GetUserSecrets() starting (userId=%s)", userID)
+	secrets, err := ipc.GetUserSecrets(userID)
 	if err != nil {
+		logger.Error("Failed to load secrets for user %s: %v", userID, err)
+		return secretstore.UserSecrets{}, false
+	}
+	return secrets, true
+}
+
+func (sm *SecretManager) saveUpdate(userID string, update secretstore.SecretsUpdate) bool {
+	if !sm.ensureReady() {
+		return false
+	}
+	logger.Debug("Secrets: IPC SaveUserSecrets() starting (userId=%s)", userID)
+	if err := ipc.SaveUserSecrets(userID, update); err != nil {
+		logger.Error("Failed to save secrets for user %s: %v", userID, err)
+		return false
+	}
+	return true
+}
+
+func (sm *SecretManager) deleteFlags(userID string, flags secretstore.DeleteSecretsFlags) bool {
+	if !sm.ensureReady() {
+		return false
+	}
+	if err := ipc.DeleteUserSecrets(userID, flags); err != nil {
+		logger.Error("Failed to delete secrets for user %s: %v", userID, err)
+		return false
+	}
+	return true
+}
+
+// GetSessionToken retrieves the session token for the given user ID.
+func (sm *SecretManager) GetSessionToken(userId string) (string, bool) {
+	secrets, ok := sm.load(userId)
+	if !ok || secrets.SessionToken == "" {
 		return "", false
 	}
-	return value, true
+	return secrets.SessionToken, true
 }
 
-// DeleteSecret deletes a secret with the given key
-// Returns true if successful or if the item was not found, false on error
-func (sm *SecretManager) deleteSecret(key string) bool {
-	err := keyring.Delete(sm.service, key)
-	// Consider both success and "not found" as success
-	return err == nil || err == keyring.ErrNotFound
-}
-
-// GetSessionToken retrieves the session token for the given user ID
-func (sm *SecretManager) GetSessionToken(userId string) (string, bool) {
-	return sm.getSecret(sm.sessionTokenKey(userId))
-}
-
-// GetOlmId retrieves the OLM ID for the given user ID
+// GetOlmId retrieves the OLM ID for the given user ID.
 func (sm *SecretManager) GetOlmId(userId string) (string, bool) {
-	return sm.getSecret(sm.olmIdKey(userId))
+	secrets, ok := sm.load(userId)
+	if !ok || secrets.OlmId == "" {
+		return "", false
+	}
+	return secrets.OlmId, true
 }
 
-// GetOlmSecret retrieves the OLM secret for the given user ID
+// GetOlmSecret retrieves the OLM secret for the given user ID.
 func (sm *SecretManager) GetOlmSecret(userId string) (string, bool) {
-	return sm.getSecret(sm.olmSecretKey(userId))
+	secrets, ok := sm.load(userId)
+	if !ok || secrets.OlmSecret == "" {
+		return "", false
+	}
+	return secrets.OlmSecret, true
 }
 
-// SaveSessionToken saves a session token for the given user ID
+// SaveSessionToken saves a session token for the given user ID.
 func (sm *SecretManager) SaveSessionToken(userId string, token string) bool {
-	return sm.saveSecret(sm.sessionTokenKey(userId), token)
+	return sm.saveUpdate(userId, secretstore.SecretsUpdate{
+		Secrets:         secretstore.UserSecrets{SessionToken: token},
+		SetSessionToken: true,
+	})
 }
 
-// SaveOlmCredentials saves both OLM ID and secret for the given user ID
-// Returns true if both were saved successfully
+// SaveOlmCredentials saves both OLM ID and secret for the given user ID.
 func (sm *SecretManager) SaveOlmCredentials(userId, olmId, secret string) bool {
-	idSaved := sm.saveSecret(sm.olmIdKey(userId), olmId)
-	secretSaved := sm.saveSecret(sm.olmSecretKey(userId), secret)
-	return idSaved && secretSaved
+	return sm.saveUpdate(userId, secretstore.SecretsUpdate{
+		Secrets: secretstore.UserSecrets{
+			OlmId:     olmId,
+			OlmSecret: secret,
+		},
+		SetOlmId:     true,
+		SetOlmSecret: true,
+	})
 }
 
-// HasOlmCredentials checks if OLM credentials exist for the given user ID
+// HasOlmCredentials checks if OLM credentials exist for the given user ID.
 func (sm *SecretManager) HasOlmCredentials(userId string) bool {
-	_, hasId := sm.GetOlmId(userId)
-	_, hasSecret := sm.GetOlmSecret(userId)
-	return hasId && hasSecret
+	secrets, ok := sm.load(userId)
+	if !ok {
+		return false
+	}
+	return secrets.OlmId != "" && secrets.OlmSecret != ""
 }
 
 // DeleteSessionToken removes a session token for a given user.
 func (sm *SecretManager) DeleteSessionToken(userId string) bool {
-	return sm.deleteSecret(sm.sessionTokenKey(userId))
+	return sm.deleteFlags(userId, secretstore.DeleteSecretsFlags{SessionToken: true})
 }
 
-// DeleteOlmCredentials deletes both OLM ID and secret for the given user ID
-// Returns true if both were deleted successfully (or didn't exist)
+// DeleteOlmCredentials deletes both OLM ID and secret for the given user ID.
 func (sm *SecretManager) DeleteOlmCredentials(userId string) bool {
-	idDeleted := sm.deleteSecret(sm.olmIdKey(userId))
-	secretDeleted := sm.deleteSecret(sm.olmSecretKey(userId))
-	return idDeleted && secretDeleted
-}
-
-// sessionTokenKey returns the key for storing session tokens
-func (sm *SecretManager) sessionTokenKey(userId string) string {
-	return fmt.Sprintf("session-token-%s", userId)
-}
-
-// olmIdKey returns the key for storing OLM ID
-func (sm *SecretManager) olmIdKey(userId string) string {
-	return fmt.Sprintf("olm-id-%s", userId)
-}
-
-// olmSecretKey returns the key for storing OLM secret
-func (sm *SecretManager) olmSecretKey(userId string) string {
-	return fmt.Sprintf("olm-secret-%s", userId)
+	return sm.deleteFlags(userId, secretstore.DeleteSecretsFlags{OlmCredentials: true})
 }

@@ -195,7 +195,8 @@ func (service *managerService) Execute(args []string, r <-chan svc.ChangeRequest
 			logger.Error("Unable to create pipe: %v", err)
 			return
 		}
-		IPCServerListen(ourReader, ourWriter, ourEvents, elevatedToken)
+		clientWindowsSID := user.User.Sid.String()
+		IPCServerListen(ourReader, ourWriter, ourEvents, elevatedToken, clientWindowsSID)
 		// TODO: Add log mapping handle when ringlogger is implemented
 		// theirLogMapping, err := ringlogger.Global.ExportInheritableMappingHandle()
 		// if err != nil {

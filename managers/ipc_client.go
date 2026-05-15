@@ -8,6 +8,8 @@ import (
 	"os"
 	"sync"
 
+	"github.com/fosrl/newt/logger"
+	"github.com/fosrl/windows/managers/secretstore"
 	"github.com/fosrl/windows/tunnel"
 	"github.com/fosrl/windows/updater"
 )
@@ -35,6 +37,9 @@ const (
 	StopAllTunnelsMethodType
 	IsCLIInstalledMethodType
 	InstallCLIMethodType
+	GetUserSecretsMethodType
+	SaveUserSecretsMethodType
+	DeleteUserSecretsMethodType
 )
 
 var (
@@ -70,6 +75,7 @@ var tunnelStateChangeCallbacks = make(map[*TunnelStateChangeCallback]bool)
 func InitializeIPCClient(reader, writer, events *os.File) {
 	rpcDecoder = gob.NewDecoder(reader)
 	rpcEncoder = gob.NewEncoder(writer)
+	registerSecretsIPC()
 	go func() {
 		decoder := gob.NewDecoder(events)
 		for {
@@ -297,4 +303,86 @@ func IPCClientRegisterTunnelStateChange(cb func(state TunnelState)) *TunnelState
 
 func (cb *TunnelStateChangeCallback) Unregister() {
 	delete(tunnelStateChangeCallbacks, cb)
+}
+
+// IPCClientReady reports whether the UI has an active RPC connection to the manager service.
+func IPCClientReady() bool {
+	rpcMutex.Lock()
+	defer rpcMutex.Unlock()
+	return rpcEncoder != nil
+}
+
+func IPCClientGetUserSecrets(userID string) (secretstore.UserSecrets, error) {
+	rpcMutex.Lock()
+	defer rpcMutex.Unlock()
+
+	if rpcEncoder == nil {
+		return secretstore.UserSecrets{}, errors.New("manager IPC is not connected")
+	}
+	err := rpcEncoder.Encode(GetUserSecretsMethodType)
+	if err != nil {
+		return secretstore.UserSecrets{}, err
+	}
+	err = rpcEncoder.Encode(userID)
+	if err != nil {
+		return secretstore.UserSecrets{}, err
+	}
+	var secrets secretstore.UserSecrets
+	err = rpcDecoder.Decode(&secrets)
+	if err != nil {
+		return secretstore.UserSecrets{}, err
+	}
+	err = rpcDecodeError()
+	if err != nil {
+		logger.Debug("IPC client: GetUserSecrets() failed (userId=%s): %v", userID, err)
+	}
+	return secrets, err
+}
+
+func IPCClientSaveUserSecrets(userID string, update secretstore.SecretsUpdate) error {
+	rpcMutex.Lock()
+	defer rpcMutex.Unlock()
+
+	if rpcEncoder == nil {
+		return errors.New("manager IPC is not connected")
+	}
+	err := rpcEncoder.Encode(SaveUserSecretsMethodType)
+	if err != nil {
+		return err
+	}
+	err = rpcEncoder.Encode(userID)
+	if err != nil {
+		return err
+	}
+	err = rpcEncoder.Encode(update)
+	if err != nil {
+		return err
+	}
+	err = rpcDecodeError()
+	if err != nil {
+		logger.Debug("IPC client: SaveUserSecrets() failed (userId=%s): %v", userID, err)
+	}
+	return err
+}
+
+func IPCClientDeleteUserSecrets(userID string, flags secretstore.DeleteSecretsFlags) error {
+	rpcMutex.Lock()
+	defer rpcMutex.Unlock()
+
+	if rpcEncoder == nil {
+		return errors.New("manager IPC is not connected")
+	}
+	err := rpcEncoder.Encode(DeleteUserSecretsMethodType)
+	if err != nil {
+		return err
+	}
+	err = rpcEncoder.Encode(userID)
+	if err != nil {
+		return err
+	}
+	err = rpcEncoder.Encode(flags)
+	if err != nil {
+		return err
+	}
+	return rpcDecodeError()
 }
