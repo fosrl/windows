@@ -145,13 +145,11 @@ func (tm *Manager) buildConfig() (Config, error) {
 		return Config{}, err
 	}
 
-	// Get session token from secret manager
 	userToken, found := tm.secretManager.GetSessionToken(activeAccount.UserID)
 	if !found || userToken == "" {
 		return Config{}, fmt.Errorf("session token not found")
 	}
 
-	// Get current organization
 	currentOrg := tm.authManager.CurrentOrg()
 	if currentOrg == nil {
 		return Config{}, fmt.Errorf("no organization selected")

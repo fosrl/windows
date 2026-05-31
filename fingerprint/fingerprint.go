@@ -48,6 +48,8 @@ type PostureChecks struct {
 }
 
 func GatherFingerprintInfo() *Fingerprint {
+	logger.Debug("Fingerprint: GatherFingerprintInfo() starting")
+
 	var username string
 	if u, err := user.Current(); err == nil {
 		username = u.Username
@@ -74,7 +76,9 @@ func GatherFingerprintInfo() *Fingerprint {
 
 	wg.Wait()
 
-	return &Fingerprint{
+	platformFP := computePlatformFingerprint(serialNumber)
+
+	fp := &Fingerprint{
 		Username:            username,
 		Hostname:            hostname,
 		Platform:            "windows",
@@ -83,8 +87,11 @@ func GatherFingerprintInfo() *Fingerprint {
 		Architecture:        runtime.GOARCH,
 		DeviceModel:         deviceModel,
 		SerialNumber:        serialNumber,
-		PlatformFingerprint: computePlatformFingerprint(serialNumber),
+		PlatformFingerprint: platformFP,
 	}
+	logger.Debug("Fingerprint: GatherFingerprintInfo() finished (hostname=%q, model=%q, hasSerial=%v)",
+		fp.Hostname, fp.DeviceModel, fp.SerialNumber != "")
+	return fp
 }
 
 func GatherPostureChecks() *PostureChecks {
@@ -154,7 +161,6 @@ func getWindowsVersion() (string, string) {
 }
 
 func getWindowsModelAndSerial() (string, string) {
-	// Get model name from registry (this method works)
 	k, err := registry.OpenKey(
 		registry.LOCAL_MACHINE,
 		`SYSTEM\CurrentControlSet\Control\SystemInformation`,
@@ -167,15 +173,21 @@ func getWindowsModelAndSerial() (string, string) {
 
 	model, _, _ := k.GetStringValue("SystemProductName")
 
-	// Get serial number using WMI/CIM (registry method doesn't work)
 	command := "Get-CimInstance Win32_ComputerSystemProduct | Select-Object -ExpandProperty IdentifyingNumber"
-	cmd := exec.Command(getPowerShellPath(), "-Command", command)
+	psPath := getPowerShellPath()
+	logger.Debug("Fingerprint: Model and Serial - Executing PowerShell command: %s", command)
+	cmd := exec.Command(psPath, "-Command", command)
 	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
 	out, err := cmd.Output()
 
 	var serial string
-	if err == nil {
-		serial = strings.TrimSpace(string(out))
+	if err != nil {
+		logger.Debug("Fingerprint: Model and Serial - Command failed with error: %v", err)
+	} else {
+		rawOutput := string(out)
+		logger.Debug("Fingerprint: Model and Serial - Raw command output: %q", rawOutput)
+		serial = strings.TrimSpace(rawOutput)
+		logger.Debug("Fingerprint: Model and Serial - Trimmed output: %q", serial)
 	}
 
 	return model, serial
@@ -385,12 +397,9 @@ func computePlatformFingerprint(serialNumber string) string {
 		dmiFingerprint(),
 	}
 
-	// Add serial number to fingerprint if available
 	if serialNumber != "" {
 		parts = append(parts, "serial="+normalize(serialNumber))
 	}
-
-	fmt.Println("parts")
 
 	var out []string
 	for _, p := range parts {

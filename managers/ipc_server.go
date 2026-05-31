@@ -116,9 +116,15 @@ func (s *ManagerService) InstallCLI() error {
 }
 
 func (s *ManagerService) StartTunnel(config tunnel.Config) error {
-	if fp, postures, ok := fingerprint.SnapshotPostureMemory(); ok {
-		fpBytes, errFP := json.Marshal(fp)
-		postBytes, errPost := json.Marshal(postures)
+	snapshot, ok := fingerprint.CachedDevicePosture()
+	if !ok {
+		logger.Debug("IPC server: StartTunnel device posture cache miss, refreshing")
+		fingerprint.RefreshPostureMemory()
+		snapshot, ok = fingerprint.CachedDevicePosture()
+	}
+	if ok {
+		fpBytes, errFP := json.Marshal(snapshot.Fingerprint)
+		postBytes, errPost := json.Marshal(snapshot.Postures)
 		if errFP == nil && errPost == nil && len(fpBytes) > 0 && len(postBytes) > 0 {
 			config.InitialFingerprint = fpBytes
 			config.InitialPostures = postBytes
@@ -212,12 +218,16 @@ func (s *ManagerService) StopAllTunnels() error {
 
 func (s *ManagerService) GetUserSecrets(userID string) (secretstore.UserSecrets, error) {
 	if s.clientWindowsSID == "" {
+		logger.Error("IPC server: GetUserSecrets() clientWindowsSID empty (userId=%s)", userID)
 		return secretstore.UserSecrets{}, errors.New("manager IPC client is not bound to a windows user")
 	}
 	secrets, err := secretStore.Load(s.clientWindowsSID, userID)
 	if err != nil {
 		logger.Error("IPC server: GetUserSecrets() failed (userId=%s): %v", userID, err)
+		return secrets, err
 	}
+	logger.Debug("IPC server: GetUserSecrets (userId=%s, hasSessionToken=%v, hasOlmId=%v, hasOlmSecret=%v)",
+		userID, secrets.SessionToken != "", secrets.OlmId != "", secrets.OlmSecret != "")
 	return secrets, err
 }
 
@@ -238,6 +248,19 @@ func (s *ManagerService) DeleteUserSecrets(userID string, flags secretstore.Dele
 	}
 	err := secretStore.Delete(s.clientWindowsSID, userID, flags)
 	return err
+}
+
+func (s *ManagerService) GetDevicePosture() (fingerprint.DevicePostureSnapshot, error) {
+	snapshot, ok := fingerprint.CachedDevicePosture()
+	if !ok {
+		logger.Debug("IPC server: GetDevicePosture() cache miss, refreshing")
+		fingerprint.RefreshPostureMemory()
+		snapshot, ok = fingerprint.CachedDevicePosture()
+	}
+	if !ok {
+		return fingerprint.DevicePostureSnapshot{}, errors.New("device posture cache is not available")
+	}
+	return snapshot, nil
 }
 
 func (s *ManagerService) ServeConn(reader io.Reader, writer io.Writer) {
@@ -352,6 +375,16 @@ func (s *ManagerService) ServeConn(reader io.Reader, writer io.Writer) {
 				return
 			}
 			retErr := s.DeleteUserSecrets(userID, flags)
+			err = encoder.Encode(errToString(retErr))
+			if err != nil {
+				return
+			}
+		case GetDevicePostureMethodType:
+			snapshot, retErr := s.GetDevicePosture()
+			err = encoder.Encode(snapshot)
+			if err != nil {
+				return
+			}
 			err = encoder.Encode(errToString(retErr))
 			if err != nil {
 				return

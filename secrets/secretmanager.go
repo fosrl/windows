@@ -25,11 +25,11 @@ func (sm *SecretManager) ensureReady() bool {
 		return false
 	}
 	credentialMigrationOnce.Do(func() {
-		logger.Info("Secrets: Credential Manager migration starting")
+		logger.Debug("Secrets: Credential Manager migration starting")
 		if err := migrateFromCredentialManager(); err != nil {
 			logger.Warn("Secrets: Credential Manager migration finished with error: %v", err)
 		} else {
-			logger.Info("Secrets: Credential Manager migration finished")
+			logger.Debug("Secrets: Credential Manager migration finished")
 		}
 	})
 	return true
@@ -39,7 +39,6 @@ func (sm *SecretManager) load(userID string) (secretstore.UserSecrets, bool) {
 	if !sm.ensureReady() {
 		return secretstore.UserSecrets{}, false
 	}
-	logger.Debug("Secrets: IPC GetUserSecrets() starting (userId=%s)", userID)
 	secrets, err := ipc.GetUserSecrets(userID)
 	if err != nil {
 		logger.Error("Failed to load secrets for user %s: %v", userID, err)
