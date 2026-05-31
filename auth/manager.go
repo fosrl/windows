@@ -12,7 +12,6 @@ import (
 
 	"github.com/fosrl/windows/api"
 	"github.com/fosrl/windows/config"
-	"github.com/fosrl/windows/fingerprint"
 	"github.com/fosrl/windows/secrets"
 
 	"github.com/fosrl/newt/logger"
@@ -670,60 +669,58 @@ func (am *AuthManager) SelectOrganization(org *api.Org) error {
 
 // EnsureOlmCredentials ensures OLM credentials exist for the user
 func (am *AuthManager) EnsureOlmCredentials(userId string) error {
-	// Check if OLM credentials already exist locally
 	if am.secretManager.HasOlmCredentials(userId) {
-		// Verify OLM exists on server by getting the OLM directly
 		olmIdString, found := am.secretManager.GetOlmId(userId)
 		if found {
 			olm, err := am.apiClient.GetUserOlm(userId, olmIdString, nil)
 			if err == nil && olm != nil {
-				// Verify the olmId matches
 				if olm.OlmId == olmIdString {
-					logger.Info("OLM credentials verified successfully")
+					logger.Info("Auth: OLM credentials verified (userId=%s)", userId)
 					return nil
-				} else {
-					logger.Error("OLM ID mismatch - olm olmId: %s, stored olmId: %s", olm.OlmId, olmIdString)
-					// Clear invalid credentials
-					am.secretManager.DeleteOlmCredentials(userId)
 				}
+				logger.Error("Auth: OLM ID mismatch (userId=%s, server=%s, stored=%s)", userId, olm.OlmId, olmIdString)
+				am.secretManager.DeleteOlmCredentials(userId)
 			} else {
-				// If getting OLM fails, the OLM might not exist
-				logger.Error("Failed to verify OLM credentials: %v", err)
-				// Clear invalid credentials so we can try to create new ones
+				logger.Error("Auth: failed to verify OLM credentials (userId=%s): %v", userId, err)
 				am.secretManager.DeleteOlmCredentials(userId)
 			}
 		}
 	}
 
-	fp := fingerprint.GatherFingerprintInfo()
+	logger.Info("Auth: no local OLM credentials, using manager fingerprint (userId=%s)", userId)
+	if devicePostureIPC == nil {
+		logger.Error("Auth: device posture IPC not registered (userId=%s)", userId)
+		return errors.New("device posture IPC is not connected")
+	}
+	platformFingerprint, err := devicePostureIPC.PlatformFingerprint()
+	if err != nil {
+		logger.Error("Auth: failed to get device fingerprint from manager (userId=%s): %v", userId, err)
+		return fmt.Errorf("failed to get device fingerprint from manager: %w", err)
+	}
 
-	// First, attempt to recover the credentials and associate it with
-	// an existing device.
-	recoveredCreds, err := am.apiClient.RecoverOlmFromFingerprint(userId, fp.PlatformFingerprint)
+	recoveredCreds, err := am.apiClient.RecoverOlmFromFingerprint(userId, platformFingerprint)
 	if err == nil {
 		saved := am.secretManager.SaveOlmCredentials(userId, recoveredCreds.OlmID, recoveredCreds.Secret)
 		if !saved {
 			return errors.New("failed to save OLM credentials")
 		}
-
+		logger.Info("Auth: recovered OLM credentials (userId=%s)", userId)
 		return nil
 	}
 
-	// If credentials don't exist or were cleared, create new ones
-	// Get friendly device name (e.g., "Windows Laptop" or "Windows Desktop")
 	deviceName := config.GetFriendlyDeviceName()
-
 	olmResponse, err := am.apiClient.CreateOlm(userId, deviceName)
 	if err != nil {
+		logger.Error("Auth: failed to create OLM (userId=%s): %v", userId, err)
 		return fmt.Errorf("failed to create OLM: %w", err)
 	}
 
-	// Save OLM credentials
 	saved := am.secretManager.SaveOlmCredentials(userId, olmResponse.OlmId, olmResponse.Secret)
 	if !saved {
 		return errors.New("failed to save OLM credentials")
 	}
 
+	logger.Info("Auth: created OLM credentials (userId=%s, olmId=%s)", userId, olmResponse.OlmId)
 	return nil
 }
 

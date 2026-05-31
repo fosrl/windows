@@ -5,14 +5,13 @@ package tunnel
 import (
 	"context"
 	"encoding/json"
-	"sync"
+	"errors"
 	"time"
 
 	"github.com/fosrl/newt/logger"
 
 	olmpkg "github.com/fosrl/olm/olm"
 	configpkg "github.com/fosrl/windows/config"
-	"github.com/fosrl/windows/fingerprint"
 	"github.com/fosrl/windows/version"
 )
 
@@ -59,17 +58,8 @@ func (s *tunnelService) buildTunnel(config Config) error {
 		}
 	}
 	if !cacheOK {
-		var gatherWg sync.WaitGroup
-		gatherWg.Add(2)
-		go func() {
-			defer gatherWg.Done()
-			fp = fingerprint.GatherFingerprintInfo().ToMap()
-		}()
-		go func() {
-			defer gatherWg.Done()
-			postures = fingerprint.GatherPostureChecks().ToMap()
-		}()
-		gatherWg.Wait()
+		logger.Error("Tunnel: device posture snapshot missing from manager; refusing to gather locally")
+		return errors.New("device posture snapshot not provided by manager")
 	}
 
 	olmConfig := olmpkg.TunnelConfig{

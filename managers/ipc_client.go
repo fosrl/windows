@@ -9,6 +9,7 @@ import (
 	"sync"
 
 	"github.com/fosrl/newt/logger"
+	"github.com/fosrl/windows/fingerprint"
 	"github.com/fosrl/windows/managers/secretstore"
 	"github.com/fosrl/windows/tunnel"
 	"github.com/fosrl/windows/updater"
@@ -40,6 +41,7 @@ const (
 	GetUserSecretsMethodType
 	SaveUserSecretsMethodType
 	DeleteUserSecretsMethodType
+	GetDevicePostureMethodType
 )
 
 var (
@@ -76,6 +78,7 @@ func InitializeIPCClient(reader, writer, events *os.File) {
 	rpcDecoder = gob.NewDecoder(reader)
 	rpcEncoder = gob.NewEncoder(writer)
 	registerSecretsIPC()
+	registerDevicePostureIPC()
 	go func() {
 		decoder := gob.NewDecoder(events)
 		for {
@@ -241,8 +244,7 @@ func IPCClientStartTunnel(config TunnelConfig) error {
 	if err != nil {
 		return err
 	}
-	err = rpcDecodeError()
-	return err
+	return rpcDecodeError()
 }
 
 func IPCClientStopTunnel() error {
@@ -333,9 +335,6 @@ func IPCClientGetUserSecrets(userID string) (secretstore.UserSecrets, error) {
 		return secretstore.UserSecrets{}, err
 	}
 	err = rpcDecodeError()
-	if err != nil {
-		logger.Debug("IPC client: GetUserSecrets() failed (userId=%s): %v", userID, err)
-	}
 	return secrets, err
 }
 
@@ -385,4 +384,27 @@ func IPCClientDeleteUserSecrets(userID string, flags secretstore.DeleteSecretsFl
 		return err
 	}
 	return rpcDecodeError()
+}
+
+func IPCClientGetDevicePosture() (fingerprint.DevicePostureSnapshot, error) {
+	rpcMutex.Lock()
+	defer rpcMutex.Unlock()
+
+	if rpcEncoder == nil {
+		return fingerprint.DevicePostureSnapshot{}, errors.New("manager IPC is not connected")
+	}
+	err := rpcEncoder.Encode(GetDevicePostureMethodType)
+	if err != nil {
+		return fingerprint.DevicePostureSnapshot{}, err
+	}
+	var snapshot fingerprint.DevicePostureSnapshot
+	err = rpcDecoder.Decode(&snapshot)
+	if err != nil {
+		return fingerprint.DevicePostureSnapshot{}, err
+	}
+	err = rpcDecodeError()
+	if err != nil {
+		logger.Debug("IPC client: GetDevicePosture() failed: %v", err)
+	}
+	return snapshot, err
 }
