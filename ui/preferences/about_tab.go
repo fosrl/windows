@@ -166,10 +166,10 @@ func (at *AboutTab) Create(parent *walk.TabWidget) (*walk.TabPage, error) {
 	if err != nil {
 		return nil, err
 	}
-	termsLinkLabel.SetText(`<a href="https://pangolin.net/terms-of-service.html">Terms of Service</a>`)
+	termsLinkLabel.SetText(`<a href="https://pangolin.net/tos">Terms of Service</a>`)
 	termsLinkLabel.SetAlignment(walk.AlignHNearVNear)
 	termsLinkLabel.LinkActivated().Attach(func(link *walk.LinkLabelLink) {
-		browser.OpenURL("https://pangolin.net/terms-of-service.html")
+		browser.OpenURL("https://pangolin.net/tos")
 	})
 
 	// Privacy Policy link
@@ -177,10 +177,10 @@ func (at *AboutTab) Create(parent *walk.TabWidget) (*walk.TabPage, error) {
 	if err != nil {
 		return nil, err
 	}
-	privacyLinkLabel.SetText(`<a href="https://pangolin.net/privacy-policy.html">Privacy Policy</a>`)
+	privacyLinkLabel.SetText(`<a href="https://pangolin.net/privacy">Privacy Policy</a>`)
 	privacyLinkLabel.SetAlignment(walk.AlignHNearVNear)
 	privacyLinkLabel.LinkActivated().Attach(func(link *walk.LinkLabelLink) {
-		browser.OpenURL("https://pangolin.net/privacy-policy.html")
+		browser.OpenURL("https://pangolin.net/privacy")
 	})
 
 	// Add spacer to fill remaining space
