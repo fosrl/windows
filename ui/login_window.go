@@ -543,11 +543,11 @@ func ShowLoginDialog(
 					},
 					LinkLabel{
 						AssignTo:  &termsLinkLabel,
-						Text:      `<a href="https://pangolin.net/terms-of-service.html">Terms of Service</a>`,
+						Text:      `<a href="https://pangolin.net/tos">Terms of Service</a>`,
 						Font:      Font{PointSize: 8},
 						Alignment: AlignHNearVCenter,
 						OnLinkActivated: func(link *walk.LinkLabelLink) {
-							openBrowser("https://pangolin.net/terms-of-service.html")
+							openBrowser("https://pangolin.net/tos")
 						},
 					},
 					Label{
@@ -559,11 +559,11 @@ func ShowLoginDialog(
 					},
 					LinkLabel{
 						AssignTo:  &privacyLinkLabel,
-						Text:      `<a href="https://pangolin.net/privacy-policy.html">Privacy Policy</a>.`,
+						Text:      `<a href="https://pangolin.net/privacy">Privacy Policy</a>.`,
 						Font:      Font{PointSize: 8},
 						Alignment: AlignHNearVCenter,
 						OnLinkActivated: func(link *walk.LinkLabelLink) {
-							openBrowser("https://pangolin.net/privacy-policy.html")
+							openBrowser("https://pangolin.net/privacy")
 						},
 					},
 				},

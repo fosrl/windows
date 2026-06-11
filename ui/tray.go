@@ -475,14 +475,14 @@ func setupMenu() error {
 	termsAction := walk.NewAction()
 	termsAction.SetText("Terms of Service")
 	termsAction.Triggered().Attach(func() {
-		openURL("https://pangolin.net/terms-of-service.html")
+		openURL("https://pangolin.net/tos")
 	})
 	moreMenu.Actions().Add(termsAction)
 
 	privacyAction := walk.NewAction()
 	privacyAction.SetText("Privacy Policy")
 	privacyAction.Triggered().Attach(func() {
-		openURL("https://pangolin.net/privacy-policy.html")
+		openURL("https://pangolin.net/privacy")
 	})
 	moreMenu.Actions().Add(privacyAction)
 
