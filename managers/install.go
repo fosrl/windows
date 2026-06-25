@@ -149,8 +149,14 @@ func InstallTunnel(configJSON string) error {
 			return err
 		}
 		if status.State != svc.Stopped && err != windows.ERROR_SERVICE_MARKED_FOR_DELETE {
-			service.Close()
-			return errors.New("Tunnel already installed and running")
+			if _, ctrlErr := service.Control(svc.Stop); ctrlErr != nil {
+				service.Close()
+				return fmt.Errorf("failed to stop running tunnel service: %w", ctrlErr)
+			}
+			if !waitForServiceStopped(service, 30*time.Second) {
+				service.Close()
+				return errors.New("timed out waiting for tunnel service to stop")
+			}
 		}
 		err = service.Delete()
 		service.Close()
@@ -233,6 +239,21 @@ func UninstallTunnel(name string) error {
 	os.Remove(configPath) // Best effort cleanup
 
 	return nil
+}
+
+func waitForServiceStopped(service *mgr.Service, timeout time.Duration) bool {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		status, err := service.Query()
+		if err != nil {
+			return false
+		}
+		if status.State == svc.Stopped {
+			return true
+		}
+		time.Sleep(time.Second / 3)
+	}
+	return false
 }
 
 // sanitizeServiceName removes invalid characters from service name
