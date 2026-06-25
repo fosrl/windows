@@ -237,7 +237,7 @@ func setupMenu() error {
 
 	// Create update action (initially hidden)
 	updateAction = walk.NewAction()
-	updateAction.SetText("Update Available")
+	updateAction.SetText("Pangolin Update Available")
 	updateAction.SetVisible(false) // Hidden initially
 	updateAction.Triggered().Attach(func() {
 		go triggerUpdate(mainWindow)
@@ -1814,8 +1814,8 @@ func triggerUpdate(mw *walk.MainWindow) {
 		td := walk.NewTaskDialog()
 		opts := walk.TaskDialogOpts{
 			Owner:         mw,
-			Title:         "Update Available",
-			Content:       "A new version is available.\n\nWould you like to download and install it now?",
+			Title:         "Pangolin Update Available",
+			Content:       "A new Pangolin version is available.\n\nWould you like to download and install it now?",
 			IconSystem:    walk.TaskDialogSystemIconInformation,
 			CommonButtons: win.TDCBF_YES_BUTTON | win.TDCBF_NO_BUTTON,
 			DefaultButton: walk.TaskDialogDefaultButtonYes,

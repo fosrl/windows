@@ -3,6 +3,7 @@
 package fingerprint
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -16,12 +17,44 @@ import (
 	"strings"
 	"sync"
 	"syscall"
+	"time"
 	"unsafe"
 
 	"github.com/fosrl/newt/logger"
 	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/registry"
 )
+
+const powerShellTimeout = 60 * time.Second
+
+// One PowerShell process gathers all WMI-dependent fingerprint and posture data.
+const windowsSystemQueryScript = `
+$ErrorActionPreference = 'SilentlyContinue'
+
+$serial = (Get-CimInstance Win32_ComputerSystemProduct | Select-Object -ExpandProperty IdentifyingNumber)
+
+$bitlockerStatus = Get-BitLockerVolume -MountPoint 'C:' | Select-Object -ExpandProperty VolumeStatus
+$diskEncrypted = ($bitlockerStatus -eq 'FullyEncrypted' -or $bitlockerStatus -eq 'EncryptionInProgress')
+
+$firewallEnabled = @((Get-NetFirewallProfile | Where-Object { $_.Enabled -eq $true })).Count -gt 0
+
+$tpmAvailable = $false
+$tpm = Get-Tpm
+if ($null -ne $tpm) { $tpmAvailable = [bool]$tpm.TpmPresent }
+
+$antivirusProductStates = @(
+  Get-CimInstance -Namespace 'root/SecurityCenter2' -ClassName AntiVirusProduct |
+    ForEach-Object { [uint32]$_.productState }
+)
+
+[PSCustomObject]@{
+  serialNumber = $serial
+  diskEncrypted = [bool]$diskEncrypted
+  firewallEnabled = [bool]$firewallEnabled
+  tpmAvailable = [bool]$tpmAvailable
+  antivirusProductStates = $antivirusProductStates
+} | ConvertTo-Json -Compress
+`
 
 type Fingerprint struct {
 	Username            string `json:"username"`
@@ -47,20 +80,41 @@ type PostureChecks struct {
 	WindowsAntivirusEnabled bool `json:"windowsAntivirusEnabled"`
 }
 
+type windowsSystemQueryResult struct {
+	SerialNumber           string   `json:"serialNumber"`
+	DiskEncrypted          bool     `json:"diskEncrypted"`
+	FirewallEnabled        bool     `json:"firewallEnabled"`
+	TpmAvailable           bool     `json:"tpmAvailable"`
+	AntivirusProductStates []uint32 `json:"antivirusProductStates"`
+}
+
 func GatherFingerprintInfo() *Fingerprint {
-	logger.Debug("Fingerprint: GatherFingerprintInfo() starting")
+	fp, _ := gatherDevicePosture()
+	return fp
+}
+
+func GatherPostureChecks() *PostureChecks {
+	_, postures := gatherDevicePosture()
+	return postures
+}
+
+func gatherDevicePosture() (*Fingerprint, *PostureChecks) {
+	logger.Debug("Fingerprint: gatherDevicePosture() starting")
 
 	var username string
 	if u, err := user.Current(); err == nil {
 		username = u.Username
 	}
 
-	var hostname string
-	var osVersion string
-	var kernelVersion string
-	var deviceModel string
-	var serialNumber string
-	var wg sync.WaitGroup
+	var (
+		hostname      string
+		osVersion     string
+		kernelVersion string
+		deviceModel   string
+		sysQuery      windowsSystemQueryResult
+		sysQueryOK    bool
+		wg            sync.WaitGroup
+	)
 
 	wg.Go(func() {
 		hostname, _ = os.Hostname()
@@ -71,11 +125,16 @@ func GatherFingerprintInfo() *Fingerprint {
 	})
 
 	wg.Go(func() {
-		deviceModel, serialNumber = getWindowsModelAndSerial()
+		deviceModel = getDeviceModelFromRegistry()
+	})
+
+	wg.Go(func() {
+		sysQuery, sysQueryOK = gatherWindowsSystemQueries()
 	})
 
 	wg.Wait()
 
+	serialNumber := resolveSerialNumber(sysQueryOK, sysQuery.SerialNumber)
 	platformFP := computePlatformFingerprint(serialNumber)
 
 	fp := &Fingerprint{
@@ -89,40 +148,69 @@ func GatherFingerprintInfo() *Fingerprint {
 		SerialNumber:        serialNumber,
 		PlatformFingerprint: platformFP,
 	}
-	logger.Debug("Fingerprint: GatherFingerprintInfo() finished (hostname=%q, model=%q, hasSerial=%v)",
-		fp.Hostname, fp.DeviceModel, fp.SerialNumber != "")
-	return fp
+
+	postures := postureChecksFromSystemQuery(sysQuery, sysQueryOK)
+
+	logger.Debug("Fingerprint: gatherDevicePosture() finished (hostname=%q, model=%q, hasSerial=%v, sysQueryOK=%v)",
+		fp.Hostname, fp.DeviceModel, fp.SerialNumber != "", sysQueryOK)
+	return fp, postures
 }
 
-func GatherPostureChecks() *PostureChecks {
-	var wg sync.WaitGroup
-
-	var diskEncrypted, firewall, tpm, defender bool
-
-	wg.Go(func() {
-		diskEncrypted = windowsDiskEncrypted()
-	})
-
-	wg.Go(func() {
-		firewall = windowsFirewallEnabled()
-	})
-
-	wg.Go(func() {
-		tpm = windowsTPMAvailable()
-	})
-
-	wg.Go(func() {
-		defender = windowsAntivirusEnabled()
-	})
-
-	wg.Wait()
+func postureChecksFromSystemQuery(query windowsSystemQueryResult, ok bool) *PostureChecks {
+	if !ok {
+		return &PostureChecks{}
+	}
 
 	return &PostureChecks{
-		DiskEncrypted:           diskEncrypted,
-		FirewallEnabled:         firewall,
-		TpmAvailable:            tpm,
-		WindowsAntivirusEnabled: defender,
+		DiskEncrypted:           query.DiskEncrypted,
+		FirewallEnabled:         query.FirewallEnabled,
+		TpmAvailable:            query.TpmAvailable,
+		WindowsAntivirusEnabled: antivirusEnabledFromProductStates(query.AntivirusProductStates),
 	}
+}
+
+func gatherWindowsSystemQueries() (windowsSystemQueryResult, bool) {
+	logger.Debug("Fingerprint: gathering WMI posture and serial via single PowerShell invocation")
+
+	out, err := runPowerShellScript(windowsSystemQueryScript)
+	if err != nil {
+		logger.Debug("Fingerprint: system query script failed: %v", err)
+		return windowsSystemQueryResult{}, false
+	}
+
+	rawOutput := strings.TrimSpace(string(out))
+	logger.Debug("Fingerprint: system query raw output: %q", rawOutput)
+
+	var result windowsSystemQueryResult
+	if err := json.Unmarshal([]byte(rawOutput), &result); err != nil {
+		logger.Debug("Fingerprint: failed to parse system query JSON: %v", err)
+		return windowsSystemQueryResult{}, false
+	}
+
+	logger.Debug("Fingerprint: system query parsed (hasSerial=%v, diskEncrypted=%v, firewall=%v, tpm=%v, avStates=%d)",
+		strings.TrimSpace(result.SerialNumber) != "",
+		result.DiskEncrypted,
+		result.FirewallEnabled,
+		result.TpmAvailable,
+		len(result.AntivirusProductStates),
+	)
+	return result, true
+}
+
+func runPowerShellScript(script string) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), powerShellTimeout)
+	defer cancel()
+
+	cmd := exec.CommandContext(
+		ctx,
+		getPowerShellPath(),
+		"-NoProfile",
+		"-NonInteractive",
+		"-Command",
+		script,
+	)
+	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+	return cmd.Output()
 }
 
 type rtlOsVersionInfoEx struct {
@@ -160,37 +248,72 @@ func getWindowsVersion() (string, string) {
 	return osVersionFull, osVersionFull
 }
 
-func getWindowsModelAndSerial() (string, string) {
+func getDeviceModelFromRegistry() string {
 	k, err := registry.OpenKey(
 		registry.LOCAL_MACHINE,
 		`SYSTEM\CurrentControlSet\Control\SystemInformation`,
 		registry.QUERY_VALUE,
 	)
 	if err != nil {
-		return "", ""
+		return ""
 	}
 	defer k.Close()
 
 	model, _, _ := k.GetStringValue("SystemProductName")
+	return model
+}
 
-	command := "Get-CimInstance Win32_ComputerSystemProduct | Select-Object -ExpandProperty IdentifyingNumber"
-	psPath := getPowerShellPath()
-	logger.Debug("Fingerprint: Model and Serial - Executing PowerShell command: %s", command)
-	cmd := exec.Command(psPath, "-Command", command)
-	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
-	out, err := cmd.Output()
-
-	var serial string
+func getSerialFromRegistry() string {
+	k, err := registry.OpenKey(
+		registry.LOCAL_MACHINE,
+		`HARDWARE\DESCRIPTION\System\BIOS`,
+		registry.QUERY_VALUE,
+	)
 	if err != nil {
-		logger.Debug("Fingerprint: Model and Serial - Command failed with error: %v", err)
-	} else {
-		rawOutput := string(out)
-		logger.Debug("Fingerprint: Model and Serial - Raw command output: %q", rawOutput)
-		serial = strings.TrimSpace(rawOutput)
-		logger.Debug("Fingerprint: Model and Serial - Trimmed output: %q", serial)
+		return ""
+	}
+	defer k.Close()
+
+	serial, _, _ := k.GetStringValue("SystemSerialNumber")
+	return strings.TrimSpace(serial)
+}
+
+func resolveSerialNumber(sysQueryOK bool, wmiSerial string) string {
+	wmiSerial = strings.TrimSpace(wmiSerial)
+	if sysQueryOK && isUsefulSerial(wmiSerial) {
+		return wmiSerial
 	}
 
-	return model, serial
+	if regSerial := getSerialFromRegistry(); isUsefulSerial(regSerial) {
+		return regSerial
+	}
+
+	if sysQueryOK && wmiSerial != "" {
+		return wmiSerial
+	}
+
+	return ""
+}
+
+func isUsefulSerial(serial string) bool {
+	serial = strings.TrimSpace(serial)
+	if serial == "" {
+		return false
+	}
+
+	switch strings.ToLower(serial) {
+	case "to be filled by o.e.m.",
+		"default string",
+		"none",
+		"not specified",
+		"system serial number",
+		"0123456789",
+		"123456789",
+		"00000000":
+		return false
+	}
+
+	return true
 }
 
 // getPowerShellPath returns the full path to PowerShell executable.
@@ -199,161 +322,34 @@ func getWindowsModelAndSerial() (string, string) {
 func getPowerShellPath() string {
 	systemDir, err := windows.GetSystemDirectory()
 	if err != nil {
-		// Fallback to "powershell.exe" if system directory lookup fails
-		logger.Debug("Posture check: Failed to get system directory, falling back to 'powershell.exe': %v", err)
+		logger.Debug("Fingerprint: failed to get system directory, falling back to 'powershell.exe': %v", err)
 		return "powershell.exe"
 	}
-	// PowerShell is typically located at %SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe
 	return filepath.Join(systemDir, "WindowsPowerShell", "v1.0", "powershell.exe")
 }
 
-func windowsDiskEncrypted() bool {
-	command := "Get-BitLockerVolume -MountPoint 'C:' | Select-Object -ExpandProperty VolumeStatus"
-	logger.Debug("Posture check: Disk Encryption - Executing PowerShell command: %s", command)
+func antivirusEnabledFromProductStates(productStates []uint32) bool {
+	logger.Debug("Posture check: Antivirus - evaluating %d productState value(s)", len(productStates))
 
-	cmd := exec.Command(getPowerShellPath(), "-Command", command)
-	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
-	out, err := cmd.Output()
+	for i, productState := range productStates {
+		logger.Debug("Posture check: Antivirus - Processing value %d: %d", i+1, productState)
 
-	if err != nil {
-		logger.Debug("Posture check: Disk Encryption - Command failed with error: %v", err)
-		return false
-	}
-
-	rawOutput := string(out)
-	logger.Debug("Posture check: Disk Encryption - Raw command output: %q", rawOutput)
-
-	s := strings.TrimSpace(rawOutput)
-	logger.Debug("Posture check: Disk Encryption - Trimmed output: %q", s)
-
-	result := s == "FullyEncrypted" || s == "EncryptionInProgress"
-	logger.Debug("Posture check: Disk Encryption - Result: %v (status: %q)", result, s)
-	return result
-}
-
-func windowsFirewallEnabled() bool {
-	command := "(Get-NetFirewallProfile | Where-Object { $_.Enabled -eq $true }).Count -gt 0"
-	logger.Debug("Posture check: Firewall - Executing PowerShell command: %s", command)
-
-	cmd := exec.Command(getPowerShellPath(), "-Command", command)
-	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
-	out, err := cmd.Output()
-
-	if err != nil {
-		logger.Debug("Posture check: Firewall - Command failed with error: %v", err)
-		return false
-	}
-
-	rawOutput := string(out)
-	logger.Debug("Posture check: Firewall - Raw command output: %q", rawOutput)
-
-	s := strings.TrimSpace(rawOutput)
-	logger.Debug("Posture check: Firewall - Trimmed output: %q", s)
-
-	result := s == "True"
-	logger.Debug("Posture check: Firewall - Result: %v", result)
-	return result
-}
-
-func windowsTPMAvailable() bool {
-	command := "Get-Tpm | Select-Object -ExpandProperty TpmPresent"
-	logger.Debug("Posture check: TPM - Executing PowerShell command: %s", command)
-
-	cmd := exec.Command(getPowerShellPath(), "-Command", command)
-	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
-	out, err := cmd.Output()
-
-	if err != nil {
-		logger.Debug("Posture check: TPM - Command failed with error: %v", err)
-		return false
-	}
-
-	rawOutput := string(out)
-	logger.Debug("Posture check: TPM - Raw command output: %q", rawOutput)
-
-	s := strings.TrimSpace(rawOutput)
-	logger.Debug("Posture check: TPM - Trimmed output: %q", s)
-
-	// If output is empty, assume no TPM
-	if s == "" {
-		logger.Debug("Posture check: TPM - Empty output, assuming no TPM")
-		return false
-	}
-
-	result := s == "True"
-	logger.Debug("Posture check: TPM - Result: %v", result)
-	return result
-}
-
-func windowsAntivirusEnabled() bool {
-	// Query Windows Security Center for antivirus products
-	// Get productState values and check if any antivirus is active
-	command := "Get-CimInstance -Namespace 'root/SecurityCenter2' -ClassName AntiVirusProduct | Select-Object -ExpandProperty productState"
-	logger.Debug("Posture check: Antivirus - Executing PowerShell command: %s", command)
-
-	cmd := exec.Command(getPowerShellPath(), "-Command", command)
-	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
-	out, err := cmd.Output()
-	if err != nil {
-		logger.Debug("Posture check: Antivirus - Command failed with error: %v", err)
-		return false
-	}
-
-	rawOutput := string(out)
-	logger.Debug("Posture check: Antivirus - Raw command output: %q", rawOutput)
-
-	// Parse output - may contain multiple productState values (one per line)
-	lines := strings.Split(strings.TrimSpace(rawOutput), "\n")
-	logger.Debug("Posture check: Antivirus - Found %d productState line(s)", len(lines))
-
-	for i, line := range lines {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			logger.Debug("Posture check: Antivirus - Skipping empty line %d", i+1)
-			continue
-		}
-
-		logger.Debug("Posture check: Antivirus - Processing line %d: %q", i+1, line)
-
-		// Parse productState as integer
-		productState, err := strconv.ParseUint(line, 10, 32)
-		if err != nil {
-			logger.Debug("Posture check: Antivirus - Failed to parse productState %q as decimal: %v", line, err)
-			continue
-		}
-
-		logger.Debug("Posture check: Antivirus - Parsed productState (decimal): %d", productState)
-
-		// Convert decimal to hex (e.g., 397568 -> "61100", 401664 -> "62100")
-		hexStr := strconv.FormatUint(productState, 16)
-		logger.Debug("Posture check: Antivirus - Hex conversion (before padding): %q", hexStr)
-
-		// Pad with leading zeros to ensure 6 digits
-		// This ensures the 2nd and 3rd hex digits are always at positions 2-3
+		hexStr := strconv.FormatUint(uint64(productState), 16)
 		if len(hexStr) < 6 {
 			hexStr = strings.Repeat("0", 6-len(hexStr)) + hexStr
 		}
 		hexStr = strings.ToUpper(hexStr)
-		logger.Debug("Posture check: Antivirus - Hex string (after padding/uppercase): %q", hexStr)
 
 		if len(hexStr) < 4 {
-			logger.Debug("Posture check: Antivirus - Hex string too short, skipping")
 			continue
 		}
 
-		// Extract 2nd and 3rd hex digits of the original value
-		// After padding to 6 digits, the 2nd and 3rd digits are at positions 2-3 (0-indexed)
-		// Example: 397568 -> "61100" -> padded to "061100" -> positions 2-3 = "11"
-		// Example: 401664 -> "62100" -> padded to "062100" -> positions 2-3 = "21"
 		statusDigits := hexStr[2:4]
 		logger.Debug("Posture check: Antivirus - Status digits (2nd and 3rd hex): %q (from hex: %q)", statusDigits, hexStr)
 
-		// "10" or "11" = ACTIVE, "20" or "21" = INACTIVE/PASSIVE
 		if statusDigits == "10" || statusDigits == "11" {
 			logger.Debug("Posture check: Antivirus - Found ACTIVE antivirus (status: %q)", statusDigits)
 			return true
-		} else {
-			logger.Debug("Posture check: Antivirus - Antivirus is INACTIVE/PASSIVE (status: %q)", statusDigits)
 		}
 	}
 

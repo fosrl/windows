@@ -70,6 +70,10 @@ func NewManager(
 	// Register for tunnel state change notifications
 	if ipcClient != nil {
 		tm.unregisterCb = ipcClient.RegisterStateChangeCallback(func(state State) {
+			if isTransitionalConnectState(state) {
+				return
+			}
+
 			tm.mu.Lock()
 			tm.currentState = state
 			tm.isConnected = (state == StateRunning)
@@ -136,6 +140,22 @@ func (tm *Manager) RegisterErrorCallback(cb func(*OLMStatusError)) {
 	tm.mu.Lock()
 	defer tm.mu.Unlock()
 	tm.errorCallback = cb
+}
+
+func isTransitionalConnectState(state State) bool {
+	return state == StateStarting || state == StateRegistering || state == StateRegistered
+}
+
+func (tm *Manager) setLocalState(state State) {
+	tm.mu.Lock()
+	tm.currentState = state
+	tm.isConnected = (state == StateRunning)
+	callback := tm.stateCallback
+	tm.mu.Unlock()
+
+	if callback != nil {
+		callback(state)
+	}
 }
 
 // buildConfig builds the tunnel configuration from auth manager, config manager, and secret manager
@@ -256,11 +276,14 @@ func (tm *Manager) Connect() error {
 		)
 	}
 
+	tm.setLocalState(StateStarting)
+
 	// Ensure OLM credentials exist before connecting
 	currentUser := tm.authManager.CurrentUser()
 	if currentUser != nil && currentUser.UserId != "" {
 		if err := tm.authManager.EnsureOlmCredentials(currentUser.UserId); err != nil {
 			logger.Error("Failed to ensure OLM credentials: %v", err)
+			tm.setLocalState(StateStopped)
 			return formatConnectionError(
 				"OLM Credentials Error",
 				fmt.Sprintf("Failed to set up device credentials: %v", err),
@@ -271,6 +294,7 @@ func (tm *Manager) Connect() error {
 		activeAccount, err := tm.accountManager.ActiveAccount()
 		if err != nil {
 			logger.Error("Failed to get active account: %v", err)
+			tm.setLocalState(StateStopped)
 			return formatConnectionError(
 				"Authentication Error",
 				"No user ID available. Please log in again.",
@@ -280,6 +304,7 @@ func (tm *Manager) Connect() error {
 
 		if err := tm.authManager.EnsureOlmCredentials(activeAccount.UserID); err != nil {
 			logger.Error("Failed to ensure OLM credentials: %v", err)
+			tm.setLocalState(StateStopped)
 			return formatConnectionError(
 				"OLM Credentials Error",
 				fmt.Sprintf("Failed to set up device credentials: %v", err),
@@ -292,6 +317,7 @@ func (tm *Manager) Connect() error {
 	config, err := tm.buildConfig()
 	if err != nil {
 		logger.Error("Failed to build tunnel config: %v", err)
+		tm.setLocalState(StateStopped)
 		// Format config build errors
 		if err.Error() == "session token not found" {
 			return formatConnectionError(
@@ -309,6 +335,7 @@ func (tm *Manager) Connect() error {
 
 	logger.Info("Connecting tunnel with config: Name=%s, Endpoint=%s", config.Name, config.Endpoint)
 	if tm.ipcClient == nil {
+		tm.setLocalState(StateStopped)
 		return formatConnectionError(
 			"Connection Error",
 			"IPC client not initialized. Please restart the application.",
@@ -318,6 +345,7 @@ func (tm *Manager) Connect() error {
 	err = tm.ipcClient.StartTunnel(config)
 	if err != nil {
 		logger.Error("Failed to start tunnel: %v", err)
+		tm.setLocalState(StateStopped)
 		return formatConnectionError(
 			"Connection Failed",
 			fmt.Sprintf("Failed to start the tunnel: %v", err),
@@ -617,6 +645,10 @@ func (tm *Manager) StartStatusPolling() {
 				// Update Manager's internal state and trigger callback (this notifies the UI)
 				tm.mu.Lock()
 				oldState := tm.currentState
+				if isTransitionalConnectState(oldState) && newState != StateRunning {
+					tm.mu.Unlock()
+					continue
+				}
 				tm.currentState = newState
 				tm.isConnected = (newState == StateRunning)
 				callback := tm.stateCallback

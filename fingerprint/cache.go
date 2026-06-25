@@ -17,11 +17,11 @@ var (
 
 func RefreshPostureMemory() {
 	logger.Debug("Fingerprint: RefreshPostureMemory() starting")
-	fp := GatherFingerprintInfo().ToMap()
+	fingerprint, posturesStruct := gatherDevicePosture()
+	fp := fingerprint.ToMap()
 	logger.Debug("Fingerprint: RefreshPostureMemory() fingerprint map keys=%d", len(fp))
 
-	logger.Debug("Fingerprint: RefreshPostureMemory() gathering posture checks")
-	postures := GatherPostureChecks().ToMap()
+	postures := posturesStruct.ToMap()
 	logger.Debug("Fingerprint: RefreshPostureMemory() posture map keys=%d", len(postures))
 
 	postureMemMu.Lock()
