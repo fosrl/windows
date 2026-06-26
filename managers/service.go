@@ -275,6 +275,7 @@ func (service *managerService) Execute(args []string, r <-chan svc.ChangeRequest
 	// Listen for UI launch requests from standard users (named pipe).
 	requestUILaunchChan := make(chan uint32)
 	var pipeListener net.Listener
+	var cliSecretsPipeListener net.Listener
 	pipeConfig := &winio.PipeConfig{
 		SecurityDescriptor: "D:(A;;GA;;;WD)", // Allow Everyone to connect
 	}
@@ -284,6 +285,14 @@ func (service *managerService) Execute(args []string, r <-chan svc.ChangeRequest
 	} else {
 		pipeListener = listener
 		go runUILaunchPipeListener(listener, requestUILaunchChan, procs, aliveSessions, &procsLock)
+	}
+
+	cliSecretsListener, cliSecretsErr := winio.ListenPipe(cliSecretsPipePath, pipeConfig)
+	if cliSecretsErr != nil {
+		logger.Error("Failed to create CLI secrets pipe listener: %v", cliSecretsErr)
+	} else {
+		cliSecretsPipeListener = cliSecretsListener
+		go runCLISecretsPipeListener(cliSecretsListener)
 	}
 
 	changes <- svc.Status{State: svc.Running, Accepts: svc.AcceptStop | svc.AcceptSessionChange}
@@ -377,6 +386,9 @@ loop:
 	procsLock.Unlock()
 	if pipeListener != nil {
 		_ = pipeListener.Close()
+	}
+	if cliSecretsPipeListener != nil {
+		_ = cliSecretsPipeListener.Close()
 	}
 	procsGroup.Wait()
 	if uninstall {
