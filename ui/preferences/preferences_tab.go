@@ -197,6 +197,7 @@ func (pt *PreferencesTab) Create(parent *walk.TabWidget) (*walk.TabPage, error) 
 	if pt.primaryDNSEdit, err = walk.NewLineEdit(primaryDNSContainer); err != nil {
 		return nil, err
 	}
+	pt.primaryDNSEdit.SetCueBanner("Default: system DNS")
 	pt.primaryDNSEdit.SetText(pt.configManager.GetPrimaryDNS()) // Get value from config
 
 	// Spacer
@@ -222,6 +223,7 @@ func (pt *PreferencesTab) Create(parent *walk.TabWidget) (*walk.TabPage, error) 
 	if pt.secondaryDNSEdit, err = walk.NewLineEdit(secondaryDNSContainer); err != nil {
 		return nil, err
 	}
+	pt.secondaryDNSEdit.SetCueBanner("Default: system DNS")
 	pt.secondaryDNSEdit.SetText(pt.configManager.GetSecondaryDNS()) // Get value from config
 
 	// Spacer
@@ -353,28 +355,8 @@ func (pt *PreferencesTab) onSave() {
 		return
 	}
 
-	// Validate primary DNS (required)
-	if primaryDNS == "" {
-		// Restore to current config value
-		currentValue := pt.configManager.GetPrimaryDNS()
-		pt.primaryDNSEdit.SetText(currentValue)
-		var owner walk.Form
-		if pt.window != nil {
-			owner = pt.window
-		}
-		td := walk.NewTaskDialog()
-		_, _ = td.Show(walk.TaskDialogOpts{
-			Owner:         owner,
-			Title:         "Invalid Input",
-			Content:       "Primary DNS Server cannot be empty.",
-			IconSystem:    walk.TaskDialogSystemIconWarning,
-			CommonButtons: win.TDCBF_OK_BUTTON,
-		})
-		return
-	}
-
-	// Validate primary DNS is a valid IP address
-	if !isValidIPAddress(primaryDNS) {
+	// Validate primary DNS is a valid IP address (if provided)
+	if primaryDNS != "" && !isValidIPAddress(primaryDNS) {
 		// Restore to current config value
 		currentValue := pt.configManager.GetPrimaryDNS()
 		pt.primaryDNSEdit.SetText(currentValue)
@@ -425,12 +407,15 @@ func (pt *PreferencesTab) onSave() {
 
 	dnsOverrideVal := dnsOverride
 	dnsTunnelVal := dnsTunnel
-	primaryDNSVal := primaryDNS
 	mtuVal := mtu
 	cfg.DNSOverride = &dnsOverrideVal
 	cfg.DNSTunnel = &dnsTunnelVal
-	cfg.PrimaryDNS = &primaryDNSVal
 	cfg.MTU = &mtuVal
+	if primaryDNS != "" {
+		cfg.PrimaryDNS = &primaryDNS
+	} else {
+		cfg.PrimaryDNS = nil
+	}
 	if secondaryDNS != "" {
 		cfg.SecondaryDNS = &secondaryDNS
 	} else {

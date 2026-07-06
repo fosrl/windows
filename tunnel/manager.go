@@ -191,8 +191,12 @@ func (tm *Manager) buildConfig() (Config, error) {
 	dnsOverride := tm.configManager.GetDNSOverride()
 	dnsTunnel := tm.configManager.GetDNSTunnel()
 
-	// Build UpstreamDNS array with :53 appended to each
-	upstreamDNS := []string{primaryDNS + ":53"}
+	// Build UpstreamDNS array with :53 appended to each. If no DNS servers are
+	// configured, this stays empty, telling olm to use the system DNS.
+	upstreamDNS := []string{}
+	if primaryDNS != "" {
+		upstreamDNS = append(upstreamDNS, primaryDNS+":53")
+	}
 	if secondaryDNS != "" {
 		upstreamDNS = append(upstreamDNS, secondaryDNS+":53")
 	}
@@ -207,12 +211,12 @@ func (tm *Manager) buildConfig() (Config, error) {
 		PingIntervalSeconds: 5,
 		PingTimeoutSeconds:  5,
 		Endpoint:            activeAccount.Hostname,
-		DNS:                 "1.1.1.1", // HARDCODE THIS FOR NOW BUT TODO: FIGURE OUT HOW TO HANDLE THIS BETTER
-		OrgID:               currentOrg.Id,
-		InterfaceName:       "Pangolin",
-		UpstreamDNS:         upstreamDNS, // Each value has :53 appended
-		OverrideDNS:         dnsOverride,
-		TunnelDNS:           dnsTunnel,
+		//  DNS:                 "1.1.1.1", // this gets pulled dynamically from the host system now
+		OrgID:         currentOrg.Id,
+		InterfaceName: "Pangolin",
+		UpstreamDNS:   upstreamDNS, // Each value has :53 appended
+		OverrideDNS:   dnsOverride,
+		TunnelDNS:     dnsTunnel,
 	}
 
 	return config, nil

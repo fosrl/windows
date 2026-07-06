@@ -19,7 +19,6 @@ const (
 	DefaultHostname    = "https://app.pangolin.net"
 	ConfigFileName     = "pangolin.json"
 	LogLevel           = "info"
-	DefaultPrimaryDNS  = "1.1.1.1"
 	DefaultDNSOverride = true
 	DefaultDNSTunnel   = false
 	DefaultMTU         = 1280
@@ -178,15 +177,15 @@ func (cm *ConfigManager) GetDNSTunnel() bool {
 	return DefaultDNSTunnel
 }
 
-// GetPrimaryDNS returns the primary DNS server from config or the default value
+// GetPrimaryDNS returns the primary DNS server from config or empty string if not set
 func (cm *ConfigManager) GetPrimaryDNS() string {
 	cm.mu.RLock()
 	defer cm.mu.RUnlock()
 
-	if cm.config != nil && cm.config.PrimaryDNS != nil && *cm.config.PrimaryDNS != "" {
+	if cm.config != nil && cm.config.PrimaryDNS != nil {
 		return *cm.config.PrimaryDNS
 	}
-	return DefaultPrimaryDNS
+	return ""
 }
 
 // GetSecondaryDNS returns the secondary DNS server from config or empty string if not set
@@ -326,7 +325,11 @@ func (cm *ConfigManager) SetPrimaryDNS(value string) bool {
 
 	// Get current config and copy it to preserve all fields
 	cfg := cm.getConfigCopy()
-	cfg.PrimaryDNS = &value
+	if value == "" {
+		cfg.PrimaryDNS = nil // Remove if empty
+	} else {
+		cfg.PrimaryDNS = &value
+	}
 	return cm.save(cfg)
 }
 
