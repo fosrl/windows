@@ -4,14 +4,14 @@ go 1.25.0
 
 require (
 	github.com/Microsoft/go-winio v0.6.2
-	github.com/fosrl/newt v1.13.0
-	github.com/fosrl/olm v1.6.2
+	github.com/fosrl/newt v1.14.0
+	github.com/fosrl/olm v1.7.0
 	github.com/pkg/browser v0.0.0-20240102092130-5ac0b6a4141c
 	github.com/tailscale/walk v0.0.0-20251016200523-963e260a8227
 	github.com/tailscale/win v0.0.0-20250213223159-5992cb43ca35
 	github.com/zalando/go-keyring v0.2.6
-	golang.org/x/crypto v0.52.0
-	golang.org/x/sys v0.45.0
+	golang.org/x/crypto v0.53.0
+	golang.org/x/sys v0.46.0
 )
 
 require (
@@ -26,7 +26,7 @@ require (
 	github.com/vishvananda/netns v0.0.5 // indirect
 	golang.org/x/exp v0.0.0-20251113190631-e25ba8c21ef6 // indirect
 	golang.org/x/mod v0.34.0 // indirect
-	golang.org/x/net v0.55.0 // indirect
+	golang.org/x/net v0.56.0 // indirect
 	golang.org/x/sync v0.20.0 // indirect
 	golang.org/x/time v0.12.0 // indirect
 	golang.org/x/tools v0.43.0 // indirect
@@ -36,7 +36,7 @@ require (
 	golang.zx2c4.com/wireguard/windows v1.0.1 // indirect
 	gopkg.in/Knetic/govaluate.v3 v3.0.0 // indirect
 	gvisor.dev/gvisor v0.0.0-20250503011706-39ed1f5ac29c // indirect
-	software.sslmate.com/src/go-pkcs12 v0.7.1 // indirect
+	software.sslmate.com/src/go-pkcs12 v0.7.3 // indirect
 )
 
 // Uncomment when developing dependencies.

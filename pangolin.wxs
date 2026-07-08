@@ -18,6 +18,21 @@
           <File Id="PangolinExe" 
                 Source="$(var.BuildDir)/Pangolin.exe" 
                 KeyPath="yes" />
+          <ServiceInstall Id="PangolinManagerInstall"
+                          Name="PangolinManager"
+                          DisplayName="Pangolin Manager"
+                          Description="Pangolin Manager Service"
+                          Type="ownProcess"
+                          Start="auto"
+                          ErrorControl="normal"
+                          Arguments="/managerservice"
+                          Vital="yes" />
+          <ServiceControl Id="PangolinManagerControl"
+                          Name="PangolinManager"
+                          Start="install"
+                          Stop="both"
+                          Remove="uninstall"
+                          Wait="yes" />
         </Component>
         <Component Id="WintunDll" Guid="A8B9C0D1-E2F3-4A5B-8C9D-0E1F2A3B4C5D">
           <File Id="WintunDll" 
@@ -103,6 +118,24 @@
     <!-- Icon for the installer -->
     <Icon Id="ProductIcon" SourceFile="$(var.ProjectDir)/icons/icon-orange.ico" />
     <Property Id="ARPPRODUCTICON" Value="ProductIcon" />
+
+    <!-- Remove runtime-registered PangolinManager before MSI-owned ServiceInstall (upgrade from legacy MSI). -->
+    <SetProperty Id="CleanupOrphanedManagerService"
+                 Value="&quot;[%ComSpec]&quot; /c &quot;[System64Folder]sc.exe&quot; stop PangolinManager &amp; &quot;[System64Folder]sc.exe&quot; delete PangolinManager"
+                 Sequence="execute"
+                 Before="CleanupOrphanedManagerService" />
+    <CustomAction Id="CleanupOrphanedManagerService"
+                  BinaryRef="Wix4UtilCA_$(sys.BUILDARCHSHORT)"
+                  DllEntry="WixQuietExec"
+                  Execute="deferred"
+                  Impersonate="no"
+                  Return="ignore" />
+
+    <InstallExecuteSequence>
+      <Custom Action="CleanupOrphanedManagerService"
+              Before="InstallServices"
+              Condition="NOT REMOVE~=&quot;ALL&quot;" />
+    </InstallExecuteSequence>
   </Package>
 </Wix>
 

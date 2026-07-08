@@ -16,6 +16,10 @@ This client can be used with both:
 
 - Compatible with Windows 10+
 
+## Managed Deployment
+
+The MSI installs and starts the `PangolinManager` Windows service automatically, so standard users do not need admin rights on first launch. For silent enterprise installs and validation steps, see [BUILD_STEPS.md](BUILD_STEPS.md#managed-deployment).
+
 ## Documentation
 
 Documentation for the Windows client and all other documentation for Pangolin can be found at [docs.pangolin.net](https://docs.pangolin.net/manage/clients/install-client#windows).

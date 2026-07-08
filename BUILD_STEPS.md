@@ -18,6 +18,7 @@ Install the required tools:
 
 - **WiX Toolset**: For building MSI installers (Windows only)
   - Download from: https://github.com/wixtoolset/wix/releases/
+  - The MSI build uses `WixToolset.Util.wixext` for upgrade migration custom actions (included with WiX v4)
 
 ## Initial Setup
 
@@ -59,7 +60,7 @@ const (
 ./scripts/set-version.sh 1.0.3
 ```
 
-This updates both `version/version.go` and `installer/pangolin.wxs` with the new version.
+This updates both `version/version.go` and `pangolin.wxs` with the new version.
 
 ### 2. Build the Application
 
