@@ -75,6 +75,7 @@ func (s *tunnelService) buildTunnel(config Config) error {
 		OrgID:                config.OrgID,
 		InterfaceName:        config.InterfaceName,
 		UpstreamDNS:          config.UpstreamDNS,
+		MatchDomains:         config.MatchDomains,
 		OverrideDNS:          config.OverrideDNS,
 		TunnelDNS:            config.TunnelDNS,
 		InitialFingerprint:   fp,

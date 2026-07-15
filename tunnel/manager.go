@@ -215,6 +215,7 @@ func (tm *Manager) buildConfig() (Config, error) {
 		OrgID:         currentOrg.Id,
 		InterfaceName: "Pangolin",
 		UpstreamDNS:   upstreamDNS, // Each value has :53 appended
+		MatchDomains:  tm.configManager.GetMatchDomains(),
 		OverrideDNS:   dnsOverride,
 		TunnelDNS:     dnsTunnel,
 	}

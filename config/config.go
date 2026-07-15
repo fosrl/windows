@@ -27,15 +27,16 @@ const (
 // Config represents the per-user application configuration stored under
 // %LOCALAPPDATA%\Pangolin\pangolin.json (or %APPDATA% as a fallback).
 type Config struct {
-	DNSOverride            *bool   `json:"dnsOverride,omitempty"`
-	DNSTunnel              *bool   `json:"dnsTunnel,omitempty"`
-	PrimaryDNS             *string `json:"primaryDNS,omitempty"`
-	SecondaryDNS           *string `json:"secondaryDNS,omitempty"`
-	MTU                    *int    `json:"mtu,omitempty"`
-	DefaultServerURL       *string `json:"defaultServerURL,omitempty"`
-	UserSettingsDisabled   *bool   `json:"userSettingsDisabled,omitempty"`
-	AuthPath               *string `json:"authPath,omitempty"`
-	OpenStatusTabOnConnect *bool   `json:"openStatusTabOnConnect,omitempty"`
+	DNSOverride            *bool    `json:"dnsOverride,omitempty"`
+	DNSTunnel              *bool    `json:"dnsTunnel,omitempty"`
+	PrimaryDNS             *string  `json:"primaryDNS,omitempty"`
+	SecondaryDNS           *string  `json:"secondaryDNS,omitempty"`
+	MatchDomains           []string `json:"matchDomains,omitempty"`
+	MTU                    *int     `json:"mtu,omitempty"`
+	DefaultServerURL       *string  `json:"defaultServerURL,omitempty"`
+	UserSettingsDisabled   *bool    `json:"userSettingsDisabled,omitempty"`
+	AuthPath               *string  `json:"authPath,omitempty"`
+	OpenStatusTabOnConnect *bool    `json:"openStatusTabOnConnect,omitempty"`
 }
 
 // SystemConfig represents machine-wide configuration stored under
@@ -197,6 +198,29 @@ func (cm *ConfigManager) GetSecondaryDNS() string {
 		return *cm.config.SecondaryDNS
 	}
 	return ""
+}
+
+// GetMatchDomains returns the configured FQDN wildcard match-domain patterns
+// (see olm's MatchDomains) or an empty slice if not set, meaning every domain
+// is checked against local records/upstream DNS.
+func (cm *ConfigManager) GetMatchDomains() []string {
+	cm.mu.RLock()
+	defer cm.mu.RUnlock()
+
+	if cm.config != nil {
+		return cm.config.MatchDomains
+	}
+	return nil
+}
+
+// SetMatchDomains sets the FQDN wildcard match-domain patterns and saves to config
+func (cm *ConfigManager) SetMatchDomains(value []string) bool {
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+
+	cfg := cm.getConfigCopy()
+	cfg.MatchDomains = value
+	return cm.save(cfg)
 }
 
 // GetMTU returns the MTU from config or default if not set
@@ -445,6 +469,9 @@ func mergeConfig(base, override *Config) *Config {
 		v := *override.SecondaryDNS
 		merged.SecondaryDNS = &v
 	}
+	if len(override.MatchDomains) > 0 {
+		merged.MatchDomains = append([]string(nil), override.MatchDomains...)
+	}
 	if override.MTU != nil {
 		v := *override.MTU
 		merged.MTU = &v
@@ -491,6 +518,9 @@ func copyConfig(src *Config) *Config {
 	if src.SecondaryDNS != nil {
 		secondaryDNS := *src.SecondaryDNS
 		cfg.SecondaryDNS = &secondaryDNS
+	}
+	if len(src.MatchDomains) > 0 {
+		cfg.MatchDomains = append([]string(nil), src.MatchDomains...)
 	}
 	if src.MTU != nil {
 		mtu := *src.MTU
