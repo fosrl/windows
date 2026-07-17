@@ -31,7 +31,7 @@ type Config struct {
 	DNSTunnel              *bool    `json:"dnsTunnel,omitempty"`
 	PrimaryDNS             *string  `json:"primaryDNS,omitempty"`
 	SecondaryDNS           *string  `json:"secondaryDNS,omitempty"`
-	MatchDomains           []string `json:"matchDomains,omitempty"`
+	MatchDomains           []string `json:"dnsMatchDomains,omitempty"`
 	MTU                    *int     `json:"mtu,omitempty"`
 	DefaultServerURL       *string  `json:"defaultServerURL,omitempty"`
 	UserSettingsDisabled   *bool    `json:"userSettingsDisabled,omitempty"`
