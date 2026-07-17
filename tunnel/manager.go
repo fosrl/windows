@@ -382,15 +382,20 @@ func (tm *Manager) Disconnect() error {
 
 	logger.Info("Disconnecting tunnel")
 	if tm.ipcClient == nil {
+		tm.StopStatusPolling()
+		tm.setLocalState(StateStopped)
 		return fmt.Errorf("IPC client not initialized")
 	}
 	err := tm.ipcClient.StopTunnel()
+	// Always stop polling and ensure local state reflects disconnect, even when
+	// the tunnel service is already gone (uninstall/stop can fail after a crash).
+	tm.StopStatusPolling()
 	if err != nil {
 		logger.Error("Failed to stop tunnel: %v", err)
+		tm.setLocalState(StateStopped)
 		return err
 	}
 
-	tm.StopStatusPolling()
 	logger.Info("Disconnected tunnel")
 
 	return nil
@@ -557,6 +562,10 @@ func (tm *Manager) SwitchOLMOrg(orgID string) error {
 	return nil
 }
 
+// How many consecutive 1s poll failures (or lost-connection reports) while
+// StateRunning before we treat the tunnel as dead and disconnect.
+const statusUnreachableThreshold = 3
+
 // StartStatusPolling starts polling the OLM status endpoint every 1 second
 func (tm *Manager) StartStatusPolling() {
 	tm.mu.Lock()
@@ -578,6 +587,9 @@ func (tm *Manager) StartStatusPolling() {
 		ticker := time.NewTicker(1 * time.Second)
 		defer ticker.Stop()
 
+		consecutiveFailures := 0
+		consecutiveLost := 0
+
 		for {
 			select {
 			case <-pollCtx.Done():
@@ -591,8 +603,25 @@ func (tm *Manager) StartStatusPolling() {
 				status, err := tm.GetOLMStatus()
 				if err != nil {
 					logger.Error("Failed to poll OLM status: %v", err)
+					tm.mu.RLock()
+					currentState := tm.currentState
+					tm.mu.RUnlock()
+					// Only treat pipe failures as fatal once we were fully connected.
+					// During startup the named pipe may not be ready yet.
+					if currentState == StateRunning {
+						consecutiveFailures++
+						if consecutiveFailures >= statusUnreachableThreshold {
+							logger.Info("OLM unreachable after %d consecutive poll failures, disconnecting", consecutiveFailures)
+							if discErr := tm.Disconnect(); discErr != nil {
+								logger.Error("Failed to disconnect tunnel after poll failures: %v", discErr)
+							}
+							consecutiveFailures = 0
+							consecutiveLost = 0
+						}
+					}
 					continue
 				}
+				consecutiveFailures = 0
 
 				// This should be checked before checking termination or state updates
 				if status.Error != nil {
@@ -636,11 +665,27 @@ func (tm *Manager) StartStatusPolling() {
 				var newState State
 				if status.Connected && status.Registered {
 					newState = StateRunning
+					consecutiveLost = 0
 				} else if status.Registered {
 					newState = StateRegistered
+					consecutiveLost = 0
 				} else {
-					// If neither connected nor registered, don't update state
-					// (keep current state)
+					// Neither connected nor registered. If we were running, the
+					// tunnel dropped; after a short grace period, disconnect so
+					// the tray/UI do not stay stuck on connected.
+					tm.mu.RLock()
+					currentState := tm.currentState
+					tm.mu.RUnlock()
+					if currentState == StateRunning {
+						consecutiveLost++
+						if consecutiveLost >= statusUnreachableThreshold {
+							logger.Info("OLM reports not connected/registered after %d polls, disconnecting", consecutiveLost)
+							if discErr := tm.Disconnect(); discErr != nil {
+								logger.Error("Failed to disconnect tunnel after lost connection: %v", discErr)
+							}
+							consecutiveLost = 0
+						}
+					}
 					continue
 				}
 
