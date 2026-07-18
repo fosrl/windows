@@ -37,6 +37,7 @@ type Config struct {
 	UserSettingsDisabled   *bool    `json:"userSettingsDisabled,omitempty"`
 	AuthPath               *string  `json:"authPath,omitempty"`
 	OpenStatusTabOnConnect *bool    `json:"openStatusTabOnConnect,omitempty"`
+	PreferLocalRoutes      *bool    `json:"preferLocalRoutes,omitempty"`
 }
 
 // SystemConfig represents machine-wide configuration stored under
@@ -220,6 +221,29 @@ func (cm *ConfigManager) SetMatchDomains(value []string) bool {
 
 	cfg := cm.getConfigCopy()
 	cfg.MatchDomains = value
+	return cm.save(cfg)
+}
+
+// GetPreferLocalRoutes returns whether tunnel routes should be added with a
+// high metric so overlapping local/connected routes take precedence, or
+// false if not set.
+func (cm *ConfigManager) GetPreferLocalRoutes() bool {
+	cm.mu.RLock()
+	defer cm.mu.RUnlock()
+
+	if cm.config != nil && cm.config.PreferLocalRoutes != nil {
+		return *cm.config.PreferLocalRoutes
+	}
+	return false
+}
+
+// SetPreferLocalRoutes sets the prefer-local-routes setting and saves to config
+func (cm *ConfigManager) SetPreferLocalRoutes(value bool) bool {
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+
+	cfg := cm.getConfigCopy()
+	cfg.PreferLocalRoutes = &value
 	return cm.save(cfg)
 }
 
@@ -492,6 +516,10 @@ func mergeConfig(base, override *Config) *Config {
 		v := *override.OpenStatusTabOnConnect
 		merged.OpenStatusTabOnConnect = &v
 	}
+	if override.PreferLocalRoutes != nil {
+		v := *override.PreferLocalRoutes
+		merged.PreferLocalRoutes = &v
+	}
 
 	return merged
 }
@@ -541,6 +569,10 @@ func copyConfig(src *Config) *Config {
 	if src.OpenStatusTabOnConnect != nil {
 		openStatusTabOnConnect := *src.OpenStatusTabOnConnect
 		cfg.OpenStatusTabOnConnect = &openStatusTabOnConnect
+	}
+	if src.PreferLocalRoutes != nil {
+		preferLocalRoutes := *src.PreferLocalRoutes
+		cfg.PreferLocalRoutes = &preferLocalRoutes
 	}
 	return cfg
 }

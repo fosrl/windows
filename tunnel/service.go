@@ -123,6 +123,7 @@ type Config struct {
 	MatchDomains        []string `json:"matchDomains"`
 	OverrideDNS         bool     `json:"overrideDns"`
 	TunnelDNS           bool     `json:"tunnelDns"`
+	PreferLocalRoutes   bool     `json:"preferLocalRoutes"`
 
 	InitialFingerprint json.RawMessage `json:"initialFingerprint,omitempty"`
 	InitialPostures    json.RawMessage `json:"initialPostures,omitempty"`

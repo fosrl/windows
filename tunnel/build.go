@@ -78,6 +78,7 @@ func (s *tunnelService) buildTunnel(config Config) error {
 		MatchDomains:         config.MatchDomains,
 		OverrideDNS:          config.OverrideDNS,
 		TunnelDNS:            config.TunnelDNS,
+		PreferLocalRoutes:    config.PreferLocalRoutes,
 		InitialFingerprint:   fp,
 		InitialPostures:      postures,
 	}
