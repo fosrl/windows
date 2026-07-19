@@ -4,8 +4,8 @@ go 1.25.0
 
 require (
 	github.com/Microsoft/go-winio v0.6.2
-	github.com/fosrl/newt v1.14.0
-	github.com/fosrl/olm v1.7.0
+	github.com/fosrl/newt v1.15.0
+	github.com/fosrl/olm v1.8.0
 	github.com/pkg/browser v0.0.0-20240102092130-5ac0b6a4141c
 	github.com/tailscale/walk v0.0.0-20251016200523-963e260a8227
 	github.com/tailscale/win v0.0.0-20250213223159-5992cb43ca35
@@ -40,6 +40,5 @@ require (
 )
 
 // Uncomment when developing dependencies.
-replace github.com/fosrl/olm => ../olm
-
-replace github.com/fosrl/newt => ../newt
+// replace github.com/fosrl/olm => ../olm
+// replace github.com/fosrl/newt => ../newt
