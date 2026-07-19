@@ -120,8 +120,10 @@ type Config struct {
 	OrgID               string   `json:"orgId"`
 	InterfaceName       string   `json:"interfaceName"`
 	UpstreamDNS         []string `json:"upstreamDns"`
+	MatchDomains        []string `json:"matchDomains"`
 	OverrideDNS         bool     `json:"overrideDns"`
 	TunnelDNS           bool     `json:"tunnelDns"`
+	PreferLocalRoutes   bool     `json:"preferLocalRoutes"`
 
 	InitialFingerprint json.RawMessage `json:"initialFingerprint,omitempty"`
 	InitialPostures    json.RawMessage `json:"initialPostures,omitempty"`

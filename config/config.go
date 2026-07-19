@@ -27,15 +27,17 @@ const (
 // Config represents the per-user application configuration stored under
 // %LOCALAPPDATA%\Pangolin\pangolin.json (or %APPDATA% as a fallback).
 type Config struct {
-	DNSOverride            *bool   `json:"dnsOverride,omitempty"`
-	DNSTunnel              *bool   `json:"dnsTunnel,omitempty"`
-	PrimaryDNS             *string `json:"primaryDNS,omitempty"`
-	SecondaryDNS           *string `json:"secondaryDNS,omitempty"`
-	MTU                    *int    `json:"mtu,omitempty"`
-	DefaultServerURL       *string `json:"defaultServerURL,omitempty"`
-	UserSettingsDisabled   *bool   `json:"userSettingsDisabled,omitempty"`
-	AuthPath               *string `json:"authPath,omitempty"`
-	OpenStatusTabOnConnect *bool   `json:"openStatusTabOnConnect,omitempty"`
+	DNSOverride            *bool    `json:"dnsOverride,omitempty"`
+	DNSTunnel              *bool    `json:"dnsTunnel,omitempty"`
+	PrimaryDNS             *string  `json:"primaryDNS,omitempty"`
+	SecondaryDNS           *string  `json:"secondaryDNS,omitempty"`
+	MatchDomains           []string `json:"dnsMatchDomains,omitempty"`
+	MTU                    *int     `json:"mtu,omitempty"`
+	DefaultServerURL       *string  `json:"defaultServerURL,omitempty"`
+	UserSettingsDisabled   *bool    `json:"userSettingsDisabled,omitempty"`
+	AuthPath               *string  `json:"authPath,omitempty"`
+	OpenStatusTabOnConnect *bool    `json:"openStatusTabOnConnect,omitempty"`
+	PreferLocalRoutes      *bool    `json:"preferLocalRoutes,omitempty"`
 }
 
 // SystemConfig represents machine-wide configuration stored under
@@ -197,6 +199,52 @@ func (cm *ConfigManager) GetSecondaryDNS() string {
 		return *cm.config.SecondaryDNS
 	}
 	return ""
+}
+
+// GetMatchDomains returns the configured FQDN wildcard match-domain patterns
+// (see olm's MatchDomains) or an empty slice if not set, meaning every domain
+// is checked against local records/upstream DNS.
+func (cm *ConfigManager) GetMatchDomains() []string {
+	cm.mu.RLock()
+	defer cm.mu.RUnlock()
+
+	if cm.config != nil {
+		return cm.config.MatchDomains
+	}
+	return nil
+}
+
+// SetMatchDomains sets the FQDN wildcard match-domain patterns and saves to config
+func (cm *ConfigManager) SetMatchDomains(value []string) bool {
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+
+	cfg := cm.getConfigCopy()
+	cfg.MatchDomains = value
+	return cm.save(cfg)
+}
+
+// GetPreferLocalRoutes returns whether tunnel routes should be added with a
+// high metric so overlapping local/connected routes take precedence, or
+// false if not set.
+func (cm *ConfigManager) GetPreferLocalRoutes() bool {
+	cm.mu.RLock()
+	defer cm.mu.RUnlock()
+
+	if cm.config != nil && cm.config.PreferLocalRoutes != nil {
+		return *cm.config.PreferLocalRoutes
+	}
+	return false
+}
+
+// SetPreferLocalRoutes sets the prefer-local-routes setting and saves to config
+func (cm *ConfigManager) SetPreferLocalRoutes(value bool) bool {
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+
+	cfg := cm.getConfigCopy()
+	cfg.PreferLocalRoutes = &value
+	return cm.save(cfg)
 }
 
 // GetMTU returns the MTU from config or default if not set
@@ -445,6 +493,9 @@ func mergeConfig(base, override *Config) *Config {
 		v := *override.SecondaryDNS
 		merged.SecondaryDNS = &v
 	}
+	if len(override.MatchDomains) > 0 {
+		merged.MatchDomains = append([]string(nil), override.MatchDomains...)
+	}
 	if override.MTU != nil {
 		v := *override.MTU
 		merged.MTU = &v
@@ -464,6 +515,10 @@ func mergeConfig(base, override *Config) *Config {
 	if override.OpenStatusTabOnConnect != nil {
 		v := *override.OpenStatusTabOnConnect
 		merged.OpenStatusTabOnConnect = &v
+	}
+	if override.PreferLocalRoutes != nil {
+		v := *override.PreferLocalRoutes
+		merged.PreferLocalRoutes = &v
 	}
 
 	return merged
@@ -492,6 +547,9 @@ func copyConfig(src *Config) *Config {
 		secondaryDNS := *src.SecondaryDNS
 		cfg.SecondaryDNS = &secondaryDNS
 	}
+	if len(src.MatchDomains) > 0 {
+		cfg.MatchDomains = append([]string(nil), src.MatchDomains...)
+	}
 	if src.MTU != nil {
 		mtu := *src.MTU
 		cfg.MTU = &mtu
@@ -511,6 +569,10 @@ func copyConfig(src *Config) *Config {
 	if src.OpenStatusTabOnConnect != nil {
 		openStatusTabOnConnect := *src.OpenStatusTabOnConnect
 		cfg.OpenStatusTabOnConnect = &openStatusTabOnConnect
+	}
+	if src.PreferLocalRoutes != nil {
+		preferLocalRoutes := *src.PreferLocalRoutes
+		cfg.PreferLocalRoutes = &preferLocalRoutes
 	}
 	return cfg
 }
