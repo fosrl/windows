@@ -88,10 +88,6 @@ func (s *ManagerService) UpdateState() UpdateState {
 }
 
 func (s *ManagerService) Update() {
-	if s.elevatedToken == 0 {
-		return
-	}
-	// Use the existing updater package's DownloadVerifyAndExecute function
 	progress := updater.DownloadVerifyAndExecute(uintptr(s.elevatedToken))
 	go func() {
 		for {
@@ -475,7 +471,7 @@ func IPCServerNotifyUpdateFound(state UpdateState) {
 }
 
 func IPCServerNotifyUpdateProgress(dp updater.DownloadProgress) {
-	notifyAll(UpdateProgressNotificationType, true, dp.Activity, dp.BytesDownloaded, dp.BytesTotal, errToString(dp.Error), dp.Complete)
+	notifyAll(UpdateProgressNotificationType, false, dp.Activity, dp.BytesDownloaded, dp.BytesTotal, errToString(dp.Error), dp.Complete)
 }
 
 func IPCServerNotifyManagerStopping() {
