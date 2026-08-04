@@ -497,6 +497,7 @@ func setupMenu() error {
 	// Check for Updates action
 	checkUpdateAction := walk.NewAction()
 	checkUpdateAction.SetText("Check for Updates")
+	checkUpdateAction.SetVisible(config.CheckForUpdatesButtonEnabled())
 	checkUpdateAction.Triggered().Attach(func() {
 		go func() {
 			updateState, err := managers.IPCClientCheckForUpdates()

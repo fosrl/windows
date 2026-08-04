@@ -16,34 +16,36 @@ import (
 )
 
 const (
-	AppName                           = "Pangolin"
-	DefaultHostname                   = "https://app.pangolin.net"
-	ConfigFileName                    = "pangolin.json"
-	LogLevel                          = "info"
-	DefaultDNSOverride                = true
-	DefaultDNSTunnel                  = false
-	DefaultMTU                        = 1280
-	DefaultAutoUpdateChecksEnabled    = true
-	DefaultUpdateCheckIntervalSeconds = 86400
-	MinUpdateCheckIntervalSeconds     = 3600
+	AppName                             = "Pangolin"
+	DefaultHostname                     = "https://app.pangolin.net"
+	ConfigFileName                      = "pangolin.json"
+	LogLevel                            = "info"
+	DefaultDNSOverride                  = true
+	DefaultDNSTunnel                    = false
+	DefaultMTU                          = 1280
+	DefaultAutoUpdateChecksEnabled      = true
+	DefaultCheckForUpdatesButtonEnabled = true
+	DefaultUpdateCheckIntervalSeconds   = 86400
+	MinUpdateCheckIntervalSeconds       = 3600
 )
 
 // Config represents the per-user application configuration stored under
 // %LOCALAPPDATA%\Pangolin\pangolin.json (or %APPDATA% as a fallback).
 type Config struct {
-	DNSOverride                *bool    `json:"dnsOverride,omitempty"`
-	DNSTunnel                  *bool    `json:"dnsTunnel,omitempty"`
-	PrimaryDNS                 *string  `json:"primaryDNS,omitempty"`
-	SecondaryDNS               *string  `json:"secondaryDNS,omitempty"`
-	MatchDomains               []string `json:"dnsMatchDomains,omitempty"`
-	MTU                        *int     `json:"mtu,omitempty"`
-	DefaultServerURL           *string  `json:"defaultServerURL,omitempty"`
-	UserSettingsDisabled       *bool    `json:"userSettingsDisabled,omitempty"`
-	AuthPath                   *string  `json:"authPath,omitempty"`
-	OpenStatusTabOnConnect     *bool    `json:"openStatusTabOnConnect,omitempty"`
-	PreferLocalRoutes          *bool    `json:"preferLocalRoutes,omitempty"`
-	AutoUpdateChecksEnabled    *bool    `json:"autoUpdateChecksEnabled,omitempty"`
-	UpdateCheckIntervalSeconds *int     `json:"updateCheckIntervalSeconds,omitempty"`
+	DNSOverride                  *bool    `json:"dnsOverride,omitempty"`
+	DNSTunnel                    *bool    `json:"dnsTunnel,omitempty"`
+	PrimaryDNS                   *string  `json:"primaryDNS,omitempty"`
+	SecondaryDNS                 *string  `json:"secondaryDNS,omitempty"`
+	MatchDomains                 []string `json:"dnsMatchDomains,omitempty"`
+	MTU                          *int     `json:"mtu,omitempty"`
+	DefaultServerURL             *string  `json:"defaultServerURL,omitempty"`
+	UserSettingsDisabled         *bool    `json:"userSettingsDisabled,omitempty"`
+	AuthPath                     *string  `json:"authPath,omitempty"`
+	OpenStatusTabOnConnect       *bool    `json:"openStatusTabOnConnect,omitempty"`
+	PreferLocalRoutes            *bool    `json:"preferLocalRoutes,omitempty"`
+	AutoUpdateChecksEnabled      *bool    `json:"autoUpdateChecksEnabled,omitempty"`
+	CheckForUpdatesButtonEnabled *bool    `json:"checkForUpdatesButtonEnabled,omitempty"`
+	UpdateCheckIntervalSeconds   *int     `json:"updateCheckIntervalSeconds,omitempty"`
 }
 
 // SystemConfig represents machine-wide configuration stored under
@@ -451,6 +453,16 @@ func AutoUpdateChecksEnabled() bool {
 	return DefaultAutoUpdateChecksEnabled
 }
 
+// CheckForUpdatesButtonEnabled returns whether the Check for Updates menu item is
+// shown. Omitted defaults to true.
+func CheckForUpdatesButtonEnabled() bool {
+	cfg := LoadSystemConfig()
+	if cfg.CheckForUpdatesButtonEnabled != nil {
+		return *cfg.CheckForUpdatesButtonEnabled
+	}
+	return DefaultCheckForUpdatesButtonEnabled
+}
+
 // UpdateCheckInterval returns how often automatic update checks run.
 // Omitted defaults to 24h; values below 1h are clamped to 1h.
 func UpdateCheckInterval() time.Duration {
@@ -554,6 +566,10 @@ func mergeConfig(base, override *Config) *Config {
 		v := *override.AutoUpdateChecksEnabled
 		merged.AutoUpdateChecksEnabled = &v
 	}
+	if override.CheckForUpdatesButtonEnabled != nil {
+		v := *override.CheckForUpdatesButtonEnabled
+		merged.CheckForUpdatesButtonEnabled = &v
+	}
 	if override.UpdateCheckIntervalSeconds != nil {
 		v := *override.UpdateCheckIntervalSeconds
 		merged.UpdateCheckIntervalSeconds = &v
@@ -615,6 +631,10 @@ func copyConfig(src *Config) *Config {
 	if src.AutoUpdateChecksEnabled != nil {
 		autoUpdateChecksEnabled := *src.AutoUpdateChecksEnabled
 		cfg.AutoUpdateChecksEnabled = &autoUpdateChecksEnabled
+	}
+	if src.CheckForUpdatesButtonEnabled != nil {
+		checkForUpdatesButtonEnabled := *src.CheckForUpdatesButtonEnabled
+		cfg.CheckForUpdatesButtonEnabled = &checkForUpdatesButtonEnabled
 	}
 	if src.UpdateCheckIntervalSeconds != nil {
 		updateCheckIntervalSeconds := *src.UpdateCheckIntervalSeconds
