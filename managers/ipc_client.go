@@ -42,6 +42,7 @@ const (
 	SaveUserSecretsMethodType
 	DeleteUserSecretsMethodType
 	GetDevicePostureMethodType
+	CheckForUpdatesMethodType
 )
 
 var (
@@ -188,6 +189,22 @@ func IPCClientUpdateState() (updateState UpdateState, err error) {
 	if err != nil {
 		return
 	}
+	return
+}
+
+func IPCClientCheckForUpdates() (updateState UpdateState, err error) {
+	rpcMutex.Lock()
+	defer rpcMutex.Unlock()
+
+	err = rpcEncoder.Encode(CheckForUpdatesMethodType)
+	if err != nil {
+		return
+	}
+	err = rpcDecoder.Decode(&updateState)
+	if err != nil {
+		return
+	}
+	err = rpcDecodeError()
 	return
 }
 

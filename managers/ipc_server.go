@@ -87,6 +87,20 @@ func (s *ManagerService) UpdateState() UpdateState {
 	return updateState
 }
 
+func (s *ManagerService) CheckForUpdates() (UpdateState, error) {
+	update, err := updater.CheckForUpdate()
+	if err != nil {
+		return updateState, err
+	}
+	if update != nil {
+		updateState = UpdateStateFoundUpdate
+		IPCServerNotifyUpdateFound(updateState)
+	} else if updateState != UpdateStateFoundUpdate {
+		updateState = UpdateStateUnknown
+	}
+	return updateState, nil
+}
+
 func (s *ManagerService) Update() {
 	progress := updater.DownloadVerifyAndExecute(uintptr(s.elevatedToken))
 	go func() {
@@ -288,6 +302,16 @@ func (s *ManagerService) ServeConn(reader io.Reader, writer io.Writer) {
 		case UpdateStateMethodType:
 			updateState := s.UpdateState()
 			err = encoder.Encode(updateState)
+			if err != nil {
+				return
+			}
+		case CheckForUpdatesMethodType:
+			state, retErr := s.CheckForUpdates()
+			err = encoder.Encode(state)
+			if err != nil {
+				return
+			}
+			err = encoder.Encode(errToString(retErr))
 			if err != nil {
 				return
 			}

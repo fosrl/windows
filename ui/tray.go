@@ -497,10 +497,10 @@ func setupMenu() error {
 	// Check for Updates action
 	checkUpdateAction := walk.NewAction()
 	checkUpdateAction.SetText("Check for Updates")
+	checkUpdateAction.SetVisible(config.CheckForUpdatesButtonEnabled())
 	checkUpdateAction.Triggered().Attach(func() {
 		go func() {
-			// Check update state via manager IPC
-			updateState, err := managers.IPCClientUpdateState()
+			updateState, err := managers.IPCClientCheckForUpdates()
 			if err != nil {
 				logger.Error("Update check failed: %v", err)
 				walk.App().Synchronize(func() {
@@ -519,7 +519,6 @@ func setupMenu() error {
 			switch updateState {
 			case managers.UpdateStateFoundUpdate:
 				logger.Info("Update available")
-				// Trigger the update
 				triggerUpdate(mainWindow)
 			case managers.UpdateStateUpdatesDisabledUnofficialBuild:
 				walk.App().Synchronize(func() {
