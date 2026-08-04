@@ -7,6 +7,7 @@ import (
 	_ "unsafe"
 
 	"github.com/fosrl/newt/logger"
+	"github.com/fosrl/windows/config"
 	"github.com/fosrl/windows/services"
 	"github.com/fosrl/windows/updater"
 )
@@ -29,22 +30,10 @@ func jitterSleep(min, max time.Duration) {
 }
 
 func checkForUpdates() {
-	// Check if running official version, with dev mode support
-	// isOfficial := version.IsRunningOfficialVersion()
-	// if !isOfficial {
-	// 	// Allow dev mode updates via environment variable (same as updater package)
-	// 	devMode := false
-	// 	if os.Getenv("PANGOLIN_ALLOW_DEV_UPDATES") == "1" {
-	// 		devMode = true
-	// 	}
-	// 	if !devMode {
-	// 		logger.Info("Build is not official, so updates are disabled")
-	// 		updateState = UpdateStateUpdatesDisabledUnofficialBuild
-	// 		IPCServerNotifyUpdateFound(updateState)
-	// 		return
-	// 	}
-	// 	logger.Info("Development mode enabled - allowing updates on unsigned build")
-	// }
+	if !config.AutoUpdateChecksEnabled() {
+		logger.Info("Automatic update checks are disabled by config")
+		return
+	}
 
 	// Initial jitter if started at boot - prevents all machines from checking at once after boot
 	if services.StartedAtBoot() {
@@ -67,8 +56,14 @@ func checkForUpdates() {
 			} else {
 				jitterSleep(time.Minute*25, time.Minute*30)
 			}
-		} else {
-			jitterSleep(time.Hour-time.Minute*3, time.Hour+time.Minute*3)
+			continue
 		}
+
+		interval := config.UpdateCheckInterval()
+		jitter := interval / 20 // ±5%
+		if jitter < time.Minute {
+			jitter = time.Minute
+		}
+		jitterSleep(interval-jitter, interval+jitter)
 	}
 }

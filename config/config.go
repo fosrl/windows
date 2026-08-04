@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 	"unsafe"
 
 	"github.com/fosrl/newt/logger"
@@ -15,29 +16,34 @@ import (
 )
 
 const (
-	AppName            = "Pangolin"
-	DefaultHostname    = "https://app.pangolin.net"
-	ConfigFileName     = "pangolin.json"
-	LogLevel           = "info"
-	DefaultDNSOverride = true
-	DefaultDNSTunnel   = false
-	DefaultMTU         = 1280
+	AppName                           = "Pangolin"
+	DefaultHostname                   = "https://app.pangolin.net"
+	ConfigFileName                    = "pangolin.json"
+	LogLevel                          = "info"
+	DefaultDNSOverride                = true
+	DefaultDNSTunnel                  = false
+	DefaultMTU                        = 1280
+	DefaultAutoUpdateChecksEnabled    = true
+	DefaultUpdateCheckIntervalSeconds = 86400
+	MinUpdateCheckIntervalSeconds     = 3600
 )
 
 // Config represents the per-user application configuration stored under
 // %LOCALAPPDATA%\Pangolin\pangolin.json (or %APPDATA% as a fallback).
 type Config struct {
-	DNSOverride            *bool    `json:"dnsOverride,omitempty"`
-	DNSTunnel              *bool    `json:"dnsTunnel,omitempty"`
-	PrimaryDNS             *string  `json:"primaryDNS,omitempty"`
-	SecondaryDNS           *string  `json:"secondaryDNS,omitempty"`
-	MatchDomains           []string `json:"dnsMatchDomains,omitempty"`
-	MTU                    *int     `json:"mtu,omitempty"`
-	DefaultServerURL       *string  `json:"defaultServerURL,omitempty"`
-	UserSettingsDisabled   *bool    `json:"userSettingsDisabled,omitempty"`
-	AuthPath               *string  `json:"authPath,omitempty"`
-	OpenStatusTabOnConnect *bool    `json:"openStatusTabOnConnect,omitempty"`
-	PreferLocalRoutes      *bool    `json:"preferLocalRoutes,omitempty"`
+	DNSOverride                *bool    `json:"dnsOverride,omitempty"`
+	DNSTunnel                  *bool    `json:"dnsTunnel,omitempty"`
+	PrimaryDNS                 *string  `json:"primaryDNS,omitempty"`
+	SecondaryDNS               *string  `json:"secondaryDNS,omitempty"`
+	MatchDomains               []string `json:"dnsMatchDomains,omitempty"`
+	MTU                        *int     `json:"mtu,omitempty"`
+	DefaultServerURL           *string  `json:"defaultServerURL,omitempty"`
+	UserSettingsDisabled       *bool    `json:"userSettingsDisabled,omitempty"`
+	AuthPath                   *string  `json:"authPath,omitempty"`
+	OpenStatusTabOnConnect     *bool    `json:"openStatusTabOnConnect,omitempty"`
+	PreferLocalRoutes          *bool    `json:"preferLocalRoutes,omitempty"`
+	AutoUpdateChecksEnabled    *bool    `json:"autoUpdateChecksEnabled,omitempty"`
+	UpdateCheckIntervalSeconds *int     `json:"updateCheckIntervalSeconds,omitempty"`
 }
 
 // SystemConfig represents machine-wide configuration stored under
@@ -435,6 +441,30 @@ func GetSystemLogLevel() string {
 	return LogLevel
 }
 
+// AutoUpdateChecksEnabled returns whether background update checks are enabled
+// from machine-wide system config. Omitted defaults to true.
+func AutoUpdateChecksEnabled() bool {
+	cfg := LoadSystemConfig()
+	if cfg.AutoUpdateChecksEnabled != nil {
+		return *cfg.AutoUpdateChecksEnabled
+	}
+	return DefaultAutoUpdateChecksEnabled
+}
+
+// UpdateCheckInterval returns how often automatic update checks run.
+// Omitted defaults to 24h; values below 1h are clamped to 1h.
+func UpdateCheckInterval() time.Duration {
+	cfg := LoadSystemConfig()
+	seconds := DefaultUpdateCheckIntervalSeconds
+	if cfg.UpdateCheckIntervalSeconds != nil {
+		seconds = *cfg.UpdateCheckIntervalSeconds
+	}
+	if seconds < MinUpdateCheckIntervalSeconds {
+		seconds = MinUpdateCheckIntervalSeconds
+	}
+	return time.Duration(seconds) * time.Second
+}
+
 // getConfigCopy creates a deep copy of the current config
 // Caller must hold the lock
 func (cm *ConfigManager) getConfigCopy() *Config {
@@ -520,6 +550,14 @@ func mergeConfig(base, override *Config) *Config {
 		v := *override.PreferLocalRoutes
 		merged.PreferLocalRoutes = &v
 	}
+	if override.AutoUpdateChecksEnabled != nil {
+		v := *override.AutoUpdateChecksEnabled
+		merged.AutoUpdateChecksEnabled = &v
+	}
+	if override.UpdateCheckIntervalSeconds != nil {
+		v := *override.UpdateCheckIntervalSeconds
+		merged.UpdateCheckIntervalSeconds = &v
+	}
 
 	return merged
 }
@@ -573,6 +611,14 @@ func copyConfig(src *Config) *Config {
 	if src.PreferLocalRoutes != nil {
 		preferLocalRoutes := *src.PreferLocalRoutes
 		cfg.PreferLocalRoutes = &preferLocalRoutes
+	}
+	if src.AutoUpdateChecksEnabled != nil {
+		autoUpdateChecksEnabled := *src.AutoUpdateChecksEnabled
+		cfg.AutoUpdateChecksEnabled = &autoUpdateChecksEnabled
+	}
+	if src.UpdateCheckIntervalSeconds != nil {
+		updateCheckIntervalSeconds := *src.UpdateCheckIntervalSeconds
+		cfg.UpdateCheckIntervalSeconds = &updateCheckIntervalSeconds
 	}
 	return cfg
 }
