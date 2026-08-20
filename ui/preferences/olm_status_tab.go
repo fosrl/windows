@@ -50,6 +50,10 @@ type peerWidgets struct {
 
 const peerConnectingTimeout = 10 * time.Second
 
+// exitNodeSiteID is a sentinel key used to store the exit node's synthetic "peer" row
+// (labeled "Pangolin Server") in peerWidgets, keyed alongside real (non-negative) site IDs.
+const exitNodeSiteID = -1
+
 // OLMStatusTab handles the OLM status viewing tab
 type OLMStatusTab struct {
 	tabPage       *walk.TabPage
@@ -578,9 +582,15 @@ func (ost *OLMStatusTab) formatStatus(connected, registered bool) string {
 	return "Registering..."
 }
 
-// updatePeersList updates the peers container, reusing existing widgets when possible
+// updatePeersList updates the peers container, reusing existing widgets when possible.
+// The exit node (the client's own connection to the Pangolin server, used for
+// site resources hosted on the exit node) is shown as a synthetic "Pangolin Server"
+// row pinned to the top of the list, alongside the regular per-site peers.
 func (ost *OLMStatusTab) updatePeersList(status *tunnel.OLMStatusResponse) {
-	if status == nil || status.PeerStatuses == nil || len(status.PeerStatuses) == 0 {
+	hasExitNode := status != nil && status.ExitNode != nil
+	hasPeers := status != nil && len(status.PeerStatuses) > 0
+
+	if !hasExitNode && !hasPeers {
 		ost.mu.Lock()
 		// Hide all peer widgets
 		for _, pw := range ost.peerWidgets {
@@ -613,6 +623,22 @@ func (ost *OLMStatusTab) updatePeersList(status *tunnel.OLMStatusResponse) {
 	}, 0)
 
 	ost.mu.Lock()
+
+	// Exit node goes first so it's created (and thus displayed) at the top of the list.
+	if hasExitNode {
+		seenPeers[exitNodeSiteID] = true
+		if pw, exists := ost.peerWidgets[exitNodeSiteID]; exists {
+			ost.updatePeerWidget(pw, "Pangolin Server", status.ExitNode.Endpoint, status.ExitNode.Connected)
+		} else {
+			peersToCreate = append(peersToCreate, struct {
+				siteID    int
+				name      string
+				endpoint  string
+				connected bool
+			}{exitNodeSiteID, "Pangolin Server", status.ExitNode.Endpoint, status.ExitNode.Connected})
+		}
+	}
+
 	// First pass: update existing widgets and identify new ones
 	for siteID, peer := range status.PeerStatuses {
 		seenPeers[siteID] = true
@@ -627,63 +653,11 @@ func (ost *OLMStatusTab) updatePeersList(status *tunnel.OLMStatusResponse) {
 				connected bool
 			}{siteID, peer.SiteName, peer.Endpoint, peer.Connected})
 		} else {
-			// Update existing peer widget
-			if pw.nameLabel != nil {
-				name := peer.SiteName
-				if name == "" {
-					name = "Unknown"
-				}
-				pw.nameLabel.SetText(name)
+			name := peer.SiteName
+			if name == "" {
+				name = "Unknown"
 			}
-			if pw.endpointLabel != nil {
-				if peer.Endpoint != "" {
-					pw.endpointLabel.SetText(peer.Endpoint)
-					pw.endpointLabel.SetVisible(true)
-				} else {
-					pw.endpointLabel.SetVisible(false)
-				}
-			}
-
-			// Mark as visible and (re)start the "first seen" timer when it becomes
-			// visible again (e.g. reappears after being hidden).
-			if pw.row != nil {
-				pw.row.SetVisible(true)
-			}
-			if !pw.rowVisible || pw.firstSeen.IsZero() {
-				pw.firstSeen = time.Now()
-			}
-			pw.rowVisible = true
-
-			// Update per-site status with a 10-second connecting window.
-			if peer.Connected {
-				if pw.indicator != nil {
-					pw.indicator.SetTextColor(walk.RGB(0, 200, 0))
-				}
-				if pw.statusLabel != nil {
-					pw.statusLabel.SetText("Connected")
-				}
-			} else {
-				// Not connected yet: show "Connecting" until timeout, then "Disconnected".
-				if pw.firstSeen.IsZero() {
-					pw.firstSeen = time.Now()
-				}
-				elapsed := time.Since(pw.firstSeen)
-				if elapsed >= peerConnectingTimeout {
-					if pw.indicator != nil {
-						pw.indicator.SetTextColor(walk.RGB(150, 150, 150))
-					}
-					if pw.statusLabel != nil {
-						pw.statusLabel.SetText("Disconnected")
-					}
-				} else {
-					if pw.indicator != nil {
-						pw.indicator.SetTextColor(walk.RGB(255, 200, 0))
-					}
-					if pw.statusLabel != nil {
-						pw.statusLabel.SetText("Connecting")
-					}
-				}
-			}
+			ost.updatePeerWidget(pw, name, peer.Endpoint, peer.Connected)
 		}
 	}
 
@@ -701,6 +675,64 @@ func (ost *OLMStatusTab) updatePeersList(status *tunnel.OLMStatusResponse) {
 	for _, peerInfo := range peersToCreate {
 		if err := ost.createPeerWidget(peerInfo.siteID, peerInfo.name, peerInfo.endpoint, peerInfo.connected); err != nil {
 			continue
+		}
+	}
+}
+
+// updatePeerWidget updates an existing peer row's name, endpoint, and connection
+// status (with a 10-second connecting window) to match the given state. Used for
+// both regular per-site peers and the synthetic exit node row.
+func (ost *OLMStatusTab) updatePeerWidget(pw *peerWidgets, name, endpoint string, connected bool) {
+	if pw.nameLabel != nil {
+		pw.nameLabel.SetText(name)
+	}
+	if pw.endpointLabel != nil {
+		if endpoint != "" {
+			pw.endpointLabel.SetText(endpoint)
+			pw.endpointLabel.SetVisible(true)
+		} else {
+			pw.endpointLabel.SetVisible(false)
+		}
+	}
+
+	// Mark as visible and (re)start the "first seen" timer when it becomes
+	// visible again (e.g. reappears after being hidden).
+	if pw.row != nil {
+		pw.row.SetVisible(true)
+	}
+	if !pw.rowVisible || pw.firstSeen.IsZero() {
+		pw.firstSeen = time.Now()
+	}
+	pw.rowVisible = true
+
+	// Update per-site status with a 10-second connecting window.
+	if connected {
+		if pw.indicator != nil {
+			pw.indicator.SetTextColor(walk.RGB(0, 200, 0))
+		}
+		if pw.statusLabel != nil {
+			pw.statusLabel.SetText("Connected")
+		}
+	} else {
+		// Not connected yet: show "Connecting" until timeout, then "Disconnected".
+		if pw.firstSeen.IsZero() {
+			pw.firstSeen = time.Now()
+		}
+		elapsed := time.Since(pw.firstSeen)
+		if elapsed >= peerConnectingTimeout {
+			if pw.indicator != nil {
+				pw.indicator.SetTextColor(walk.RGB(150, 150, 150))
+			}
+			if pw.statusLabel != nil {
+				pw.statusLabel.SetText("Disconnected")
+			}
+		} else {
+			if pw.indicator != nil {
+				pw.indicator.SetTextColor(walk.RGB(255, 200, 0))
+			}
+			if pw.statusLabel != nil {
+				pw.statusLabel.SetText("Connecting")
+			}
 		}
 	}
 }

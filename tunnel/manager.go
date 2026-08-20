@@ -430,6 +430,7 @@ type OLMStatusResponse struct {
 	PeerStatuses    map[int]*OLMPeerStatus `json:"peers,omitempty"`
 	NetworkSettings map[string]interface{} `json:"networkSettings,omitempty"`
 	Error           *OLMStatusError        `json:"error,omitempty"`
+	ExitNode        *OLMExitNodeStatus     `json:"exitNode,omitempty"`
 }
 
 // OLMPeerStatus represents the status of a peer connection
@@ -443,6 +444,15 @@ type OLMPeerStatus struct {
 	IsRelay   bool          `json:"isRelay"`
 	IsLocal   bool          `json:"isLocal"` // true when connected via a local network endpoint, bypassing both the public endpoint and relay
 	PeerIP    string        `json:"peerAddress,omitempty"`
+}
+
+// OLMExitNodeStatus represents the connectivity status of the client's own exit
+// node connection (used for site resources hosted on the exit node)
+type OLMExitNodeStatus struct {
+	Connected bool          `json:"connected"`
+	RTT       time.Duration `json:"rtt"`
+	LastSeen  time.Time     `json:"lastSeen"`
+	Endpoint  string        `json:"endpoint,omitempty"`
 }
 
 // SwitchOrgRequest represents the request body for switching organizations
