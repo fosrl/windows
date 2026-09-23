@@ -34,6 +34,8 @@ var (
 	quitManagersChan    = make(chan struct{}, 1)
 	activeTunnels       = make(map[string]bool) // Track active tunnel names
 	activeTunnelsLock   sync.RWMutex
+	alwaysOnUsers       = make(map[string]bool)
+	alwaysOnUsersLock   sync.Mutex
 
 	postureRefresherOnce sync.Once
 	secretStore          = secretstore.NewStore()
@@ -44,6 +46,34 @@ type ManagerService struct {
 	eventLock        sync.Mutex
 	elevatedToken    windows.Token
 	clientWindowsSID string
+}
+
+func setUserAlwaysOn(sid string, enabled bool) {
+	if sid == "" {
+		return
+	}
+	alwaysOnUsersLock.Lock()
+	defer alwaysOnUsersLock.Unlock()
+	if enabled {
+		alwaysOnUsers[sid] = true
+	} else {
+		delete(alwaysOnUsers, sid)
+	}
+}
+
+func userAlwaysOn(sid string) bool {
+	alwaysOnUsersLock.Lock()
+	defer alwaysOnUsersLock.Unlock()
+	return alwaysOnUsers[sid]
+}
+
+func (s *ManagerService) SetAlwaysOn(enabled bool) {
+	setUserAlwaysOn(s.clientWindowsSID, enabled)
+	logger.Info("Always-On for %s: %v", s.clientWindowsSID, enabled)
+}
+
+func (s *ManagerService) AlwaysOnEnabled() bool {
+	return userAlwaysOn(s.clientWindowsSID)
 }
 
 func (s *ManagerService) Quit(stopTunnelsOnQuit bool) (alreadyQuit bool, err error) {
@@ -302,6 +332,18 @@ func (s *ManagerService) ServeConn(reader io.Reader, writer io.Writer) {
 		case UpdateStateMethodType:
 			updateState := s.UpdateState()
 			err = encoder.Encode(updateState)
+			if err != nil {
+				return
+			}
+		case SetAlwaysOnMethodType:
+			var enabled bool
+			err := decoder.Decode(&enabled)
+			if err != nil {
+				return
+			}
+			s.SetAlwaysOn(enabled)
+		case AlwaysOnEnabledMethodType:
+			err = encoder.Encode(s.AlwaysOnEnabled())
 			if err != nil {
 				return
 			}

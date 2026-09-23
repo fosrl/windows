@@ -39,6 +39,8 @@ type Tab interface {
 var (
 	preferencesWindowInstance *PreferencesWindow
 	preferencesWindowMutex    sync.Mutex
+	// OnConfigSaved runs after preferences are saved successfully.
+	OnConfigSaved func()
 )
 
 // ShowPreferencesWindow shows the preferences window (creates if needed, or brings to front).

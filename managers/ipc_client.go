@@ -43,6 +43,8 @@ const (
 	DeleteUserSecretsMethodType
 	GetDevicePostureMethodType
 	CheckForUpdatesMethodType
+	SetAlwaysOnMethodType
+	AlwaysOnEnabledMethodType
 )
 
 var (
@@ -424,4 +426,36 @@ func IPCClientGetDevicePosture() (fingerprint.DevicePostureSnapshot, error) {
 		logger.Debug("IPC client: GetDevicePosture() failed: %v", err)
 	}
 	return snapshot, err
+}
+
+func IPCClientSetAlwaysOn(enabled bool) error {
+	rpcMutex.Lock()
+	defer rpcMutex.Unlock()
+
+	if rpcEncoder == nil {
+		return errors.New("manager IPC is not connected")
+	}
+	if err := rpcEncoder.Encode(SetAlwaysOnMethodType); err != nil {
+		return err
+	}
+	return rpcEncoder.Encode(enabled)
+}
+
+func IPCClientAlwaysOn() bool {
+	rpcMutex.Lock()
+	defer rpcMutex.Unlock()
+
+	if rpcEncoder == nil {
+		return false
+	}
+	if err := rpcEncoder.Encode(AlwaysOnEnabledMethodType); err != nil {
+		logger.Error("Always-On: failed to query manager: %v", err)
+		return false
+	}
+	var enabled bool
+	if err := rpcDecoder.Decode(&enabled); err != nil {
+		logger.Error("Always-On: failed to read manager response: %v", err)
+		return false
+	}
+	return enabled
 }

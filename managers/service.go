@@ -170,91 +170,102 @@ func (service *managerService) Execute(args []string, r <-chan svc.ChangeRequest
 		defer runToken.Close()
 		userToken = 0
 
-		// Start UI process once; do not auto-restart when it exits (user can run exe again to get UI)
-		procsLock.Lock()
-		if alive := aliveSessions[session]; !alive {
-			procsLock.Unlock()
-			return
-		}
-		procsLock.Unlock()
-
-		if stoppingManager {
-			return
-		}
-
-		ourReader, theirWriter, err := os.Pipe()
-		if err != nil {
-			logger.Error("Unable to create pipe: %v", err)
-			return
-		}
-		theirReader, ourWriter, err := os.Pipe()
-		if err != nil {
-			logger.Error("Unable to create pipe: %v", err)
-			return
-		}
-		theirEvents, ourEvents, err := os.Pipe()
-		if err != nil {
-			logger.Error("Unable to create pipe: %v", err)
-			return
-		}
+		// Keep the UI process running while Always-On is enabled for this user.
+		// A normal exit stays down so the user can start the app again themselves.
 		clientWindowsSID := user.User.Sid.String()
-		IPCServerListen(ourReader, ourWriter, ourEvents, elevatedToken, clientWindowsSID)
-		// TODO: Add log mapping handle when ringlogger is implemented
-		// theirLogMapping, err := ringlogger.Global.ExportInheritableMappingHandle()
-		// if err != nil {
-		// 	logger.Error("Unable to export inheritable mapping handle for logging: %v", err)
-		// 	return
-		// }
+		for {
+			procsLock.Lock()
+			alive := aliveSessions[session]
+			procsLock.Unlock()
+			if !alive {
+				setUserAlwaysOn(clientWindowsSID, false)
+				return
+			}
+			if stoppingManager {
+				return
+			}
 
-		logger.Info("Starting UI process for user '%s@%s' for session %d", username, domain, session)
-		procsLock.Lock()
-		var proc *uiProcess
-		if alive := aliveSessions[session]; alive {
-			proc, err = launchUIProcess(path, []string{
-				path,
-				"/ui",
-				strconv.FormatUint(uint64(theirReader.Fd()), 10),
-				strconv.FormatUint(uint64(theirWriter.Fd()), 10),
-				strconv.FormatUint(uint64(theirEvents.Fd()), 10),
-				// strconv.FormatUint(uint64(theirLogMapping), 10), // TODO: Add when ringlogger is implemented
-			}, userProfileDirectory, []windows.Handle{
-				windows.Handle(theirReader.Fd()),
-				windows.Handle(theirWriter.Fd()),
-				windows.Handle(theirEvents.Fd()),
-				// theirLogMapping, // TODO: Add when ringlogger is implemented
-			}, runToken)
-		} else {
-			err = errors.New("Session has logged out")
-		}
-		procsLock.Unlock()
-		theirReader.Close()
-		theirWriter.Close()
-		theirEvents.Close()
-		// windows.CloseHandle(theirLogMapping) // TODO: Add when ringlogger is implemented
-		if err != nil {
+			ourReader, theirWriter, err := os.Pipe()
+			if err != nil {
+				logger.Error("Unable to create pipe: %v", err)
+				return
+			}
+			theirReader, ourWriter, err := os.Pipe()
+			if err != nil {
+				logger.Error("Unable to create pipe: %v", err)
+				return
+			}
+			theirEvents, ourEvents, err := os.Pipe()
+			if err != nil {
+				logger.Error("Unable to create pipe: %v", err)
+				return
+			}
+			IPCServerListen(ourReader, ourWriter, ourEvents, elevatedToken, clientWindowsSID)
+
+			logger.Info("Starting UI process for user '%s@%s' for session %d", username, domain, session)
+			procsLock.Lock()
+			var proc *uiProcess
+			if alive := aliveSessions[session]; alive {
+				proc, err = launchUIProcess(path, []string{
+					path,
+					"/ui",
+					strconv.FormatUint(uint64(theirReader.Fd()), 10),
+					strconv.FormatUint(uint64(theirWriter.Fd()), 10),
+					strconv.FormatUint(uint64(theirEvents.Fd()), 10),
+				}, userProfileDirectory, []windows.Handle{
+					windows.Handle(theirReader.Fd()),
+					windows.Handle(theirWriter.Fd()),
+					windows.Handle(theirEvents.Fd()),
+				}, runToken)
+			} else {
+				err = errors.New("Session has logged out")
+			}
+			procsLock.Unlock()
+			theirReader.Close()
+			theirWriter.Close()
+			theirEvents.Close()
+			if err != nil {
+				ourReader.Close()
+				ourWriter.Close()
+				ourEvents.Close()
+				logger.Error("Unable to start manager UI process for user '%s@%s' for session %d: %v", username, domain, session, err)
+				procsLock.Lock()
+				stillAlive := aliveSessions[session]
+				procsLock.Unlock()
+				if stoppingManager || !stillAlive || !userAlwaysOn(clientWindowsSID) {
+					return
+				}
+				time.Sleep(time.Second)
+				continue
+			}
+
+			procsLock.Lock()
+			procs[session] = proc
+			procsLock.Unlock()
+
+			if exitCode, waitErr := proc.Wait(); waitErr == nil {
+				logger.Info("Exited UI process for user '%s@%s' for session %d with status %x", username, domain, session, exitCode)
+			} else {
+				logger.Error("Unable to wait for UI process for user '%s@%s' for session %d: %v", username, domain, session, waitErr)
+			}
+
+			procsLock.Lock()
+			delete(procs, session)
+			stillAlive := aliveSessions[session]
+			procsLock.Unlock()
 			ourReader.Close()
 			ourWriter.Close()
 			ourEvents.Close()
-			logger.Error("Unable to start manager UI process for user '%s@%s' for session %d: %v", username, domain, session, err)
-			return
+
+			if stoppingManager || !stillAlive || !userAlwaysOn(clientWindowsSID) {
+				if !stillAlive {
+					setUserAlwaysOn(clientWindowsSID, false)
+				}
+				return
+			}
+			logger.Info("Always-On: restarting UI process for user '%s@%s' for session %d", username, domain, session)
+			time.Sleep(time.Second)
 		}
-
-		procsLock.Lock()
-		procs[session] = proc
-		procsLock.Unlock()
-
-		if exitCode, waitErr := proc.Wait(); waitErr == nil {
-			logger.Info("Exited UI process for user '%s@%s' for session %d with status %x", username, domain, session, exitCode)
-		} else {
-			logger.Error("Unable to wait for UI process for user '%s@%s' for session %d: %v", username, domain, session, waitErr)
-		}
-
-		procsLock.Lock()
-		delete(procs, session)
-		procsLock.Unlock()
-		ourReader.Close()
-		ourWriter.Close()
-		ourEvents.Close()
 	}
 	procsGroup := sync.WaitGroup{}
 	goStartProcess := func(session uint32) {

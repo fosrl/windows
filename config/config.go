@@ -44,6 +44,7 @@ type Config struct {
 	OpenStatusTabOnConnect       *bool    `json:"openStatusTabOnConnect,omitempty"`
 	PreferLocalRoutes            *bool    `json:"preferLocalRoutes,omitempty"`
 	AutoConnectAtLogin           *bool    `json:"autoConnectAtLogin,omitempty"`
+	AlwaysOnAllowed              *bool    `json:"alwaysOnAllowed,omitempty"`
 	AutoUpdateChecksEnabled      *bool    `json:"autoUpdateChecksEnabled,omitempty"`
 	CheckForUpdatesButtonEnabled *bool    `json:"checkForUpdatesButtonEnabled,omitempty"`
 	UpdateCheckIntervalSeconds   *int     `json:"updateCheckIntervalSeconds,omitempty"`
@@ -253,6 +254,17 @@ func (cm *ConfigManager) GetAutoConnectAtLogin() bool {
 	cm.mu.RLock()
 	defer cm.mu.RUnlock()
 	return autoConnectAtLogin(cm.config)
+}
+
+// GetAlwaysOnAllowed reports whether the tray Always-On toggle is available.
+// Omitted defaults to false.
+func (cm *ConfigManager) GetAlwaysOnAllowed() bool {
+	cm.mu.RLock()
+	defer cm.mu.RUnlock()
+	if cm.config != nil && cm.config.AlwaysOnAllowed != nil {
+		return *cm.config.AlwaysOnAllowed
+	}
+	return false
 }
 
 // SetPreferLocalRoutes sets the prefer-local-routes setting and saves to config
@@ -603,6 +615,10 @@ func mergeConfig(base, override *Config) *Config {
 		v := *override.AutoConnectAtLogin
 		merged.AutoConnectAtLogin = &v
 	}
+	if override.AlwaysOnAllowed != nil {
+		v := *override.AlwaysOnAllowed
+		merged.AlwaysOnAllowed = &v
+	}
 	if override.AutoUpdateChecksEnabled != nil {
 		v := *override.AutoUpdateChecksEnabled
 		merged.AutoUpdateChecksEnabled = &v
@@ -672,6 +688,10 @@ func copyConfig(src *Config) *Config {
 	if src.AutoConnectAtLogin != nil {
 		autoConnectAtLogin := *src.AutoConnectAtLogin
 		cfg.AutoConnectAtLogin = &autoConnectAtLogin
+	}
+	if src.AlwaysOnAllowed != nil {
+		alwaysOnAllowed := *src.AlwaysOnAllowed
+		cfg.AlwaysOnAllowed = &alwaysOnAllowed
 	}
 	if src.AutoUpdateChecksEnabled != nil {
 		autoUpdateChecksEnabled := *src.AutoUpdateChecksEnabled

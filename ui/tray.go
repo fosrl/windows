@@ -80,6 +80,8 @@ var (
 	cliInstallInProgressM  sync.Mutex
 	appUpdateProgressClose func()
 	appUpdateProgressLabel *walk.TextLabel
+	alwaysOn               bool
+	alwaysOnMutex          sync.Mutex
 )
 
 // updateTrayTooltip updates the tray icon tooltip to show the current tunnel state
@@ -298,59 +300,50 @@ func setupMenu() error {
 				return
 			}
 
-			// Get current state to determine action
 			currentState := tunnelManager.State()
+			if configManager != nil && configManager.GetAlwaysOnAllowed() {
+				if alwaysOnEnabled() {
+					setAlwaysOn(false)
+					if currentState != tunnel.StateStopped && currentState != tunnel.StateStopping {
+						logger.Info("Disabling Always-On and disconnecting")
+						if err := tunnelManager.Disconnect(); err != nil {
+							logger.Error("Failed to stop tunnel: %v", err)
+							notifyConnectionError(err, "Disconnect Failed")
+						}
+					}
+				} else {
+					setAlwaysOn(true)
+					if currentState == tunnel.StateStopped {
+						openStatusTabOnConnect()
+						logger.Info("Enabling Always-On and connecting")
+						if err := tunnelManager.Connect(); err != nil {
+							logger.Error("Failed to start tunnel: %v", err)
+							setAlwaysOn(false)
+							notifyConnectionError(err, "Connection Failed")
+						}
+					} else {
+						logger.Info("Enabling Always-On for the running tunnel")
+					}
+				}
+				walk.App().Synchronize(updateMenu)
+				return
+			}
 
 			// Allow disconnect for any state other than Stopped or Stopping
 			// This allows users to cancel the connection process at any time
 			if currentState != tunnel.StateStopped && currentState != tunnel.StateStopping {
-				// Disconnect (or cancel connection)
 				logger.Info("Disconnecting...")
 				err := tunnelManager.Disconnect()
 				if err != nil {
 					logger.Error("Failed to stop tunnel: %v", err)
-					walk.App().Synchronize(func() {
-						title := "Disconnect Failed"
-						message := err.Error()
-						if connErr, ok := err.(*tunnel.ConnectionError); ok {
-							title = connErr.Title
-							message = connErr.Message
-						}
-						showConnectionErrorNotification(title, message)
-					})
+					notifyConnectionError(err, "Disconnect Failed")
 				}
 			} else if currentState == tunnel.StateStopped {
-				// Connect
-				// If enabled, open preferences immediately on the Status tab,
-				// but before starting the tunnel.
-				if configManager != nil && configManager.GetOpenStatusTabOnConnect() {
-					walk.App().Synchronize(func() {
-						if err := preferences.ShowPreferencesWindow(mainWindow, tunnelManager, configManager, trayIcon, 1); err != nil {
-							logger.Error("Failed to show preferences window: %v", err)
-							td := walk.NewTaskDialog()
-							_, _ = td.Show(walk.TaskDialogOpts{
-								Owner:         mainWindow,
-								Title:         "Error",
-								Content:       fmt.Sprintf("Failed to open preferences window: %v", err),
-								IconSystem:    walk.TaskDialogSystemIconError,
-								CommonButtons: win.TDCBF_OK_BUTTON,
-							})
-						}
-					})
-				}
-
+				openStatusTabOnConnect()
 				err := tunnelManager.Connect()
 				if err != nil {
 					logger.Error("Failed to start tunnel: %v", err)
-					walk.App().Synchronize(func() {
-						title := "Connection Failed"
-						message := err.Error()
-						if connErr, ok := err.(*tunnel.ConnectionError); ok {
-							title = connErr.Title
-							message = connErr.Message
-						}
-						showConnectionErrorNotification(title, message)
-					})
+					notifyConnectionError(err, "Connection Failed")
 				}
 			}
 			// If state is Stopping, do nothing (button should be disabled)
@@ -576,6 +569,10 @@ func setupMenu() error {
 	quitAction = walk.NewAction()
 	quitAction.SetText("Quit")
 	quitAction.Triggered().Attach(func() {
+		if alwaysOnEnabled() {
+			logger.Info("Quit ignored because Always-On is enabled")
+			return
+		}
 		_ = managers.IPCClientStopAllTunnels() // stop tunnels before exiting; ignore errors (e.g. no manager connection)
 		walk.App().Exit(0)
 	})
@@ -711,6 +708,9 @@ func updateMenu() {
 		if connectAction != nil {
 			connectAction.SetVisible(showAuthSection && !sessionExpired)
 		}
+		if quitAction != nil {
+			quitAction.SetEnabled(!alwaysOnEnabled())
+		}
 		if reAuthLoginAction != nil {
 			reAuthLoginAction.SetVisible(showAuthSection && sessionExpired)
 			reAuthLoginAction.SetEnabled(authManager == nil || !authManager.IsDeviceAuthInProgress())
@@ -775,6 +775,102 @@ func refreshCLIInstallState() {
 	}()
 }
 
+func alwaysOnEnabled() bool {
+	alwaysOnMutex.Lock()
+	defer alwaysOnMutex.Unlock()
+	return alwaysOn
+}
+
+func setAlwaysOn(enabled bool) {
+	alwaysOnMutex.Lock()
+	changed := alwaysOn != enabled
+	alwaysOn = enabled
+	alwaysOnMutex.Unlock()
+	if !changed {
+		return
+	}
+	if err := managers.IPCClientSetAlwaysOn(enabled); err != nil {
+		logger.Error("Failed to tell the manager Always-On is %v: %v", enabled, err)
+	}
+}
+
+func openStatusTabOnConnect() {
+	if configManager == nil || !configManager.GetOpenStatusTabOnConnect() {
+		return
+	}
+	walk.App().Synchronize(func() {
+		if err := preferences.ShowPreferencesWindow(mainWindow, tunnelManager, configManager, trayIcon, 1); err != nil {
+			logger.Error("Failed to show preferences window: %v", err)
+			td := walk.NewTaskDialog()
+			_, _ = td.Show(walk.TaskDialogOpts{
+				Owner:         mainWindow,
+				Title:         "Error",
+				Content:       fmt.Sprintf("Failed to open preferences window: %v", err),
+				IconSystem:    walk.TaskDialogSystemIconError,
+				CommonButtons: win.TDCBF_OK_BUTTON,
+			})
+		}
+	})
+}
+
+func notifyConnectionError(err error, fallbackTitle string) {
+	title := fallbackTitle
+	message := err.Error()
+	if connErr, ok := err.(*tunnel.ConnectionError); ok {
+		title = connErr.Title
+		message = connErr.Message
+	}
+	walk.App().Synchronize(func() {
+		showConnectionErrorNotification(title, message)
+	})
+}
+
+// handleAlwaysOnStopped runs when the tunnel reaches Stopped. A user or
+// error shutdown clears Always-On. A lost tunnel reconnects while Always-On is set.
+func handleAlwaysOnStopped() {
+	if tunnelManager == nil {
+		return
+	}
+	switch tunnelManager.TakeStopReason() {
+	case tunnel.StopReasonError, tunnel.StopReasonUser:
+		setAlwaysOn(false)
+	case tunnel.StopReasonLost:
+		if !alwaysOnEnabled() {
+			return
+		}
+		go reconnectAlwaysOn()
+	}
+}
+
+// syncAlwaysOnWithConnection turns Always-On on when the preference allows it
+// and the tunnel is up or coming up. A connected tunnel is Always-On.
+func syncAlwaysOnWithConnection() {
+	if configManager == nil || !configManager.GetAlwaysOnAllowed() {
+		return
+	}
+	if tunnelManager == nil {
+		return
+	}
+	state := tunnelManager.State()
+	if state == tunnel.StateStopped || state == tunnel.StateStopping {
+		return
+	}
+	setAlwaysOn(true)
+}
+
+func reconnectAlwaysOn() {
+	if tunnelManager == nil {
+		return
+	}
+	logger.Info("Always-On: reconnecting after the tunnel dropped")
+	if err := tunnelManager.Connect(); err != nil {
+		logger.Error("Always-On reconnect failed: %v", err)
+		setAlwaysOn(false)
+		notifyConnectionError(err, "Connection Failed")
+		walk.App().Synchronize(updateMenu)
+	}
+}
+
 // updateTunnelState updates the tunnel status and connect button
 func updateTunnelState() {
 	if statusAction == nil || connectAction == nil {
@@ -802,11 +898,23 @@ func updateTunnelState() {
 	}
 
 	// Show "Disconnect" for any state other than Stopped or Stopping
-	// This allows users to cancel the connection process at any time
+	// This allows users to cancel the connection process at any time.
+	// When the Allow Always-On preference is on, the action is the Always-On toggle.
+	alwaysOnAllowed := configManager != nil && configManager.GetAlwaysOnAllowed()
+	if !alwaysOnAllowed {
+		setAlwaysOn(false)
+	}
 	connectText := "Connect"
 	if state == tunnel.StateStopping {
 		connectText = "Disconnecting..."
 		connectAction.SetEnabled(false) // Disable during disconnection
+	} else if alwaysOnAllowed {
+		if alwaysOnEnabled() {
+			connectText = "Disable Always-On and Disconnect"
+		} else {
+			connectText = "Enable Always-On and Connect"
+		}
+		connectAction.SetEnabled(true)
 	} else if state != tunnel.StateStopped {
 		connectText = "Disconnect"
 		connectAction.SetEnabled(true) // Enable to allow cancellation
@@ -1245,10 +1353,36 @@ func updateLoginAction() {
 	loginAction.SetVisible(len(accountManager.Accounts) == 0)
 }
 
+func ResumeAlwaysOn(am *auth.AuthManager) {
+	setAlwaysOn(true)
+	if am == nil || !am.IsAuthenticated() || am.SessionExpired() || am.CurrentOrg() == nil {
+		logger.Info("Always-On resume skipped: not signed in or no organization selected")
+		walk.App().Synchronize(updateMenu)
+		return
+	}
+	if tunnelManager == nil {
+		logger.Error("Always-On resume skipped: tunnel manager is not initialized")
+		return
+	}
+	state := tunnelManager.State()
+	if state != tunnel.StateStopped && state != tunnel.StateStopping {
+		logger.Info("Always-On resume: tunnel already active")
+		walk.App().Synchronize(updateMenu)
+		return
+	}
+	if err := tunnelManager.Connect(); err != nil {
+		logger.Error("Always-On resume failed: %v", err)
+		setAlwaysOn(false)
+		notifyConnectionError(err, "Connection Failed")
+		walk.App().Synchronize(updateMenu)
+	}
+}
+
 // AutoConnect starts the tunnel when the app starts and auto-connect is enabled.
 // It does nothing when the user is signed out, the session needs
-// re-authentication, or no organization is selected. A failed connect shows
-// the same error notification as the tray Connect action.
+// re-authentication, or no organization is selected. When Always-On is allowed,
+// this is the same as Enable Always-On and Connect in the tray. A failed
+// connect shows the same error notification as the tray Connect action.
 func AutoConnect(am *auth.AuthManager) {
 	if am == nil || !am.IsAuthenticated() || am.SessionExpired() || am.CurrentOrg() == nil {
 		logger.Info("Auto-connect skipped: not signed in or no organization selected")
@@ -1259,17 +1393,24 @@ func AutoConnect(am *auth.AuthManager) {
 		return
 	}
 
+	if configManager != nil && configManager.GetAlwaysOnAllowed() {
+		setAlwaysOn(true)
+	}
+
+	state := tunnelManager.State()
+	if state != tunnel.StateStopped && state != tunnel.StateStopping {
+		logger.Info("Auto-connect: tunnel already active")
+		walk.App().Synchronize(updateMenu)
+		return
+	}
+
 	if err := tunnelManager.Connect(); err != nil {
 		logger.Error("Auto-connect failed: %v", err)
-		title := "Connection Failed"
-		message := err.Error()
-		if connErr, ok := err.(*tunnel.ConnectionError); ok {
-			title = connErr.Title
-			message = connErr.Message
+		if stopped := tunnelManager.State(); stopped == tunnel.StateStopped || stopped == tunnel.StateStopping {
+			setAlwaysOn(false)
 		}
-		walk.App().Synchronize(func() {
-			showConnectionErrorNotification(title, message)
-		})
+		notifyConnectionError(err, "Connection Failed")
+		walk.App().Synchronize(updateMenu)
 	}
 }
 
@@ -1297,6 +1438,14 @@ func SetupTray(
 	configManager = cm
 	apiClient = ac
 	accountManager = accm
+	preferences.OnConfigSaved = func() {
+		if configManager != nil && !configManager.GetAlwaysOnAllowed() {
+			setAlwaysOn(false)
+		} else {
+			syncAlwaysOnWithConnection()
+		}
+		updateMenu()
+	}
 
 	// Initialize tunnel manager with IPC adapter
 	ipcAdapter := managers.NewIPCAdapter()
@@ -1490,6 +1639,13 @@ func SetupTray(
 		tunnelStateMutex.Lock()
 		currentTunnelState = managers.TunnelState(state)
 		tunnelStateMutex.Unlock()
+
+		if state != tunnel.StateStopped && state != tunnel.StateStopping {
+			syncAlwaysOnWithConnection()
+		}
+		if state == tunnel.StateStopped {
+			handleAlwaysOnStopped()
+		}
 
 		walk.App().Synchronize(func() {
 			// Update connection state

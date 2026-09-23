@@ -21,6 +21,7 @@ type PreferencesTab struct {
 	dnsOverrideCheckBox *walk.CheckBox
 	dnsTunnelCheckBox   *walk.CheckBox
 	autoConnectCheckBox *walk.CheckBox
+	alwaysOnCheckBox    *walk.CheckBox
 	primaryDNSEdit      *walk.LineEdit
 	secondaryDNSEdit    *walk.LineEdit
 	mtuEdit             *walk.LineEdit
@@ -305,7 +306,7 @@ func (pt *PreferencesTab) Create(parent *walk.TabWidget) (*walk.TabPage, error) 
 	if err != nil {
 		return nil, err
 	}
-	autoConnectLabel.SetText("Connect automatically at login")
+	autoConnectLabel.SetText("Connect automatically at start")
 	autoConnectLabel.SetMinMaxSize(walk.Size{Width: 200, Height: 0}, walk.Size{Width: 200, Height: 0})
 
 	if pt.autoConnectCheckBox, err = walk.NewCheckBox(autoConnectRow); err != nil {
@@ -323,6 +324,47 @@ func (pt *PreferencesTab) Create(parent *walk.TabWidget) (*walk.TabPage, error) 
 	autoConnectDescLabel.SetText("When enabled, Pangolin connects whenever it starts,\nincluding when it starts at Windows sign-in.")
 	autoConnectDescLabel.SetTextColor(walk.RGB(100, 100, 100))
 	autoConnectDescLabel.SetMinMaxSize(walk.Size{}, walk.Size{Width: 400, Height: 0})
+
+	alwaysOnContainer, err := walk.NewComposite(pt.contentContainer)
+	if err != nil {
+		return nil, err
+	}
+	alwaysOnLayout := walk.NewVBoxLayout()
+	alwaysOnLayout.SetMargins(walk.Margins{})
+	alwaysOnLayout.SetSpacing(8)
+	alwaysOnContainer.SetLayout(alwaysOnLayout)
+
+	alwaysOnRow, err := walk.NewComposite(alwaysOnContainer)
+	if err != nil {
+		return nil, err
+	}
+	alwaysOnRowLayout := walk.NewHBoxLayout()
+	alwaysOnRowLayout.SetMargins(walk.Margins{})
+	alwaysOnRowLayout.SetSpacing(12)
+	alwaysOnRow.SetLayout(alwaysOnRowLayout)
+
+	alwaysOnLabel, err := walk.NewLabel(alwaysOnRow)
+	if err != nil {
+		return nil, err
+	}
+	alwaysOnLabel.SetText("Allow Always-On")
+	alwaysOnLabel.SetMinMaxSize(walk.Size{Width: 200, Height: 0}, walk.Size{Width: 200, Height: 0})
+
+	if pt.alwaysOnCheckBox, err = walk.NewCheckBox(alwaysOnRow); err != nil {
+		return nil, err
+	}
+	pt.alwaysOnCheckBox.SetChecked(pt.configManager.GetAlwaysOnAllowed())
+	pt.alwaysOnCheckBox.SetText("")
+
+	walk.NewHSpacer(alwaysOnRow)
+
+	alwaysOnDescLabel, err := walk.NewLabel(alwaysOnContainer)
+	if err != nil {
+		return nil, err
+	}
+	alwaysOnDescLabel.SetText("When enabled, a connected tunnel turns on Always-On,\nwhich keeps the tunnel and the app running until you turn it off.")
+	alwaysOnDescLabel.SetTextColor(walk.RGB(100, 100, 100))
+	alwaysOnDescLabel.SetMinMaxSize(walk.Size{}, walk.Size{Width: 400, Height: 0})
 
 	// Add spacer to fill remaining space
 	walk.NewVSpacer(pt.contentContainer)
@@ -385,6 +427,7 @@ func (pt *PreferencesTab) onSave() {
 	dnsOverride := pt.dnsOverrideCheckBox.Checked()
 	dnsTunnel := pt.dnsTunnelCheckBox.Checked()
 	autoConnect := pt.autoConnectCheckBox.Checked()
+	alwaysOnAllowed := pt.alwaysOnCheckBox.Checked()
 	primaryDNS := strings.TrimSpace(pt.primaryDNSEdit.Text())
 	secondaryDNS := strings.TrimSpace(pt.secondaryDNSEdit.Text())
 	mtuText := strings.TrimSpace(pt.mtuEdit.Text())
@@ -465,6 +508,8 @@ func (pt *PreferencesTab) onSave() {
 	cfg.DNSOverride = &dnsOverrideVal
 	cfg.DNSTunnel = &dnsTunnelVal
 	cfg.AutoConnectAtLogin = &autoConnectVal
+	alwaysOnAllowedVal := alwaysOnAllowed
+	cfg.AlwaysOnAllowed = &alwaysOnAllowedVal
 	cfg.MTU = &mtuVal
 	if primaryDNS != "" {
 		cfg.PrimaryDNS = &primaryDNS
@@ -480,7 +525,9 @@ func (pt *PreferencesTab) onSave() {
 	success := pt.configManager.Save(cfg)
 
 	if success {
-		// Show system notification for success
+		if OnConfigSaved != nil {
+			OnConfigSaved()
+		}
 		if pt.window != nil && pt.window.trayIcon != nil {
 			walk.App().Synchronize(func() {
 				pt.window.trayIcon.ShowInfo("Settings Saved", "Settings have been saved successfully.")

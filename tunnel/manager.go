@@ -29,11 +29,22 @@ type IPCClient interface {
 	RegisterStateChangeCallback(cb func(State)) func() // Returns unregister function
 }
 
+// StopReason records why the tunnel last became Stopped.
+type StopReason int
+
+const (
+	StopReasonNone StopReason = iota
+	StopReasonUser
+	StopReasonError
+	StopReasonLost
+)
+
 // Manager manages tunnel connection state and operations
 // It provides a simplified API for the UI layer, abstracting away IPC details
 type Manager struct {
 	mu             sync.RWMutex
 	currentState   State
+	stopReason     StopReason
 	isConnected    bool
 	stateCallback  func(State)
 	errorCallback  func(*OLMStatusError)
@@ -156,6 +167,27 @@ func (tm *Manager) setLocalState(state State) {
 	if callback != nil {
 		callback(state)
 	}
+}
+
+func (tm *Manager) noteStop(reason StopReason) {
+	tm.mu.Lock()
+	tm.stopReason = reason
+	tm.mu.Unlock()
+}
+
+// TakeStopReason returns the reason for the most recent stop and clears it,
+// so a later stop notification is not attributed to the same event.
+func (tm *Manager) TakeStopReason() StopReason {
+	tm.mu.Lock()
+	defer tm.mu.Unlock()
+	reason := tm.stopReason
+	tm.stopReason = StopReasonNone
+	return reason
+}
+
+func (tm *Manager) stopAfterConnectFailure() {
+	tm.noteStop(StopReasonError)
+	tm.setLocalState(StateStopped)
 }
 
 // buildConfig builds the tunnel configuration from auth manager, config manager, and secret manager
@@ -283,6 +315,7 @@ func (tm *Manager) Connect() error {
 		)
 	}
 
+	tm.noteStop(StopReasonNone)
 	tm.setLocalState(StateStarting)
 
 	// Ensure OLM credentials exist before connecting
@@ -290,7 +323,7 @@ func (tm *Manager) Connect() error {
 	if currentUser != nil && currentUser.UserId != "" {
 		if err := tm.authManager.EnsureOlmCredentials(currentUser.UserId); err != nil {
 			logger.Error("Failed to ensure OLM credentials: %v", err)
-			tm.setLocalState(StateStopped)
+			tm.stopAfterConnectFailure()
 			return formatConnectionError(
 				"OLM Credentials Error",
 				fmt.Sprintf("Failed to set up device credentials: %v", err),
@@ -301,7 +334,7 @@ func (tm *Manager) Connect() error {
 		activeAccount, err := tm.accountManager.ActiveAccount()
 		if err != nil {
 			logger.Error("Failed to get active account: %v", err)
-			tm.setLocalState(StateStopped)
+			tm.stopAfterConnectFailure()
 			return formatConnectionError(
 				"Authentication Error",
 				"No user ID available. Please log in again.",
@@ -311,7 +344,7 @@ func (tm *Manager) Connect() error {
 
 		if err := tm.authManager.EnsureOlmCredentials(activeAccount.UserID); err != nil {
 			logger.Error("Failed to ensure OLM credentials: %v", err)
-			tm.setLocalState(StateStopped)
+			tm.stopAfterConnectFailure()
 			return formatConnectionError(
 				"OLM Credentials Error",
 				fmt.Sprintf("Failed to set up device credentials: %v", err),
@@ -324,7 +357,7 @@ func (tm *Manager) Connect() error {
 	config, err := tm.buildConfig()
 	if err != nil {
 		logger.Error("Failed to build tunnel config: %v", err)
-		tm.setLocalState(StateStopped)
+		tm.stopAfterConnectFailure()
 		// Format config build errors
 		if err.Error() == "session token not found" {
 			return formatConnectionError(
@@ -342,7 +375,7 @@ func (tm *Manager) Connect() error {
 
 	logger.Info("Connecting tunnel with config: Name=%s, Endpoint=%s", config.Name, config.Endpoint)
 	if tm.ipcClient == nil {
-		tm.setLocalState(StateStopped)
+		tm.stopAfterConnectFailure()
 		return formatConnectionError(
 			"Connection Error",
 			"IPC client not initialized. Please restart the application.",
@@ -352,7 +385,7 @@ func (tm *Manager) Connect() error {
 	err = tm.ipcClient.StartTunnel(config)
 	if err != nil {
 		logger.Error("Failed to start tunnel: %v", err)
-		tm.setLocalState(StateStopped)
+		tm.stopAfterConnectFailure()
 		return formatConnectionError(
 			"Connection Failed",
 			fmt.Sprintf("Failed to start the tunnel: %v", err),
@@ -366,8 +399,12 @@ func (tm *Manager) Connect() error {
 	return nil
 }
 
-// Disconnect stops the tunnel
+// Disconnect stops the tunnel because the user asked to.
 func (tm *Manager) Disconnect() error {
+	return tm.disconnect(StopReasonUser)
+}
+
+func (tm *Manager) disconnect(reason StopReason) error {
 	tm.mu.RLock()
 	currentState := tm.currentState
 	tm.mu.RUnlock()
@@ -382,6 +419,7 @@ func (tm *Manager) Disconnect() error {
 		return nil
 	}
 
+	tm.noteStop(reason)
 	logger.Info("Disconnecting tunnel")
 	if tm.ipcClient == nil {
 		tm.StopStatusPolling()
@@ -625,7 +663,7 @@ func (tm *Manager) StartStatusPolling() {
 						consecutiveFailures++
 						if consecutiveFailures >= statusUnreachableThreshold {
 							logger.Info("OLM unreachable after %d consecutive poll failures, disconnecting", consecutiveFailures)
-							if discErr := tm.Disconnect(); discErr != nil {
+							if discErr := tm.disconnect(StopReasonLost); discErr != nil {
 								logger.Error("Failed to disconnect tunnel after poll failures: %v", discErr)
 							}
 							consecutiveFailures = 0
@@ -650,7 +688,7 @@ func (tm *Manager) StartStatusPolling() {
 							tm.authManager.MarkSessionExpired()
 						}
 						// Stop the tunnel immediately
-						if err := tm.Disconnect(); err != nil {
+						if err := tm.disconnect(StopReasonError); err != nil {
 							logger.Error("Failed to disconnect tunnel after error: %v", err)
 						}
 						// Notify UI of the error
@@ -667,7 +705,7 @@ func (tm *Manager) StartStatusPolling() {
 				// If terminated, disconnect the tunnel
 				if status.Terminated {
 					logger.Info("OLM status indicates terminated, disconnecting tunnel")
-					if err := tm.Disconnect(); err != nil {
+					if err := tm.disconnect(StopReasonError); err != nil {
 						logger.Error("Failed to disconnect tunnel after termination: %v", err)
 					}
 					continue
@@ -693,7 +731,7 @@ func (tm *Manager) StartStatusPolling() {
 						consecutiveLost++
 						if consecutiveLost >= statusUnreachableThreshold {
 							logger.Info("OLM reports not connected/registered after %d polls, disconnecting", consecutiveLost)
-							if discErr := tm.Disconnect(); discErr != nil {
+							if discErr := tm.disconnect(StopReasonLost); discErr != nil {
 								logger.Error("Failed to disconnect tunnel after lost connection: %v", discErr)
 							}
 							consecutiveLost = 0
