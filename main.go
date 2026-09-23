@@ -274,6 +274,10 @@ func main() {
 		logger.Fatal("Failed to setup tray: %v", err)
 	}
 
+	if configManager.GetAutoConnectAtLogin() {
+		go ui.AutoConnect(authManager)
+	}
+
 	// Manager service handles all update checking
 	// If we're launched with /ui flag, we're connected to manager via IPC
 	if len(os.Args) >= 5 && os.Args[1] == "/ui" {

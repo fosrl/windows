@@ -43,6 +43,7 @@ type Config struct {
 	AuthPath                     *string  `json:"authPath,omitempty"`
 	OpenStatusTabOnConnect       *bool    `json:"openStatusTabOnConnect,omitempty"`
 	PreferLocalRoutes            *bool    `json:"preferLocalRoutes,omitempty"`
+	AutoConnectAtLogin           *bool    `json:"autoConnectAtLogin,omitempty"`
 	AutoUpdateChecksEnabled      *bool    `json:"autoUpdateChecksEnabled,omitempty"`
 	CheckForUpdatesButtonEnabled *bool    `json:"checkForUpdatesButtonEnabled,omitempty"`
 	UpdateCheckIntervalSeconds   *int     `json:"updateCheckIntervalSeconds,omitempty"`
@@ -245,6 +246,15 @@ func (cm *ConfigManager) GetPreferLocalRoutes() bool {
 	return false
 }
 
+// GetAutoConnectAtLogin reports whether the tray should connect whenever
+// the app starts. Sign-in also starts the app when this is enabled.
+// Omitted defaults to false.
+func (cm *ConfigManager) GetAutoConnectAtLogin() bool {
+	cm.mu.RLock()
+	defer cm.mu.RUnlock()
+	return autoConnectAtLogin(cm.config)
+}
+
 // SetPreferLocalRoutes sets the prefer-local-routes setting and saves to config
 func (cm *ConfigManager) SetPreferLocalRoutes(value bool) bool {
 	cm.mu.Lock()
@@ -415,6 +425,28 @@ func (cm *ConfigManager) SetMTU(value int) bool {
 	return cm.save(cfg)
 }
 
+// AutoConnectAtLoginEnabled reports whether the merged machine and per-user
+// config enables connecting at login. localAppData is that user's
+// LOCALAPPDATA directory. The manager service must pass it explicitly,
+// because its own process environment is the system profile.
+func AutoConnectAtLoginEnabled(localAppData string) bool {
+	merged := configFromSystemConfig(LoadSystemConfig())
+	if localAppData != "" {
+		userCfg, ok := loadConfigFile(filepath.Join(localAppData, AppName, ConfigFileName))
+		if ok {
+			merged = mergeConfig(merged, userCfg)
+		}
+	}
+	return autoConnectAtLogin(merged)
+}
+
+func autoConnectAtLogin(cfg *Config) bool {
+	if cfg != nil && cfg.AutoConnectAtLogin != nil {
+		return *cfg.AutoConnectAtLogin
+	}
+	return false
+}
+
 func LoadSystemConfig() *SystemConfig {
 	configPath := filepath.Join(GetProgramDataDir(), ConfigFileName)
 
@@ -485,11 +517,16 @@ func (cm *ConfigManager) getConfigCopy() *Config {
 
 // loadUserConfig loads the per-user config from disk.
 func (cm *ConfigManager) loadUserConfig() (*Config, bool) {
-	if _, err := os.Stat(cm.configPath); os.IsNotExist(err) {
+	return loadConfigFile(cm.configPath)
+}
+
+// loadConfigFile loads a config JSON file. A missing file is not an error.
+func loadConfigFile(path string) (*Config, bool) {
+	if _, err := os.Stat(path); os.IsNotExist(err) {
 		return nil, false
 	}
 
-	data, err := os.ReadFile(cm.configPath)
+	data, err := os.ReadFile(path)
 	if err != nil {
 		logger.Error("Error loading config: %v", err)
 		return nil, false
@@ -562,6 +599,10 @@ func mergeConfig(base, override *Config) *Config {
 		v := *override.PreferLocalRoutes
 		merged.PreferLocalRoutes = &v
 	}
+	if override.AutoConnectAtLogin != nil {
+		v := *override.AutoConnectAtLogin
+		merged.AutoConnectAtLogin = &v
+	}
 	if override.AutoUpdateChecksEnabled != nil {
 		v := *override.AutoUpdateChecksEnabled
 		merged.AutoUpdateChecksEnabled = &v
@@ -627,6 +668,10 @@ func copyConfig(src *Config) *Config {
 	if src.PreferLocalRoutes != nil {
 		preferLocalRoutes := *src.PreferLocalRoutes
 		cfg.PreferLocalRoutes = &preferLocalRoutes
+	}
+	if src.AutoConnectAtLogin != nil {
+		autoConnectAtLogin := *src.AutoConnectAtLogin
+		cfg.AutoConnectAtLogin = &autoConnectAtLogin
 	}
 	if src.AutoUpdateChecksEnabled != nil {
 		autoUpdateChecksEnabled := *src.AutoUpdateChecksEnabled

@@ -20,6 +20,7 @@ type PreferencesTab struct {
 	contentContainer    *walk.Composite
 	dnsOverrideCheckBox *walk.CheckBox
 	dnsTunnelCheckBox   *walk.CheckBox
+	autoConnectCheckBox *walk.CheckBox
 	primaryDNSEdit      *walk.LineEdit
 	secondaryDNSEdit    *walk.LineEdit
 	mtuEdit             *walk.LineEdit
@@ -272,6 +273,57 @@ func (pt *PreferencesTab) Create(parent *walk.TabWidget) (*walk.TabPage, error) 
 	mtuDescLabel.SetTextColor(walk.RGB(100, 100, 100))
 	mtuDescLabel.SetMinMaxSize(walk.Size{}, walk.Size{Width: 400, Height: 0})
 
+	// Connection section
+	connectionSectionTitle, err := walk.NewLabel(pt.contentContainer)
+	if err != nil {
+		return nil, err
+	}
+	connectionSectionTitle.SetText("Connection")
+	if font != nil {
+		connectionSectionTitle.SetFont(font)
+	}
+
+	autoConnectContainer, err := walk.NewComposite(pt.contentContainer)
+	if err != nil {
+		return nil, err
+	}
+	autoConnectLayout := walk.NewVBoxLayout()
+	autoConnectLayout.SetMargins(walk.Margins{})
+	autoConnectLayout.SetSpacing(8)
+	autoConnectContainer.SetLayout(autoConnectLayout)
+
+	autoConnectRow, err := walk.NewComposite(autoConnectContainer)
+	if err != nil {
+		return nil, err
+	}
+	autoConnectRowLayout := walk.NewHBoxLayout()
+	autoConnectRowLayout.SetMargins(walk.Margins{})
+	autoConnectRowLayout.SetSpacing(12)
+	autoConnectRow.SetLayout(autoConnectRowLayout)
+
+	autoConnectLabel, err := walk.NewLabel(autoConnectRow)
+	if err != nil {
+		return nil, err
+	}
+	autoConnectLabel.SetText("Connect automatically at login")
+	autoConnectLabel.SetMinMaxSize(walk.Size{Width: 200, Height: 0}, walk.Size{Width: 200, Height: 0})
+
+	if pt.autoConnectCheckBox, err = walk.NewCheckBox(autoConnectRow); err != nil {
+		return nil, err
+	}
+	pt.autoConnectCheckBox.SetChecked(pt.configManager.GetAutoConnectAtLogin())
+	pt.autoConnectCheckBox.SetText("")
+
+	walk.NewHSpacer(autoConnectRow)
+
+	autoConnectDescLabel, err := walk.NewLabel(autoConnectContainer)
+	if err != nil {
+		return nil, err
+	}
+	autoConnectDescLabel.SetText("When enabled, Pangolin connects whenever it starts,\nincluding when it starts at Windows sign-in.")
+	autoConnectDescLabel.SetTextColor(walk.RGB(100, 100, 100))
+	autoConnectDescLabel.SetMinMaxSize(walk.Size{}, walk.Size{Width: 400, Height: 0})
+
 	// Add spacer to fill remaining space
 	walk.NewVSpacer(pt.contentContainer)
 
@@ -332,6 +384,7 @@ func (pt *PreferencesTab) onSave() {
 	// Get current values from UI
 	dnsOverride := pt.dnsOverrideCheckBox.Checked()
 	dnsTunnel := pt.dnsTunnelCheckBox.Checked()
+	autoConnect := pt.autoConnectCheckBox.Checked()
 	primaryDNS := strings.TrimSpace(pt.primaryDNSEdit.Text())
 	secondaryDNS := strings.TrimSpace(pt.secondaryDNSEdit.Text())
 	mtuText := strings.TrimSpace(pt.mtuEdit.Text())
@@ -407,9 +460,11 @@ func (pt *PreferencesTab) onSave() {
 
 	dnsOverrideVal := dnsOverride
 	dnsTunnelVal := dnsTunnel
+	autoConnectVal := autoConnect
 	mtuVal := mtu
 	cfg.DNSOverride = &dnsOverrideVal
 	cfg.DNSTunnel = &dnsTunnelVal
+	cfg.AutoConnectAtLogin = &autoConnectVal
 	cfg.MTU = &mtuVal
 	if primaryDNS != "" {
 		cfg.PrimaryDNS = &primaryDNS

@@ -10,8 +10,10 @@ import (
 	"path/filepath"
 	"runtime"
 	"strconv"
+	"strings"
 	"sync"
 	"syscall"
+	"time"
 	"unsafe"
 
 	"github.com/Microsoft/go-winio"
@@ -268,9 +270,10 @@ func (service *managerService) Execute(args []string, r <-chan svc.ChangeRequest
 	// TODO: Add driver cleanup when driver package is implemented
 	// go driver.UninstallLegacyWintun()
 
-	// Do not auto-start UI processes at boot; they would often start before the user's
-	// shell is ready and show no tray, and then the exe would think a UI is already running.
-	// UI is started only when the user runs the exe (RequestUILaunch) or on session logon.
+	// Do not auto-start UI processes at service start. Starting before the user's
+	// shell is ready shows no tray, and then the exe thinks a UI is already running.
+	// UI starts when the user runs the exe, after an update, or at session logon
+	// when that user has auto-connect at login enabled.
 
 	// Listen for UI launch requests from standard users (named pipe).
 	requestUILaunchChan := make(chan uint32)
@@ -359,12 +362,29 @@ loop:
 					}
 					procsLock.Unlock()
 				case windows.WTS_SESSION_LOGON:
+					sessionID := sessionNotification.SessionID
 					procsLock.Lock()
-					if alive := aliveSessions[sessionNotification.SessionID]; !alive {
-						aliveSessions[sessionNotification.SessionID] = true
-						// Do not start UI here; only start when user runs the exe (RequestUILaunch)
+					alreadyAlive := aliveSessions[sessionID]
+					if !alreadyAlive {
+						aliveSessions[sessionID] = true
 					}
 					procsLock.Unlock()
+					if alreadyAlive {
+						continue
+					}
+					go func() {
+						if !autoConnectAtLoginForSession(sessionID) {
+							return
+						}
+						waitForSessionExplorer(sessionID, 60*time.Second)
+						procsLock.Lock()
+						if !stoppingManager {
+							if _, ok := procs[sessionID]; !ok && aliveSessions[sessionID] {
+								goStartProcess(sessionID)
+							}
+						}
+						procsLock.Unlock()
+					}()
 				default:
 					// Ignore other session change events
 					continue
@@ -484,6 +504,95 @@ func enableSeTcbPrivilege() error {
 	}
 	logger.Debug("UI launch (service): SeTcbPrivilege enabled successfully")
 	return nil
+}
+
+// autoConnectAtLoginForSession reports whether the user logged into sessionID
+// has auto-connect at login enabled. The manager runs as LocalSystem, so the
+// setting is read from that user's LOCALAPPDATA rather than the process environment.
+func autoConnectAtLoginForSession(sessionID uint32) bool {
+	logger.Debug("Auto-connect: querying token for session %d", sessionID)
+	var token windows.Token
+	if err := windows.WTSQueryUserToken(sessionID, &token); err != nil {
+		logger.Error("Auto-connect: WTSQueryUserToken(session %d) failed: %v", sessionID, err)
+		return false
+	}
+	defer token.Close()
+
+	localAppData, err := localAppDataFromToken(token)
+	if err != nil {
+		logger.Error("Auto-connect: failed to read LOCALAPPDATA for session %d: %v", sessionID, err)
+		return false
+	}
+	if localAppData == "" {
+		logger.Error("Auto-connect: LOCALAPPDATA is empty for session %d", sessionID)
+		return false
+	}
+	enabled := config.AutoConnectAtLoginEnabled(localAppData)
+	logger.Info("Auto-connect at login for session %d: %v", sessionID, enabled)
+	return enabled
+}
+
+func localAppDataFromToken(token windows.Token) (string, error) {
+	var block *uint16
+	if err := windows.CreateEnvironmentBlock(&block, token, false); err != nil {
+		return "", err
+	}
+	defer windows.DestroyEnvironmentBlock(block)
+
+	const key = "LOCALAPPDATA="
+	p := unsafe.Pointer(block)
+	for {
+		entry := windows.UTF16PtrToString((*uint16)(p))
+		if entry == "" {
+			return "", nil
+		}
+		if len(entry) >= len(key) && strings.EqualFold(entry[:len(key)], key) {
+			return entry[len(key):], nil
+		}
+		// StringToUTF16 includes the terminating NUL. Each unit is two bytes.
+		p = unsafe.Add(p, len(windows.StringToUTF16(entry))*2)
+	}
+}
+
+// waitForSessionExplorer polls until explorer.exe is running in the session.
+// Launching the tray before the shell is ready leaves a UI process with no icon.
+func waitForSessionExplorer(sessionID uint32, timeout time.Duration) {
+	deadline := time.Now().Add(timeout)
+	for {
+		if sessionHasExplorer(sessionID) {
+			logger.Debug("Auto-connect: explorer.exe is running in session %d", sessionID)
+			return
+		}
+		if time.Now().After(deadline) {
+			logger.Info("Auto-connect: explorer.exe not seen in session %d after %v, launching UI anyway", sessionID, timeout)
+			return
+		}
+		time.Sleep(time.Second)
+	}
+}
+
+func sessionHasExplorer(sessionID uint32) bool {
+	snapshot, err := windows.CreateToolhelp32Snapshot(windows.TH32CS_SNAPPROCESS, 0)
+	if err != nil {
+		logger.Error("Auto-connect: process snapshot failed: %v", err)
+		return false
+	}
+	defer windows.CloseHandle(snapshot)
+
+	processEntry := windows.ProcessEntry32{Size: uint32(unsafe.Sizeof(windows.ProcessEntry32{}))}
+	for err = windows.Process32First(snapshot, &processEntry); err == nil; err = windows.Process32Next(snapshot, &processEntry) {
+		if !strings.EqualFold(windows.UTF16ToString(processEntry.ExeFile[:]), "explorer.exe") {
+			continue
+		}
+		var processSession uint32
+		if err := windows.ProcessIdToSessionId(processEntry.ProcessID, &processSession); err != nil {
+			continue
+		}
+		if processSession == sessionID {
+			return true
+		}
+	}
+	return false
 }
 
 func Run() error {

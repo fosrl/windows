@@ -292,16 +292,8 @@ func setupMenu() error {
 		go func() {
 			if tunnelManager == nil {
 				logger.Error("Tunnel manager not initialized")
-				// Show error dialog to user
 				walk.App().Synchronize(func() {
-					td := walk.NewTaskDialog()
-					_, _ = td.Show(walk.TaskDialogOpts{
-						Owner:         mainWindow,
-						Title:         "Connection Error",
-						Content:       "Tunnel manager is not initialized. Please restart the application.",
-						IconSystem:    walk.TaskDialogSystemIconError,
-						CommonButtons: win.TDCBF_OK_BUTTON,
-					})
+					showConnectionErrorNotification("Connection Error", "Tunnel manager is not initialized. Please restart the application.")
 				})
 				return
 			}
@@ -317,28 +309,14 @@ func setupMenu() error {
 				err := tunnelManager.Disconnect()
 				if err != nil {
 					logger.Error("Failed to stop tunnel: %v", err)
-					// Show error dialog to user
 					walk.App().Synchronize(func() {
-						var title, message string
-
-						// Check if it's a ConnectionError with formatted title/message
+						title := "Disconnect Failed"
+						message := err.Error()
 						if connErr, ok := err.(*tunnel.ConnectionError); ok {
 							title = connErr.Title
 							message = connErr.Message
-						} else {
-							// Fallback to generic error
-							title = "Disconnect Failed"
-							message = err.Error()
 						}
-
-						td := walk.NewTaskDialog()
-						_, _ = td.Show(walk.TaskDialogOpts{
-							Owner:         mainWindow,
-							Title:         title,
-							Content:       message,
-							IconSystem:    walk.TaskDialogSystemIconError,
-							CommonButtons: win.TDCBF_OK_BUTTON,
-						})
+						showConnectionErrorNotification(title, message)
 					})
 				}
 			} else if currentState == tunnel.StateStopped {
@@ -364,28 +342,14 @@ func setupMenu() error {
 				err := tunnelManager.Connect()
 				if err != nil {
 					logger.Error("Failed to start tunnel: %v", err)
-					// Show error dialog to user
 					walk.App().Synchronize(func() {
-						var title, message string
-
-						// Check if it's a ConnectionError with formatted title/message
+						title := "Connection Failed"
+						message := err.Error()
 						if connErr, ok := err.(*tunnel.ConnectionError); ok {
 							title = connErr.Title
 							message = connErr.Message
-						} else {
-							// Fallback to generic error
-							title = "Connection Failed"
-							message = err.Error()
 						}
-
-						td := walk.NewTaskDialog()
-						_, _ = td.Show(walk.TaskDialogOpts{
-							Owner:         mainWindow,
-							Title:         title,
-							Content:       message,
-							IconSystem:    walk.TaskDialogSystemIconError,
-							CommonButtons: win.TDCBF_OK_BUTTON,
-						})
+						showConnectionErrorNotification(title, message)
 					})
 				}
 			}
@@ -1281,6 +1245,44 @@ func updateLoginAction() {
 	loginAction.SetVisible(len(accountManager.Accounts) == 0)
 }
 
+// AutoConnect starts the tunnel when the app starts and auto-connect is enabled.
+// It does nothing when the user is signed out, the session needs
+// re-authentication, or no organization is selected. A failed connect shows
+// the same error notification as the tray Connect action.
+func AutoConnect(am *auth.AuthManager) {
+	if am == nil || !am.IsAuthenticated() || am.SessionExpired() || am.CurrentOrg() == nil {
+		logger.Info("Auto-connect skipped: not signed in or no organization selected")
+		return
+	}
+	if tunnelManager == nil {
+		logger.Error("Auto-connect skipped: tunnel manager is not initialized")
+		return
+	}
+
+	if err := tunnelManager.Connect(); err != nil {
+		logger.Error("Auto-connect failed: %v", err)
+		title := "Connection Failed"
+		message := err.Error()
+		if connErr, ok := err.(*tunnel.ConnectionError); ok {
+			title = connErr.Title
+			message = connErr.Message
+		}
+		walk.App().Synchronize(func() {
+			showConnectionErrorNotification(title, message)
+		})
+	}
+}
+
+func showConnectionErrorNotification(title, message string) {
+	if trayIcon == nil {
+		logger.Error("%s: %s", title, message)
+		return
+	}
+	if err := trayIcon.ShowError(title, message); err != nil {
+		logger.Error("Failed to show connection error notification: %v", err)
+	}
+}
+
 func SetupTray(
 	mw *walk.MainWindow,
 	am *auth.AuthManager,
@@ -1517,18 +1519,11 @@ func SetupTray(
 	tunnelManager.RegisterErrorCallback(func(err *tunnel.OLMStatusError) {
 		logger.Error("Tunnel error detected: code=%s, message=%s", err.Code, err.Message)
 		walk.App().Synchronize(func() {
-			td := walk.NewTaskDialog()
 			errorMessage := err.Message
 			if errorMessage == "" {
 				errorMessage = fmt.Sprintf("Error code: %s", err.Code)
 			}
-			_, _ = td.Show(walk.TaskDialogOpts{
-				Owner:         mainWindow,
-				Title:         "Connection Error",
-				Content:       errorMessage,
-				IconSystem:    walk.TaskDialogSystemIconError,
-				CommonButtons: win.TDCBF_OK_BUTTON,
-			})
+			showConnectionErrorNotification("Connection Error", errorMessage)
 		})
 	})
 
