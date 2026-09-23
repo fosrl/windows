@@ -274,15 +274,7 @@ func main() {
 		logger.Fatal("Failed to setup tray: %v", err)
 	}
 
-	managerAlwaysOn := managers.IPCClientAlwaysOn()
-	if managerAlwaysOn && !configManager.GetAlwaysOnAllowed() {
-		// The preference was turned off; stop the manager from restarting the UI.
-		if err := managers.IPCClientSetAlwaysOn(false); err != nil {
-			logger.Error("Failed to clear Always-On in the manager: %v", err)
-		}
-		managerAlwaysOn = false
-	}
-	if managerAlwaysOn {
+	if managers.IPCClientAlwaysOn() {
 		go ui.ResumeAlwaysOn(authManager)
 	} else if configManager.GetAutoConnectAtLogin() {
 		go ui.AutoConnect(authManager)

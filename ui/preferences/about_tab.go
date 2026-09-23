@@ -32,15 +32,10 @@ func (at *AboutTab) Create(parent *walk.TabWidget) (*walk.TabPage, error) {
 	at.tabPage.SetTitle("About")
 	at.tabPage.SetLayout(walk.NewVBoxLayout())
 
-	// Content container with padding
-	contentContainer, err := walk.NewComposite(at.tabPage)
+	contentContainer, err := newFormScroll(at.tabPage)
 	if err != nil {
 		return nil, err
 	}
-	contentLayout := walk.NewVBoxLayout()
-	contentLayout.SetMargins(walk.Margins{})
-	contentLayout.SetSpacing(16)
-	contentContainer.SetLayout(contentLayout)
 
 	// Application section
 	appSectionLabel, err := walk.NewLabel(contentContainer)
@@ -198,4 +193,3 @@ func (at *AboutTab) AfterAdd() {
 func (at *AboutTab) Cleanup() {
 	// Nothing to clean up for About tab
 }
-

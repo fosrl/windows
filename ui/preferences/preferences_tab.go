@@ -21,7 +21,7 @@ type PreferencesTab struct {
 	dnsOverrideCheckBox *walk.CheckBox
 	dnsTunnelCheckBox   *walk.CheckBox
 	autoConnectCheckBox *walk.CheckBox
-	alwaysOnCheckBox    *walk.CheckBox
+	openAtLoginCheckBox *walk.CheckBox
 	primaryDNSEdit      *walk.LineEdit
 	secondaryDNSEdit    *walk.LineEdit
 	mtuEdit             *walk.LineEdit
@@ -52,15 +52,10 @@ func (pt *PreferencesTab) Create(parent *walk.TabWidget) (*walk.TabPage, error) 
 	pt.tabPage.SetTitle("Preferences")
 	pt.tabPage.SetLayout(walk.NewVBoxLayout())
 
-	// Content container - match the structure of logs/olm tabs
-	pt.contentContainer, err = walk.NewComposite(pt.tabPage)
-	if err != nil {
+	// Content scrolls so a shorter window doesn't cover the Save button.
+	if pt.contentContainer, err = newFormScroll(pt.tabPage); err != nil {
 		return nil, err
 	}
-	contentLayout := walk.NewVBoxLayout()
-	contentLayout.SetMargins(walk.Margins{})
-	contentLayout.SetSpacing(16)
-	pt.contentContainer.SetLayout(contentLayout)
 
 	// Tip link to docs for settings
 	settingsDocLink, err := walk.NewLinkLabel(pt.contentContainer)
@@ -284,6 +279,47 @@ func (pt *PreferencesTab) Create(parent *walk.TabWidget) (*walk.TabPage, error) 
 		connectionSectionTitle.SetFont(font)
 	}
 
+	openAtLoginContainer, err := walk.NewComposite(pt.contentContainer)
+	if err != nil {
+		return nil, err
+	}
+	openAtLoginLayout := walk.NewVBoxLayout()
+	openAtLoginLayout.SetMargins(walk.Margins{})
+	openAtLoginLayout.SetSpacing(8)
+	openAtLoginContainer.SetLayout(openAtLoginLayout)
+
+	openAtLoginRow, err := walk.NewComposite(openAtLoginContainer)
+	if err != nil {
+		return nil, err
+	}
+	openAtLoginRowLayout := walk.NewHBoxLayout()
+	openAtLoginRowLayout.SetMargins(walk.Margins{})
+	openAtLoginRowLayout.SetSpacing(12)
+	openAtLoginRow.SetLayout(openAtLoginRowLayout)
+
+	openAtLoginLabel, err := walk.NewLabel(openAtLoginRow)
+	if err != nil {
+		return nil, err
+	}
+	openAtLoginLabel.SetText("Start at login")
+	openAtLoginLabel.SetMinMaxSize(walk.Size{Width: 200, Height: 0}, walk.Size{Width: 200, Height: 0})
+
+	if pt.openAtLoginCheckBox, err = walk.NewCheckBox(openAtLoginRow); err != nil {
+		return nil, err
+	}
+	pt.openAtLoginCheckBox.SetChecked(pt.configManager.GetOpenUIAtLogin() || pt.configManager.GetAutoConnectAtLogin())
+	pt.openAtLoginCheckBox.SetText("")
+
+	walk.NewHSpacer(openAtLoginRow)
+
+	openAtLoginDescLabel, err := walk.NewLabel(openAtLoginContainer)
+	if err != nil {
+		return nil, err
+	}
+	openAtLoginDescLabel.SetText("Starts Pangolin when you sign in to Windows.")
+	openAtLoginDescLabel.SetTextColor(walk.RGB(100, 100, 100))
+	openAtLoginDescLabel.SetMinMaxSize(walk.Size{}, walk.Size{Width: 400, Height: 0})
+
 	autoConnectContainer, err := walk.NewComposite(pt.contentContainer)
 	if err != nil {
 		return nil, err
@@ -306,7 +342,7 @@ func (pt *PreferencesTab) Create(parent *walk.TabWidget) (*walk.TabPage, error) 
 	if err != nil {
 		return nil, err
 	}
-	autoConnectLabel.SetText("Connect automatically at start")
+	autoConnectLabel.SetText("Connect at start")
 	autoConnectLabel.SetMinMaxSize(walk.Size{Width: 200, Height: 0}, walk.Size{Width: 200, Height: 0})
 
 	if pt.autoConnectCheckBox, err = walk.NewCheckBox(autoConnectRow); err != nil {
@@ -321,50 +357,20 @@ func (pt *PreferencesTab) Create(parent *walk.TabWidget) (*walk.TabPage, error) 
 	if err != nil {
 		return nil, err
 	}
-	autoConnectDescLabel.SetText("When enabled, Pangolin connects whenever it starts,\nincluding when it starts at Windows sign-in.")
+	autoConnectDescLabel.SetText("Connects the tunnel whenever Pangolin starts.\nAlso opens Pangolin at sign-in.")
 	autoConnectDescLabel.SetTextColor(walk.RGB(100, 100, 100))
 	autoConnectDescLabel.SetMinMaxSize(walk.Size{}, walk.Size{Width: 400, Height: 0})
 
-	alwaysOnContainer, err := walk.NewComposite(pt.contentContainer)
-	if err != nil {
-		return nil, err
-	}
-	alwaysOnLayout := walk.NewVBoxLayout()
-	alwaysOnLayout.SetMargins(walk.Margins{})
-	alwaysOnLayout.SetSpacing(8)
-	alwaysOnContainer.SetLayout(alwaysOnLayout)
-
-	alwaysOnRow, err := walk.NewComposite(alwaysOnContainer)
-	if err != nil {
-		return nil, err
-	}
-	alwaysOnRowLayout := walk.NewHBoxLayout()
-	alwaysOnRowLayout.SetMargins(walk.Margins{})
-	alwaysOnRowLayout.SetSpacing(12)
-	alwaysOnRow.SetLayout(alwaysOnRowLayout)
-
-	alwaysOnLabel, err := walk.NewLabel(alwaysOnRow)
-	if err != nil {
-		return nil, err
-	}
-	alwaysOnLabel.SetText("Allow Always-On")
-	alwaysOnLabel.SetMinMaxSize(walk.Size{Width: 200, Height: 0}, walk.Size{Width: 200, Height: 0})
-
-	if pt.alwaysOnCheckBox, err = walk.NewCheckBox(alwaysOnRow); err != nil {
-		return nil, err
-	}
-	pt.alwaysOnCheckBox.SetChecked(pt.configManager.GetAlwaysOnAllowed())
-	pt.alwaysOnCheckBox.SetText("")
-
-	walk.NewHSpacer(alwaysOnRow)
-
-	alwaysOnDescLabel, err := walk.NewLabel(alwaysOnContainer)
-	if err != nil {
-		return nil, err
-	}
-	alwaysOnDescLabel.SetText("When enabled, a connected tunnel turns on Always-On,\nwhich keeps the tunnel and the app running until you turn it off.")
-	alwaysOnDescLabel.SetTextColor(walk.RGB(100, 100, 100))
-	alwaysOnDescLabel.SetMinMaxSize(walk.Size{}, walk.Size{Width: 400, Height: 0})
+	pt.autoConnectCheckBox.CheckedChanged().Attach(func() {
+		if pt.autoConnectCheckBox.Checked() && !pt.openAtLoginCheckBox.Checked() {
+			pt.openAtLoginCheckBox.SetChecked(true)
+		}
+	})
+	pt.openAtLoginCheckBox.CheckedChanged().Attach(func() {
+		if !pt.openAtLoginCheckBox.Checked() && pt.autoConnectCheckBox.Checked() {
+			pt.autoConnectCheckBox.SetChecked(false)
+		}
+	})
 
 	// Add spacer to fill remaining space
 	walk.NewVSpacer(pt.contentContainer)
@@ -427,7 +433,10 @@ func (pt *PreferencesTab) onSave() {
 	dnsOverride := pt.dnsOverrideCheckBox.Checked()
 	dnsTunnel := pt.dnsTunnelCheckBox.Checked()
 	autoConnect := pt.autoConnectCheckBox.Checked()
-	alwaysOnAllowed := pt.alwaysOnCheckBox.Checked()
+	openAtLogin := pt.openAtLoginCheckBox.Checked()
+	if autoConnect {
+		openAtLogin = true
+	}
 	primaryDNS := strings.TrimSpace(pt.primaryDNSEdit.Text())
 	secondaryDNS := strings.TrimSpace(pt.secondaryDNSEdit.Text())
 	mtuText := strings.TrimSpace(pt.mtuEdit.Text())
@@ -508,8 +517,8 @@ func (pt *PreferencesTab) onSave() {
 	cfg.DNSOverride = &dnsOverrideVal
 	cfg.DNSTunnel = &dnsTunnelVal
 	cfg.AutoConnectAtLogin = &autoConnectVal
-	alwaysOnAllowedVal := alwaysOnAllowed
-	cfg.AlwaysOnAllowed = &alwaysOnAllowedVal
+	openAtLoginVal := openAtLogin
+	cfg.OpenUIAtLogin = &openAtLoginVal
 	cfg.MTU = &mtuVal
 	if primaryDNS != "" {
 		cfg.PrimaryDNS = &primaryDNS
@@ -525,9 +534,6 @@ func (pt *PreferencesTab) onSave() {
 	success := pt.configManager.Save(cfg)
 
 	if success {
-		if OnConfigSaved != nil {
-			OnConfigSaved()
-		}
 		if pt.window != nil && pt.window.trayIcon != nil {
 			walk.App().Synchronize(func() {
 				pt.window.trayIcon.ShowInfo("Settings Saved", "Settings have been saved successfully.")

@@ -83,7 +83,7 @@ type OLMStatusTab struct {
 	currentStatus *tunnel.OLMStatusResponse
 	// Current tunnel state (protected by mu)
 	currentTunnelState tunnel.State
-	displayMode   DisplayMode
+	displayMode        DisplayMode
 }
 
 // NewOLMStatusTab creates a new OLM status tab
@@ -95,11 +95,11 @@ func NewOLMStatusTab(tm *tunnel.Manager) *OLMStatusTab {
 		state = tunnel.StateStopped
 	}
 	return &OLMStatusTab{
-		tunnelManager: tm,
-		quit:          make(chan bool),
-		peerWidgets:   make(map[int]*peerWidgets),
+		tunnelManager:      tm,
+		quit:               make(chan bool),
+		peerWidgets:        make(map[int]*peerWidgets),
 		currentTunnelState: state,
-		displayMode:   DisplayModeFormatted, // Default to formatted view
+		displayMode:        DisplayModeFormatted, // Default to formatted view
 	}
 }
 
@@ -125,14 +125,10 @@ func (ost *OLMStatusTab) Create(parent *walk.TabWidget) (*walk.TabPage, error) {
 	ost.formattedTab.SetTitle("Formatted")
 	ost.formattedTab.SetLayout(walk.NewVBoxLayout())
 
-	// Formatted view container
-	if ost.formattedContainer, err = walk.NewComposite(ost.formattedTab); err != nil {
+	// Formatted view scrolls when the site list is taller than the tab.
+	if ost.formattedContainer, err = newFormScroll(ost.formattedTab); err != nil {
 		return nil, err
 	}
-	formattedLayout := walk.NewVBoxLayout()
-	formattedLayout.SetMargins(walk.Margins{})
-	formattedLayout.SetSpacing(16)
-	ost.formattedContainer.SetLayout(formattedLayout)
 
 	// Connection Status section
 	statusSectionLabel, err := walk.NewLabel(ost.formattedContainer)

@@ -44,7 +44,7 @@ type Config struct {
 	OpenStatusTabOnConnect       *bool    `json:"openStatusTabOnConnect,omitempty"`
 	PreferLocalRoutes            *bool    `json:"preferLocalRoutes,omitempty"`
 	AutoConnectAtLogin           *bool    `json:"autoConnectAtLogin,omitempty"`
-	AlwaysOnAllowed              *bool    `json:"alwaysOnAllowed,omitempty"`
+	OpenUIAtLogin                *bool    `json:"openUIAtLogin,omitempty"`
 	AutoUpdateChecksEnabled      *bool    `json:"autoUpdateChecksEnabled,omitempty"`
 	CheckForUpdatesButtonEnabled *bool    `json:"checkForUpdatesButtonEnabled,omitempty"`
 	UpdateCheckIntervalSeconds   *int     `json:"updateCheckIntervalSeconds,omitempty"`
@@ -248,23 +248,19 @@ func (cm *ConfigManager) GetPreferLocalRoutes() bool {
 }
 
 // GetAutoConnectAtLogin reports whether the tray should connect whenever
-// the app starts. Sign-in also starts the app when this is enabled.
-// Omitted defaults to false.
+// the app starts. Omitted defaults to false.
 func (cm *ConfigManager) GetAutoConnectAtLogin() bool {
 	cm.mu.RLock()
 	defer cm.mu.RUnlock()
 	return autoConnectAtLogin(cm.config)
 }
 
-// GetAlwaysOnAllowed reports whether the tray Always-On toggle is available.
-// Omitted defaults to false.
-func (cm *ConfigManager) GetAlwaysOnAllowed() bool {
+// GetOpenUIAtLogin reports whether the manager should open the UI when the
+// user signs in. Omitted defaults to false. Connect at start also opens the UI.
+func (cm *ConfigManager) GetOpenUIAtLogin() bool {
 	cm.mu.RLock()
 	defer cm.mu.RUnlock()
-	if cm.config != nil && cm.config.AlwaysOnAllowed != nil {
-		return *cm.config.AlwaysOnAllowed
-	}
-	return false
+	return openUIAtLogin(cm.config)
 }
 
 // SetPreferLocalRoutes sets the prefer-local-routes setting and saves to config
@@ -437,11 +433,11 @@ func (cm *ConfigManager) SetMTU(value int) bool {
 	return cm.save(cfg)
 }
 
-// AutoConnectAtLoginEnabled reports whether the merged machine and per-user
-// config enables connecting at login. localAppData is that user's
-// LOCALAPPDATA directory. The manager service must pass it explicitly,
-// because its own process environment is the system profile.
-func AutoConnectAtLoginEnabled(localAppData string) bool {
+// LaunchUIAtLoginEnabled reports whether the merged machine and per-user
+// config should open the UI at sign-in. Connect at start implies this.
+// localAppData is that user's LOCALAPPDATA directory. The manager service
+// must pass it explicitly, because its own process environment is the system profile.
+func LaunchUIAtLoginEnabled(localAppData string) bool {
 	merged := configFromSystemConfig(LoadSystemConfig())
 	if localAppData != "" {
 		userCfg, ok := loadConfigFile(filepath.Join(localAppData, AppName, ConfigFileName))
@@ -449,12 +445,19 @@ func AutoConnectAtLoginEnabled(localAppData string) bool {
 			merged = mergeConfig(merged, userCfg)
 		}
 	}
-	return autoConnectAtLogin(merged)
+	return openUIAtLogin(merged) || autoConnectAtLogin(merged)
 }
 
 func autoConnectAtLogin(cfg *Config) bool {
 	if cfg != nil && cfg.AutoConnectAtLogin != nil {
 		return *cfg.AutoConnectAtLogin
+	}
+	return false
+}
+
+func openUIAtLogin(cfg *Config) bool {
+	if cfg != nil && cfg.OpenUIAtLogin != nil {
+		return *cfg.OpenUIAtLogin
 	}
 	return false
 }
@@ -615,9 +618,9 @@ func mergeConfig(base, override *Config) *Config {
 		v := *override.AutoConnectAtLogin
 		merged.AutoConnectAtLogin = &v
 	}
-	if override.AlwaysOnAllowed != nil {
-		v := *override.AlwaysOnAllowed
-		merged.AlwaysOnAllowed = &v
+	if override.OpenUIAtLogin != nil {
+		v := *override.OpenUIAtLogin
+		merged.OpenUIAtLogin = &v
 	}
 	if override.AutoUpdateChecksEnabled != nil {
 		v := *override.AutoUpdateChecksEnabled
@@ -689,9 +692,9 @@ func copyConfig(src *Config) *Config {
 		autoConnectAtLogin := *src.AutoConnectAtLogin
 		cfg.AutoConnectAtLogin = &autoConnectAtLogin
 	}
-	if src.AlwaysOnAllowed != nil {
-		alwaysOnAllowed := *src.AlwaysOnAllowed
-		cfg.AlwaysOnAllowed = &alwaysOnAllowed
+	if src.OpenUIAtLogin != nil {
+		openUIAtLogin := *src.OpenUIAtLogin
+		cfg.OpenUIAtLogin = &openUIAtLogin
 	}
 	if src.AutoUpdateChecksEnabled != nil {
 		autoUpdateChecksEnabled := *src.AutoUpdateChecksEnabled

@@ -301,38 +301,11 @@ func setupMenu() error {
 			}
 
 			currentState := tunnelManager.State()
-			if configManager != nil && configManager.GetAlwaysOnAllowed() {
-				if alwaysOnEnabled() {
-					setAlwaysOn(false)
-					if currentState != tunnel.StateStopped && currentState != tunnel.StateStopping {
-						logger.Info("Disabling Always-On and disconnecting")
-						if err := tunnelManager.Disconnect(); err != nil {
-							logger.Error("Failed to stop tunnel: %v", err)
-							notifyConnectionError(err, "Disconnect Failed")
-						}
-					}
-				} else {
-					setAlwaysOn(true)
-					if currentState == tunnel.StateStopped {
-						openStatusTabOnConnect()
-						logger.Info("Enabling Always-On and connecting")
-						if err := tunnelManager.Connect(); err != nil {
-							logger.Error("Failed to start tunnel: %v", err)
-							setAlwaysOn(false)
-							notifyConnectionError(err, "Connection Failed")
-						}
-					} else {
-						logger.Info("Enabling Always-On for the running tunnel")
-					}
-				}
-				walk.App().Synchronize(updateMenu)
-				return
-			}
-
 			// Allow disconnect for any state other than Stopped or Stopping
 			// This allows users to cancel the connection process at any time
 			if currentState != tunnel.StateStopped && currentState != tunnel.StateStopping {
 				logger.Info("Disconnecting...")
+				setAlwaysOn(false)
 				err := tunnelManager.Disconnect()
 				if err != nil {
 					logger.Error("Failed to stop tunnel: %v", err)
@@ -340,9 +313,11 @@ func setupMenu() error {
 				}
 			} else if currentState == tunnel.StateStopped {
 				openStatusTabOnConnect()
+				setAlwaysOn(true)
 				err := tunnelManager.Connect()
 				if err != nil {
 					logger.Error("Failed to start tunnel: %v", err)
+					setAlwaysOn(false)
 					notifyConnectionError(err, "Connection Failed")
 				}
 			}
@@ -569,10 +544,7 @@ func setupMenu() error {
 	quitAction = walk.NewAction()
 	quitAction.SetText("Quit")
 	quitAction.Triggered().Attach(func() {
-		if alwaysOnEnabled() {
-			logger.Info("Quit ignored because Always-On is enabled")
-			return
-		}
+		setAlwaysOn(false)
 		_ = managers.IPCClientStopAllTunnels() // stop tunnels before exiting; ignore errors (e.g. no manager connection)
 		walk.App().Exit(0)
 	})
@@ -708,19 +680,18 @@ func updateMenu() {
 		if connectAction != nil {
 			connectAction.SetVisible(showAuthSection && !sessionExpired)
 		}
-		if quitAction != nil {
-			quitAction.SetEnabled(!alwaysOnEnabled())
-		}
 		if reAuthLoginAction != nil {
 			reAuthLoginAction.SetVisible(showAuthSection && sessionExpired)
 			reAuthLoginAction.SetEnabled(authManager == nil || !authManager.IsDeviceAuthInProgress())
 			reAuthLoginAction.SetText("Log In")
 		}
 		if orgsMenuAction != nil {
-			orgsMenuAction.SetVisible(showAuthSection && !sessionExpired)
+			// Keep the last known org visible when the session is expired, matching macOS and iOS.
+			orgsMenuAction.SetVisible(showAuthSection)
 		}
 
-		// Update tunnel state and organizations only when fully authenticated and not session expired
+		// Update tunnel state and organizations when authenticated.
+		// Session expiry still shows the cached org; connect stays hidden above.
 		if showAuthSection {
 			if sessionExpired {
 				if statusAction != nil {
@@ -728,8 +699,8 @@ func updateMenu() {
 				}
 			} else {
 				updateTunnelState()
-				updateOrganizations()
 			}
+			updateOrganizations()
 		}
 
 		updateAccountMenu()
@@ -842,22 +813,6 @@ func handleAlwaysOnStopped() {
 	}
 }
 
-// syncAlwaysOnWithConnection turns Always-On on when the preference allows it
-// and the tunnel is up or coming up. A connected tunnel is Always-On.
-func syncAlwaysOnWithConnection() {
-	if configManager == nil || !configManager.GetAlwaysOnAllowed() {
-		return
-	}
-	if tunnelManager == nil {
-		return
-	}
-	state := tunnelManager.State()
-	if state == tunnel.StateStopped || state == tunnel.StateStopping {
-		return
-	}
-	setAlwaysOn(true)
-}
-
 func reconnectAlwaysOn() {
 	if tunnelManager == nil {
 		return
@@ -899,22 +854,10 @@ func updateTunnelState() {
 
 	// Show "Disconnect" for any state other than Stopped or Stopping
 	// This allows users to cancel the connection process at any time.
-	// When the Allow Always-On preference is on, the action is the Always-On toggle.
-	alwaysOnAllowed := configManager != nil && configManager.GetAlwaysOnAllowed()
-	if !alwaysOnAllowed {
-		setAlwaysOn(false)
-	}
 	connectText := "Connect"
 	if state == tunnel.StateStopping {
 		connectText = "Disconnecting..."
 		connectAction.SetEnabled(false) // Disable during disconnection
-	} else if alwaysOnAllowed {
-		if alwaysOnEnabled() {
-			connectText = "Disable Always-On and Disconnect"
-		} else {
-			connectText = "Enable Always-On and Connect"
-		}
-		connectAction.SetEnabled(true)
 	} else if state != tunnel.StateStopped {
 		connectText = "Disconnect"
 		connectAction.SetEnabled(true) // Enable to allow cancellation
@@ -1353,9 +1296,61 @@ func updateLoginAction() {
 	loginAction.SetVisible(len(accountManager.Accounts) == 0)
 }
 
+const (
+	startupRetryInitialDelay = 2 * time.Second
+	startupRetryMaxDelay     = 5 * time.Minute
+)
+
+func tunnelIsStopped() bool {
+	if tunnelManager == nil {
+		return false
+	}
+	state := tunnelManager.State()
+	return state == tunnel.StateStopped || state == tunnel.StateStopping
+}
+
+// waitForServer retries the server health check with exponential backoff until
+// it passes or keepWaiting returns false. On success it reloads auth, because
+// Initialize skips loading the user and organizations while the server is down.
+func waitForServer(am *auth.AuthManager, label string, keepWaiting func() bool) bool {
+	delay := startupRetryInitialDelay
+	for {
+		logger.Info("%s: server health check failed, retrying in %v", label, delay)
+		time.Sleep(delay)
+		if !am.IsAuthenticated() || !keepWaiting() {
+			logger.Info("%s: stopped waiting for the server", label)
+			return false
+		}
+		_ = am.CheckHealthAndSetState()
+		if !am.IsServerDown() {
+			logger.Info("%s: server is reachable, reloading account", label)
+			if err := am.Initialize(); err != nil {
+				logger.Error("%s: failed to reload account: %v", label, err)
+			}
+			walk.App().Synchronize(updateMenu)
+			return true
+		}
+		delay *= 2
+		if delay > startupRetryMaxDelay {
+			delay = startupRetryMaxDelay
+		}
+	}
+}
+
 func ResumeAlwaysOn(am *auth.AuthManager) {
 	setAlwaysOn(true)
-	if am == nil || !am.IsAuthenticated() || am.SessionExpired() || am.CurrentOrg() == nil {
+	if am == nil || !am.IsAuthenticated() {
+		logger.Info("Always-On resume skipped: not signed in")
+		walk.App().Synchronize(updateMenu)
+		return
+	}
+	if am.IsServerDown() {
+		keepWaiting := func() bool { return alwaysOnEnabled() && tunnelIsStopped() }
+		if !waitForServer(am, "Always-On resume", keepWaiting) {
+			return
+		}
+	}
+	if !am.IsAuthenticated() || am.SessionExpired() || am.CurrentOrg() == nil {
 		logger.Info("Always-On resume skipped: not signed in or no organization selected")
 		walk.App().Synchronize(updateMenu)
 		return
@@ -1378,13 +1373,21 @@ func ResumeAlwaysOn(am *auth.AuthManager) {
 	}
 }
 
-// AutoConnect starts the tunnel when the app starts and auto-connect is enabled.
+// AutoConnect starts the tunnel when the app starts and connect-at-start is enabled.
 // It does nothing when the user is signed out, the session needs
-// re-authentication, or no organization is selected. When Always-On is allowed,
-// this is the same as Enable Always-On and Connect in the tray. A failed
-// connect shows the same error notification as the tray Connect action.
+// re-authentication, or no organization is selected. A failed connect shows
+// the same error notification as the tray Connect action.
 func AutoConnect(am *auth.AuthManager) {
-	if am == nil || !am.IsAuthenticated() || am.SessionExpired() || am.CurrentOrg() == nil {
+	if am == nil || !am.IsAuthenticated() {
+		logger.Info("Auto-connect skipped: not signed in")
+		return
+	}
+	if am.IsServerDown() {
+		if !waitForServer(am, "Auto-connect", tunnelIsStopped) {
+			return
+		}
+	}
+	if !am.IsAuthenticated() || am.SessionExpired() || am.CurrentOrg() == nil {
 		logger.Info("Auto-connect skipped: not signed in or no organization selected")
 		return
 	}
@@ -1393,9 +1396,7 @@ func AutoConnect(am *auth.AuthManager) {
 		return
 	}
 
-	if configManager != nil && configManager.GetAlwaysOnAllowed() {
-		setAlwaysOn(true)
-	}
+	setAlwaysOn(true)
 
 	state := tunnelManager.State()
 	if state != tunnel.StateStopped && state != tunnel.StateStopping {
@@ -1438,14 +1439,6 @@ func SetupTray(
 	configManager = cm
 	apiClient = ac
 	accountManager = accm
-	preferences.OnConfigSaved = func() {
-		if configManager != nil && !configManager.GetAlwaysOnAllowed() {
-			setAlwaysOn(false)
-		} else {
-			syncAlwaysOnWithConnection()
-		}
-		updateMenu()
-	}
 
 	// Initialize tunnel manager with IPC adapter
 	ipcAdapter := managers.NewIPCAdapter()
@@ -1640,9 +1633,6 @@ func SetupTray(
 		currentTunnelState = managers.TunnelState(state)
 		tunnelStateMutex.Unlock()
 
-		if state != tunnel.StateStopped && state != tunnel.StateStopping {
-			syncAlwaysOnWithConnection()
-		}
 		if state == tunnel.StateStopped {
 			handleAlwaysOnStopped()
 		}

@@ -284,7 +284,7 @@ func (service *managerService) Execute(args []string, r <-chan svc.ChangeRequest
 	// Do not auto-start UI processes at service start. Starting before the user's
 	// shell is ready shows no tray, and then the exe thinks a UI is already running.
 	// UI starts when the user runs the exe, after an update, or at session logon
-	// when that user has auto-connect at login enabled.
+	// when that user has open-at-login or connect-at-start enabled.
 
 	// Listen for UI launch requests from standard users (named pipe).
 	requestUILaunchChan := make(chan uint32)
@@ -384,7 +384,7 @@ loop:
 						continue
 					}
 					go func() {
-						if !autoConnectAtLoginForSession(sessionID) {
+						if !launchUIAtLoginForSession(sessionID) {
 							return
 						}
 						waitForSessionExplorer(sessionID, 60*time.Second)
@@ -517,29 +517,29 @@ func enableSeTcbPrivilege() error {
 	return nil
 }
 
-// autoConnectAtLoginForSession reports whether the user logged into sessionID
-// has auto-connect at login enabled. The manager runs as LocalSystem, so the
-// setting is read from that user's LOCALAPPDATA rather than the process environment.
-func autoConnectAtLoginForSession(sessionID uint32) bool {
-	logger.Debug("Auto-connect: querying token for session %d", sessionID)
+// launchUIAtLoginForSession reports whether the user logged into sessionID
+// should have the UI opened at sign-in. The manager runs as LocalSystem, so
+// the setting is read from that user's LOCALAPPDATA rather than the process environment.
+func launchUIAtLoginForSession(sessionID uint32) bool {
+	logger.Debug("Open at login: querying token for session %d", sessionID)
 	var token windows.Token
 	if err := windows.WTSQueryUserToken(sessionID, &token); err != nil {
-		logger.Error("Auto-connect: WTSQueryUserToken(session %d) failed: %v", sessionID, err)
+		logger.Error("Open at login: WTSQueryUserToken(session %d) failed: %v", sessionID, err)
 		return false
 	}
 	defer token.Close()
 
 	localAppData, err := localAppDataFromToken(token)
 	if err != nil {
-		logger.Error("Auto-connect: failed to read LOCALAPPDATA for session %d: %v", sessionID, err)
+		logger.Error("Open at login: failed to read LOCALAPPDATA for session %d: %v", sessionID, err)
 		return false
 	}
 	if localAppData == "" {
-		logger.Error("Auto-connect: LOCALAPPDATA is empty for session %d", sessionID)
+		logger.Error("Open at login: LOCALAPPDATA is empty for session %d", sessionID)
 		return false
 	}
-	enabled := config.AutoConnectAtLoginEnabled(localAppData)
-	logger.Info("Auto-connect at login for session %d: %v", sessionID, enabled)
+	enabled := config.LaunchUIAtLoginEnabled(localAppData)
+	logger.Info("Open UI at login for session %d: %v", sessionID, enabled)
 	return enabled
 }
 

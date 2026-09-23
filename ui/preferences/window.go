@@ -39,8 +39,6 @@ type Tab interface {
 var (
 	preferencesWindowInstance *PreferencesWindow
 	preferencesWindowMutex    sync.Mutex
-	// OnConfigSaved runs after preferences are saved successfully.
-	OnConfigSaved func()
 )
 
 // ShowPreferencesWindow shows the preferences window (creates if needed, or brings to front).
@@ -190,8 +188,12 @@ func NewPreferencesWindow(owner walk.Form, tm *tunnel.Manager, cm *config.Config
 		}
 	}
 
-	// Set window size after all components are added
+	// Set window size after all components are added.
+	// Preferences content scrolls, so the dialog can be narrower than the form.
 	pw.SetSize(walk.Size{Width: 450, Height: 600})
+	if err := pw.SetMinMaxSize(walk.Size{Width: 320, Height: 0}, walk.Size{}); err != nil {
+		logger.Error("Failed to set preferences window minimum size: %v", err)
+	}
 
 	// Make dialog appear in taskbar by setting WS_EX_APPWINDOW extended style
 	const GWL_EXSTYLE = -20
@@ -201,4 +203,32 @@ func NewPreferencesWindow(owner walk.Form, tm *tunnel.Manager, cm *config.Config
 	win.SetWindowLong(pw.Handle(), GWL_EXSTYLE, exStyle)
 
 	return pw, nil
+}
+
+// newFormScroll puts a scrolling content pane in parent. The right margin
+// keeps the vertical scrollbar to the right of the controls.
+func newFormScroll(parent walk.Container) (*walk.Composite, error) {
+	scrollView, err := walk.NewScrollView(parent)
+	if err != nil {
+		return nil, err
+	}
+	scrollView.SetScrollbars(true, true)
+
+	scrollLayout := walk.NewVBoxLayout()
+	scrollLayout.SetMargins(walk.Margins{})
+	scrollLayout.SetSpacing(0)
+	if err = scrollView.SetLayout(scrollLayout); err != nil {
+		return nil, err
+	}
+
+	content, err := walk.NewComposite(scrollView)
+	if err != nil {
+		return nil, err
+	}
+	contentLayout := walk.NewVBoxLayout()
+	barWidth := int(win.GetSystemMetricsForDpi(win.SM_CXVSCROLL, 96))
+	contentLayout.SetMargins(walk.Margins{HFar: barWidth})
+	contentLayout.SetSpacing(16)
+	content.SetLayout(contentLayout)
+	return content, nil
 }

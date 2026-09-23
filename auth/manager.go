@@ -423,11 +423,36 @@ func (am *AuthManager) handleSuccessfulAuth(user *api.User, hostname string, tok
 
 // MarkSessionExpired sets the session-expired state so the UI shows re-auth and disables connect.
 // Called from the API layer (on 401/403) and tunnel layer (on session-expired error codes).
+// The last selected org stays visible from the locally cached account org id.
 func (am *AuthManager) MarkSessionExpired() {
 	am.mu.Lock()
 	defer am.mu.Unlock()
 	am.sessionExpired = true
 	am.errorMessage = nil
+	if account, err := am.accountManager.ActiveAccount(); err == nil {
+		am.restoreCachedOrganizationLocked(account)
+	}
+}
+
+// restoreCachedOrganizationLocked sets currentOrg from the locally cached account org ID
+// when the server is unreachable or the session is expired. Keeps a known display name
+// when the id already matches. Caller must hold am.mu.
+func (am *AuthManager) restoreCachedOrganizationLocked(account *config.Account) {
+	if account == nil || account.OrgID == "" {
+		return
+	}
+	if am.currentOrg == nil || am.currentOrg.Id != account.OrgID {
+		am.currentOrg = &api.Org{Id: account.OrgID, Name: account.OrgID}
+	}
+	if am.currentOrg == nil || am.currentOrg.Id != account.OrgID {
+		return
+	}
+	for _, org := range am.organizations {
+		if org.Id == account.OrgID {
+			return
+		}
+	}
+	am.organizations = append(am.organizations, *am.currentOrg)
 }
 
 // RefreshOrganizations refreshes the list of organizations
@@ -474,6 +499,14 @@ func (am *AuthManager) RefreshOrganizations() error {
 			am.currentOrg = nil
 			if activeAccount, _ := am.accountManager.ActiveAccount(); activeAccount != nil {
 				_ = am.accountManager.SetUserOrganization(activeAccount.UserID, "")
+			}
+		}
+	} else if activeAccount, _ := am.accountManager.ActiveAccount(); activeAccount != nil && activeAccount.OrgID != "" {
+		// Restore selection from the cached account org after an offline startup
+		for _, org := range newOrgs {
+			if org.Id == activeAccount.OrgID {
+				am.currentOrg = &org
+				break
 			}
 		}
 	}
@@ -644,6 +677,13 @@ func (am *AuthManager) CheckOrgAccess(orgId string) (bool, error) {
 
 // SelectOrganization selects an organization
 func (am *AuthManager) SelectOrganization(org *api.Org) error {
+	am.mu.RLock()
+	user := am.currentUser
+	am.mu.RUnlock()
+	if user == nil {
+		return errors.New("not signed in")
+	}
+
 	// First check org access
 	hasAccess, err := am.CheckOrgAccess(org.Id)
 	if err != nil || !hasAccess {
@@ -656,9 +696,7 @@ func (am *AuthManager) SelectOrganization(org *api.Org) error {
 	am.mu.Unlock()
 
 	// Save selected org to accounts store
-	am.mu.RLock()
-	userID := am.currentUser.UserId
-	am.mu.RUnlock()
+	userID := user.UserId
 
 	if err := am.accountManager.SetUserOrganization(userID, org.Id); err != nil {
 		logger.Warn("failed to persist selected account to store: %v", err)
@@ -760,7 +798,8 @@ func (am *AuthManager) SwitchAccount(userID string) error {
 	am.mu.RUnlock()
 
 	if serverDown {
-		// Server is down, but account is switched - show error but don't revert
+		// Server is down, but account is switched - show error but don't revert.
+		// CheckHealthAndSetState already restored the cached org for display.
 		logger.Warn("Server appears to be down after account switch")
 		return nil
 	}
@@ -775,6 +814,7 @@ func (am *AuthManager) SwitchAccount(userID string) error {
 			am.mu.Lock()
 			msg := err.Error()
 			am.errorMessage = &msg
+			am.restoreCachedOrganizationLocked(&accountToSwitchTo)
 			am.mu.Unlock()
 		}
 		logger.Error("Failed to fetch user after account switch: %v", err)
@@ -865,6 +905,9 @@ func (am *AuthManager) CheckHealthAndSetState() error {
 		am.isServerDown = true
 		msg := "The server appears to be down."
 		am.errorMessage = &msg
+		if account, accErr := am.accountManager.ActiveAccount(); accErr == nil {
+			am.restoreCachedOrganizationLocked(account)
+		}
 		am.mu.Unlock()
 		return err
 	}
@@ -874,6 +917,9 @@ func (am *AuthManager) CheckHealthAndSetState() error {
 		am.isServerDown = true
 		msg := "The server appears to be down."
 		am.errorMessage = &msg
+		if account, accErr := am.accountManager.ActiveAccount(); accErr == nil {
+			am.restoreCachedOrganizationLocked(account)
+		}
 	} else {
 		am.isServerDown = false
 		am.errorMessage = nil
