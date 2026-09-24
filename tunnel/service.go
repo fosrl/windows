@@ -83,12 +83,8 @@ func (s State) DisplayText() string {
 	switch s {
 	case StateStopped:
 		return "Disconnected"
-	case StateStarting:
-		return "Connecting..."
-	case StateRegistering:
+	case StateStarting, StateRegistering, StateRegistered:
 		return "Registering..."
-	case StateRegistered:
-		return "Connecting..."
 	case StateRunning:
 		return "Connected"
 	case StateReconnecting:

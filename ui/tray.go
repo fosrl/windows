@@ -42,7 +42,9 @@ var (
 	reAuthLoginAction      *walk.Action
 	connectAction          *walk.Action
 	orgsMenuAction         *walk.Action
+	orgHeaderAction        *walk.Action
 	accountMenuAction      *walk.Action
+	accountHeaderAction    *walk.Action
 	loginAction            *walk.Action
 	logoutAction           *walk.Action
 	addAccountAction       *walk.Action
@@ -267,7 +269,7 @@ func setupMenu() error {
 
 	// Create status action
 	statusAction = walk.NewAction()
-	statusAction.SetText("Disconnected")
+	statusAction.SetText("Status: Disconnected")
 	statusAction.SetEnabled(false)
 	statusAction.SetVisible(false) // Hidden initially
 	actions.Add(statusAction)
@@ -335,6 +337,11 @@ func setupMenu() error {
 		logger.Error("Failed to create org menu: %v", err)
 		return err
 	}
+	accountHeaderAction = walk.NewAction()
+	accountHeaderAction.SetText("Account")
+	accountHeaderAction.SetEnabled(false)
+	accountHeaderAction.SetVisible(false)
+	actions.Add(accountHeaderAction)
 	accountMenuAction = walk.NewMenuAction(accountMenu)
 	accountMenuAction.SetText("Accounts")
 	accountMenuAction.SetVisible(false) // Hidden initially
@@ -346,6 +353,11 @@ func setupMenu() error {
 		logger.Error("Failed to create org menu: %v", err)
 		return err
 	}
+	orgHeaderAction = walk.NewAction()
+	orgHeaderAction.SetText("Organization")
+	orgHeaderAction.SetEnabled(false)
+	orgHeaderAction.SetVisible(false)
+	actions.Add(orgHeaderAction)
 	orgsMenuAction = walk.NewMenuAction(orgMenu)
 	orgsMenuAction.SetText("Organizations")
 	orgsMenuAction.SetVisible(false) // Hidden initially
@@ -365,7 +377,7 @@ func setupMenu() error {
 	})
 	actions.Add(loginAction)
 
-	// Separator before More
+	// Separator before Preferences and More
 	actions.Add(walk.NewSeparatorAction())
 
 	// Create More submenu
@@ -489,6 +501,9 @@ func setupMenu() error {
 	cliInstallAction = installCLIAction
 	moreMenu.Actions().Add(installCLIAction)
 
+	moreAction = walk.NewMenuAction(moreMenu)
+	moreAction.SetText("More")
+
 	// Preferences action
 	preferencesAction := walk.NewAction()
 	preferencesAction.SetText("Preferences")
@@ -522,10 +537,7 @@ func setupMenu() error {
 			})
 		}()
 	})
-	moreMenu.Actions().Add(preferencesAction)
-
-	moreAction = walk.NewMenuAction(moreMenu)
-	moreAction.SetText("More")
+	actions.Add(preferencesAction)
 	actions.Add(moreAction)
 
 	// Separator before watermark/quit
@@ -689,13 +701,16 @@ func updateMenu() {
 			// Keep the last known org visible when the session is expired, matching macOS and iOS.
 			orgsMenuAction.SetVisible(showAuthSection)
 		}
+		if orgHeaderAction != nil {
+			orgHeaderAction.SetVisible(showAuthSection)
+		}
 
 		// Update tunnel state and organizations when authenticated.
 		// Session expiry still shows the cached org; connect stays hidden above.
 		if showAuthSection {
 			if sessionExpired {
 				if statusAction != nil {
-					statusAction.SetText("Account Locked")
+					statusAction.SetText("Status: Account Locked")
 				}
 			} else {
 				updateTunnelState()
@@ -841,7 +856,7 @@ func updateTunnelState() {
 		tunnelStateMutex.RUnlock()
 	}
 
-	statusAction.SetText(state.DisplayText())
+	statusAction.SetText(fmt.Sprintf("Status: %s", state.DisplayText()))
 
 	var connected bool
 	if tunnelManager != nil {
@@ -1100,6 +1115,9 @@ func updateAccountMenu() {
 	}
 	accountMenuAction.SetText(accountMenuActionText)
 	accountMenuAction.SetVisible(len(accounts) > 0)
+	if accountHeaderAction != nil {
+		accountHeaderAction.SetVisible(len(accounts) > 0)
+	}
 }
 
 // updateOrganizations updates the organizations menu

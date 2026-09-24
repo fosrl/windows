@@ -57,16 +57,112 @@ func (pt *PreferencesTab) Create(parent *walk.TabWidget) (*walk.TabPage, error) 
 		return nil, err
 	}
 
-	// Tip link to docs for settings
-	settingsDocLink, err := walk.NewLinkLabel(pt.contentContainer)
+	font, fontErr := walk.NewFont("Segoe UI", 10, walk.FontBold)
+	if fontErr != nil {
+		font = nil
+	}
+
+	// General section
+	generalSectionTitle, err := walk.NewLabel(pt.contentContainer)
 	if err != nil {
 		return nil, err
 	}
-	const settingsDocURL = "https://docs.pangolin.net/manage/clients/configure-client"
-	settingsDocLink.SetText(`Tip: <a href="` + settingsDocURL + `">See the docs for more information on these settings</a>`)
-	settingsDocLink.SetAlignment(walk.AlignHNearVNear)
-	settingsDocLink.LinkActivated().Attach(func(link *walk.LinkLabelLink) {
-		browser.OpenURL(settingsDocURL)
+	generalSectionTitle.SetText("General")
+	if font != nil {
+		generalSectionTitle.SetFont(font)
+	}
+
+	openAtLoginContainer, err := walk.NewComposite(pt.contentContainer)
+	if err != nil {
+		return nil, err
+	}
+	openAtLoginLayout := walk.NewVBoxLayout()
+	openAtLoginLayout.SetMargins(walk.Margins{})
+	openAtLoginLayout.SetSpacing(8)
+	openAtLoginContainer.SetLayout(openAtLoginLayout)
+
+	openAtLoginRow, err := walk.NewComposite(openAtLoginContainer)
+	if err != nil {
+		return nil, err
+	}
+	openAtLoginRowLayout := walk.NewHBoxLayout()
+	openAtLoginRowLayout.SetMargins(walk.Margins{})
+	openAtLoginRowLayout.SetSpacing(12)
+	openAtLoginRow.SetLayout(openAtLoginRowLayout)
+
+	openAtLoginLabel, err := walk.NewLabel(openAtLoginRow)
+	if err != nil {
+		return nil, err
+	}
+	openAtLoginLabel.SetText("Start at Login")
+	openAtLoginLabel.SetMinMaxSize(walk.Size{Width: 200, Height: 0}, walk.Size{Width: 200, Height: 0})
+
+	if pt.openAtLoginCheckBox, err = walk.NewCheckBox(openAtLoginRow); err != nil {
+		return nil, err
+	}
+	pt.openAtLoginCheckBox.SetChecked(pt.configManager.GetOpenUIAtLogin() || pt.configManager.GetAutoConnectAtLogin())
+	pt.openAtLoginCheckBox.SetText("")
+
+	walk.NewHSpacer(openAtLoginRow)
+
+	openAtLoginDescLabel, err := walk.NewLabel(openAtLoginContainer)
+	if err != nil {
+		return nil, err
+	}
+	openAtLoginDescLabel.SetText("Starts Pangolin when you sign in to Windows.")
+	openAtLoginDescLabel.SetTextColor(walk.RGB(100, 100, 100))
+	openAtLoginDescLabel.SetMinMaxSize(walk.Size{}, walk.Size{Width: 400, Height: 0})
+
+	autoConnectContainer, err := walk.NewComposite(pt.contentContainer)
+	if err != nil {
+		return nil, err
+	}
+	autoConnectLayout := walk.NewVBoxLayout()
+	autoConnectLayout.SetMargins(walk.Margins{})
+	autoConnectLayout.SetSpacing(8)
+	autoConnectContainer.SetLayout(autoConnectLayout)
+
+	autoConnectRow, err := walk.NewComposite(autoConnectContainer)
+	if err != nil {
+		return nil, err
+	}
+	autoConnectRowLayout := walk.NewHBoxLayout()
+	autoConnectRowLayout.SetMargins(walk.Margins{})
+	autoConnectRowLayout.SetSpacing(12)
+	autoConnectRow.SetLayout(autoConnectRowLayout)
+
+	autoConnectLabel, err := walk.NewLabel(autoConnectRow)
+	if err != nil {
+		return nil, err
+	}
+	autoConnectLabel.SetText("Connect at Start")
+	autoConnectLabel.SetMinMaxSize(walk.Size{Width: 200, Height: 0}, walk.Size{Width: 200, Height: 0})
+
+	if pt.autoConnectCheckBox, err = walk.NewCheckBox(autoConnectRow); err != nil {
+		return nil, err
+	}
+	pt.autoConnectCheckBox.SetChecked(pt.configManager.GetAutoConnectAtLogin())
+	pt.autoConnectCheckBox.SetText("")
+
+	walk.NewHSpacer(autoConnectRow)
+
+	autoConnectDescLabel, err := walk.NewLabel(autoConnectContainer)
+	if err != nil {
+		return nil, err
+	}
+	autoConnectDescLabel.SetText("Connects the tunnel whenever Pangolin starts.\nAlso opens Pangolin at sign-in.")
+	autoConnectDescLabel.SetTextColor(walk.RGB(100, 100, 100))
+	autoConnectDescLabel.SetMinMaxSize(walk.Size{}, walk.Size{Width: 400, Height: 0})
+
+	pt.autoConnectCheckBox.CheckedChanged().Attach(func() {
+		if pt.autoConnectCheckBox.Checked() && !pt.openAtLoginCheckBox.Checked() {
+			pt.openAtLoginCheckBox.SetChecked(true)
+		}
+	})
+	pt.openAtLoginCheckBox.CheckedChanged().Attach(func() {
+		if !pt.openAtLoginCheckBox.Checked() && pt.autoConnectCheckBox.Checked() {
+			pt.autoConnectCheckBox.SetChecked(false)
+		}
 	})
 
 	// DNS Settings section title
@@ -75,8 +171,7 @@ func (pt *PreferencesTab) Create(parent *walk.TabWidget) (*walk.TabPage, error) 
 		return nil, err
 	}
 	dnsSectionTitle.SetText("DNS Settings")
-	font, err := walk.NewFont("Segoe UI", 10, walk.FontBold)
-	if err == nil {
+	if font != nil {
 		dnsSectionTitle.SetFont(font)
 	}
 
@@ -269,111 +364,20 @@ func (pt *PreferencesTab) Create(parent *walk.TabWidget) (*walk.TabPage, error) 
 	mtuDescLabel.SetTextColor(walk.RGB(100, 100, 100))
 	mtuDescLabel.SetMinMaxSize(walk.Size{}, walk.Size{Width: 400, Height: 0})
 
-	// Connection section
-	connectionSectionTitle, err := walk.NewLabel(pt.contentContainer)
-	if err != nil {
-		return nil, err
-	}
-	connectionSectionTitle.SetText("Connection")
-	if font != nil {
-		connectionSectionTitle.SetFont(font)
-	}
-
-	openAtLoginContainer, err := walk.NewComposite(pt.contentContainer)
-	if err != nil {
-		return nil, err
-	}
-	openAtLoginLayout := walk.NewVBoxLayout()
-	openAtLoginLayout.SetMargins(walk.Margins{})
-	openAtLoginLayout.SetSpacing(8)
-	openAtLoginContainer.SetLayout(openAtLoginLayout)
-
-	openAtLoginRow, err := walk.NewComposite(openAtLoginContainer)
-	if err != nil {
-		return nil, err
-	}
-	openAtLoginRowLayout := walk.NewHBoxLayout()
-	openAtLoginRowLayout.SetMargins(walk.Margins{})
-	openAtLoginRowLayout.SetSpacing(12)
-	openAtLoginRow.SetLayout(openAtLoginRowLayout)
-
-	openAtLoginLabel, err := walk.NewLabel(openAtLoginRow)
-	if err != nil {
-		return nil, err
-	}
-	openAtLoginLabel.SetText("Start at login")
-	openAtLoginLabel.SetMinMaxSize(walk.Size{Width: 200, Height: 0}, walk.Size{Width: 200, Height: 0})
-
-	if pt.openAtLoginCheckBox, err = walk.NewCheckBox(openAtLoginRow); err != nil {
-		return nil, err
-	}
-	pt.openAtLoginCheckBox.SetChecked(pt.configManager.GetOpenUIAtLogin() || pt.configManager.GetAutoConnectAtLogin())
-	pt.openAtLoginCheckBox.SetText("")
-
-	walk.NewHSpacer(openAtLoginRow)
-
-	openAtLoginDescLabel, err := walk.NewLabel(openAtLoginContainer)
-	if err != nil {
-		return nil, err
-	}
-	openAtLoginDescLabel.SetText("Starts Pangolin when you sign in to Windows.")
-	openAtLoginDescLabel.SetTextColor(walk.RGB(100, 100, 100))
-	openAtLoginDescLabel.SetMinMaxSize(walk.Size{}, walk.Size{Width: 400, Height: 0})
-
-	autoConnectContainer, err := walk.NewComposite(pt.contentContainer)
-	if err != nil {
-		return nil, err
-	}
-	autoConnectLayout := walk.NewVBoxLayout()
-	autoConnectLayout.SetMargins(walk.Margins{})
-	autoConnectLayout.SetSpacing(8)
-	autoConnectContainer.SetLayout(autoConnectLayout)
-
-	autoConnectRow, err := walk.NewComposite(autoConnectContainer)
-	if err != nil {
-		return nil, err
-	}
-	autoConnectRowLayout := walk.NewHBoxLayout()
-	autoConnectRowLayout.SetMargins(walk.Margins{})
-	autoConnectRowLayout.SetSpacing(12)
-	autoConnectRow.SetLayout(autoConnectRowLayout)
-
-	autoConnectLabel, err := walk.NewLabel(autoConnectRow)
-	if err != nil {
-		return nil, err
-	}
-	autoConnectLabel.SetText("Connect at start")
-	autoConnectLabel.SetMinMaxSize(walk.Size{Width: 200, Height: 0}, walk.Size{Width: 200, Height: 0})
-
-	if pt.autoConnectCheckBox, err = walk.NewCheckBox(autoConnectRow); err != nil {
-		return nil, err
-	}
-	pt.autoConnectCheckBox.SetChecked(pt.configManager.GetAutoConnectAtLogin())
-	pt.autoConnectCheckBox.SetText("")
-
-	walk.NewHSpacer(autoConnectRow)
-
-	autoConnectDescLabel, err := walk.NewLabel(autoConnectContainer)
-	if err != nil {
-		return nil, err
-	}
-	autoConnectDescLabel.SetText("Connects the tunnel whenever Pangolin starts.\nAlso opens Pangolin at sign-in.")
-	autoConnectDescLabel.SetTextColor(walk.RGB(100, 100, 100))
-	autoConnectDescLabel.SetMinMaxSize(walk.Size{}, walk.Size{Width: 400, Height: 0})
-
-	pt.autoConnectCheckBox.CheckedChanged().Attach(func() {
-		if pt.autoConnectCheckBox.Checked() && !pt.openAtLoginCheckBox.Checked() {
-			pt.openAtLoginCheckBox.SetChecked(true)
-		}
-	})
-	pt.openAtLoginCheckBox.CheckedChanged().Attach(func() {
-		if !pt.openAtLoginCheckBox.Checked() && pt.autoConnectCheckBox.Checked() {
-			pt.autoConnectCheckBox.SetChecked(false)
-		}
-	})
-
 	// Add spacer to fill remaining space
 	walk.NewVSpacer(pt.contentContainer)
+
+	// Tip link to docs for settings
+	settingsDocLink, err := walk.NewLinkLabel(pt.contentContainer)
+	if err != nil {
+		return nil, err
+	}
+	const settingsDocURL = "https://docs.pangolin.net/manage/clients/configure-client"
+	settingsDocLink.SetText(`Tip: <a href="` + settingsDocURL + `">See the docs for more information on these settings</a>`)
+	settingsDocLink.SetAlignment(walk.AlignHNearVNear)
+	settingsDocLink.LinkActivated().Attach(func(link *walk.LinkLabelLink) {
+		browser.OpenURL(settingsDocURL)
+	})
 
 	// Buttons will be created in AfterAdd() after tab is added to widget tree
 

@@ -496,7 +496,7 @@ func (ost *OLMStatusTab) updateJSONView(status *tunnel.OLMStatusResponse) {
 	// No need to set visibility - tabs handle that automatically
 
 	if status == nil {
-		ost.jsonEdit.SetText("Disconnected")
+		ost.jsonEdit.SetText("{\r\n  \"connected\": false\r\n}")
 		return
 	}
 
@@ -568,12 +568,9 @@ func (ost *OLMStatusTab) updateFormattedView(status *tunnel.OLMStatusResponse, s
 }
 
 // formatStatus formats the connection status text
-func (ost *OLMStatusTab) formatStatus(connected, registered bool) string {
+func (ost *OLMStatusTab) formatStatus(connected, _ bool) string {
 	if connected {
 		return "Connected"
-	}
-	if registered {
-		return "Connecting..."
 	}
 	return "Registering..."
 }
