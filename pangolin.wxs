@@ -119,6 +119,32 @@
     <Icon Id="ProductIcon" SourceFile="$(var.ProjectDir)/icons/icon-orange.ico" />
     <Property Id="ARPPRODUCTICON" Value="ProductIcon" />
 
+    <!-- The UI renders in WebView2. Windows 11 and current Windows 10 ship the
+         Evergreen runtime; install it with the bundled bootstrapper when missing.
+         See https://learn.microsoft.com/microsoft-edge/webview2/concepts/distribution -->
+    <Property Id="WEBVIEW2_MACHINE_VERSION">
+      <RegistrySearch Id="WebView2MachineSearch"
+                      Root="HKLM"
+                      Key="SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}"
+                      Name="pv"
+                      Type="raw"
+                      Bitness="always64" />
+    </Property>
+    <Property Id="WEBVIEW2_USER_VERSION">
+      <RegistrySearch Id="WebView2UserSearch"
+                      Root="HKCU"
+                      Key="Software\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}"
+                      Name="pv"
+                      Type="raw" />
+    </Property>
+    <Binary Id="WebView2Bootstrapper" SourceFile="$(var.ProjectDir)/dll/MicrosoftEdgeWebview2Setup.exe" />
+    <CustomAction Id="InstallWebView2"
+                  BinaryRef="WebView2Bootstrapper"
+                  ExeCommand="/silent /install"
+                  Execute="deferred"
+                  Impersonate="no"
+                  Return="ignore" />
+
     <!-- Remove runtime-registered PangolinManager before MSI-owned ServiceInstall (upgrade from legacy MSI). -->
     <SetProperty Id="CleanupOrphanedManagerService"
                  Value="&quot;[%ComSpec]&quot; /c &quot;[System64Folder]sc.exe&quot; stop PangolinManager &amp; &quot;[System64Folder]sc.exe&quot; delete PangolinManager"
@@ -135,6 +161,10 @@
       <Custom Action="CleanupOrphanedManagerService"
               Before="InstallServices"
               Condition="NOT REMOVE~=&quot;ALL&quot;" />
+      <!-- Before StartServices, so the runtime is there when the service launches the UI. -->
+      <Custom Action="InstallWebView2"
+              Before="StartServices"
+              Condition="NOT REMOVE~=&quot;ALL&quot; AND (NOT WEBVIEW2_MACHINE_VERSION OR WEBVIEW2_MACHINE_VERSION=&quot;0.0.0.0&quot;) AND (NOT WEBVIEW2_USER_VERSION OR WEBVIEW2_USER_VERSION=&quot;0.0.0.0&quot;)" />
     </InstallExecuteSequence>
   </Package>
 </Wix>

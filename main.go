@@ -3,6 +3,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"strconv"
@@ -20,7 +21,6 @@ import (
 	"github.com/fosrl/windows/version"
 
 	"github.com/fosrl/newt/logger"
-	"github.com/tailscale/walk"
 	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/svc"
 	"golang.org/x/sys/windows/svc/mgr"
@@ -232,18 +232,6 @@ func main() {
 		return
 	}
 
-	app, err := walk.InitApp()
-	if err != nil {
-		logger.Fatal("Failed to initialize app: %v", err)
-	}
-
-	// Create a hidden main window (required for NotifyIcon)
-	mw, err := walk.NewMainWindow()
-	if err != nil {
-		logger.Fatal("Failed to create main window: %v", err)
-	}
-	mw.SetVisible(false)
-
 	// Initialize managers
 	accountManager := config.NewAccountManager()
 	configManager := config.NewConfigManager()
@@ -259,25 +247,16 @@ func main() {
 	apiClient := api.NewAPIClient(hostname, "")
 	authManager := auth.NewAuthManager(apiClient, configManager, accountManager, secretManager)
 
-	// When any authenticated request gets 401/403, set session-expired on the UI thread
+	// When any authenticated request gets 401/403, mark the session expired.
+	// This runs asynchronously, as walk's Synchronize did, because the request
+	// may have been made while the auth manager holds its lock.
 	apiClient.SetOnUnauthorized(func() {
-		walk.App().Synchronize(authManager.MarkSessionExpired)
+		go authManager.MarkSessionExpired()
 	})
 
 	// Initialize auth manager (loads saved session token if available)
 	if err := authManager.Initialize(); err != nil {
 		logger.Error("Failed to initialize auth manager: %v", err)
-	}
-
-	// Setup tray icon and menu
-	if err := ui.SetupTray(mw, authManager, configManager, accountManager, apiClient, secretManager); err != nil {
-		logger.Fatal("Failed to setup tray: %v", err)
-	}
-
-	if managers.IPCClientAlwaysOn() {
-		go ui.ResumeAlwaysOn(authManager)
-	} else if configManager.GetAutoConnectAtLogin() {
-		go ui.AutoConnect(authManager)
 	}
 
 	// Manager service handles all update checking
@@ -291,5 +270,19 @@ func main() {
 	}
 
 	// Run the application
-	app.Run()
+	err := ui.Run(ui.Deps{
+		Auth:     authManager,
+		Config:   configManager,
+		Accounts: accountManager,
+		API:      apiClient,
+		Secrets:  secretManager,
+	})
+	if errors.Is(err, ui.ErrWebView2Missing) {
+		showMessageBox("Pangolin needs the Microsoft Edge WebView2 Runtime, which is not installed.\n\n"+
+			"Download it from https://go.microsoft.com/fwlink/p/?LinkId=2124703 and then start Pangolin again.", config.AppName)
+		os.Exit(1)
+	}
+	if err != nil {
+		logger.Fatal("Failed to run UI: %v", err)
+	}
 }
