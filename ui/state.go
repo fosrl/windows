@@ -139,6 +139,7 @@ func collectMenuInputs() menuInputs {
 			in.CurrentOrgID = org.Id
 			in.CurrentOrgName = org.Name
 		}
+		in.ExitNodes, in.ActiveExitNodeID = currentExitNodes(in.CurrentOrgID, in.TunnelPhase == phaseRunning)
 	}
 
 	if accountManager != nil {
@@ -195,6 +196,8 @@ func handleMenuOpen() {
 	if authManager == nil || apiClient == nil || !authManager.IsAuthenticated() {
 		return
 	}
+
+	refreshExitNodes()
 
 	go func() {
 		_ = authManager.CheckHealthAndSetState()

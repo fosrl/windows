@@ -10,6 +10,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -54,6 +55,9 @@ type Manager struct {
 	configManager  *config.ConfigManager
 	accountManager *config.AccountManager
 	secretManager  *secrets.SecretManager
+	// gatewayResolver looks up the exit node (gateway) to establish when the
+	// tunnel connects; nil or a 0 resource ID means connect without one.
+	gatewayResolver func(orgID string) (siteResourceID int, siteIDs []int)
 	// Status polling fields
 	pollCtx       context.Context
 	pollCancel    context.CancelFunc
@@ -104,6 +108,14 @@ func NewManager(
 	}()
 
 	return tm
+}
+
+// SetGatewayResolver sets the function used at connect time to resolve the
+// saved exit node into the resource and site IDs olm needs.
+func (tm *Manager) SetGatewayResolver(fn func(orgID string) (siteResourceID int, siteIDs []int)) {
+	tm.mu.Lock()
+	defer tm.mu.Unlock()
+	tm.gatewayResolver = fn
 }
 
 // Close cleans up resources used by the Manager
@@ -252,6 +264,13 @@ func (tm *Manager) buildConfig() (Config, error) {
 		OverrideDNS:       dnsOverride,
 		TunnelDNS:         dnsTunnel,
 		PreferLocalRoutes: preferLocalRoutes,
+	}
+
+	tm.mu.RLock()
+	resolveGateway := tm.gatewayResolver
+	tm.mu.RUnlock()
+	if resolveGateway != nil {
+		config.GatewaySiteResourceId, config.GatewaySiteIds = resolveGateway(currentOrg.Id)
 	}
 
 	return config, nil
@@ -469,6 +488,12 @@ type OLMStatusResponse struct {
 	NetworkSettings map[string]interface{} `json:"networkSettings,omitempty"`
 	Error           *OLMStatusError        `json:"error,omitempty"`
 	ExitNode        *OLMExitNodeStatus     `json:"exitNode,omitempty"`
+
+	// Gateway (exit node) selection: whether all traffic is routed through
+	// one, the site resource it was selected from, and the sites in use.
+	GatewayActive         bool  `json:"gatewayActive,omitempty"`
+	GatewaySiteResourceID int   `json:"gatewaySiteResourceId,omitempty"`
+	GatewaySiteIDs        []int `json:"gatewaySiteIds,omitempty"`
 }
 
 // OLMPeerStatus represents the status of a peer connection
@@ -496,6 +521,12 @@ type OLMExitNodeStatus struct {
 // SwitchOrgRequest represents the request body for switching organizations
 type SwitchOrgRequest struct {
 	OrgID string `json:"org_id"`
+}
+
+// SelectGatewayRequest represents the request body for selecting an exit node
+type SelectGatewayRequest struct {
+	SiteResourceID int   `json:"siteResourceId"`
+	SiteIDs        []int `json:"siteIds"`
 }
 
 // getOLMPipePath returns the Windows named pipe path for OLM
@@ -611,6 +642,65 @@ func (tm *Manager) SwitchOLMOrg(orgID string) error {
 
 	logger.Info("Successfully switched OLM organization to: %s", orgID)
 	return nil
+}
+
+// postOLM sends a POST to an OLM API endpoint over the named pipe and returns
+// an error unless the response status is one of the expected ones. The error
+// carries OLM's message body, which explains why a request was rejected.
+func postOLM(path string, body any, expected ...int) error {
+	client, err := createOLMHTTPClient()
+	if err != nil {
+		return fmt.Errorf("failed to create OLM HTTP client: %w", err)
+	}
+
+	var reader io.Reader
+	if body != nil {
+		jsonData, err := json.Marshal(body)
+		if err != nil {
+			return fmt.Errorf("failed to marshal request: %w", err)
+		}
+		reader = bytes.NewBuffer(jsonData)
+	}
+
+	req, err := http.NewRequest("POST", "http://localhost"+path, reader)
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to connect to OLM: %w", err)
+	}
+	defer resp.Body.Close()
+
+	for _, code := range expected {
+		if resp.StatusCode == code {
+			return nil
+		}
+	}
+	msg, _ := io.ReadAll(resp.Body)
+	return fmt.Errorf("%s", strings.TrimSpace(string(msg)))
+}
+
+// SelectGateway routes all tunnel traffic through the given sites (the exit
+// node). siteResourceID is the gateway site resource they belong to. Every
+// site must already be a connected peer, so the tunnel has to be running.
+func (tm *Manager) SelectGateway(siteResourceID int, siteIDs []int) error {
+	if tm.State() != StateRunning {
+		return fmt.Errorf("tunnel is not running")
+	}
+	logger.Info("Selecting exit node: site resource %d, sites %v", siteResourceID, siteIDs)
+	return postOLM("/gateway/select", SelectGatewayRequest{SiteResourceID: siteResourceID, SiteIDs: siteIDs}, http.StatusAccepted)
+}
+
+// DisableGateway stops routing all tunnel traffic through an exit node.
+func (tm *Manager) DisableGateway() error {
+	if tm.State() != StateRunning {
+		return fmt.Errorf("tunnel is not running")
+	}
+	logger.Info("Disabling exit node")
+	return postOLM("/gateway/disable", nil, http.StatusOK)
 }
 
 // How many consecutive 1s poll failures (or lost-connection reports) while

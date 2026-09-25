@@ -97,6 +97,14 @@ func NewAPIClient(baseURL string, sessionToken string) *APIClient {
 	return apiClient
 }
 
+// SetSessionCookieName overrides the cookie name the session token is sent and
+// read under. An empty name keeps the default.
+func (c *APIClient) SetSessionCookieName(name string) {
+	if name = strings.TrimSpace(name); name != "" {
+		c.sessionCookieName = name
+	}
+}
+
 // UpdateBaseURL updates the base URL for the API client
 func (c *APIClient) UpdateBaseURL(newBaseURL string) {
 	c.baseURL = normalizeBaseURL(newBaseURL)

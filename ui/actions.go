@@ -65,6 +65,10 @@ func invokeMenuItem(id string) {
 		switchAccount(strings.TrimPrefix(id, menuPrefixAccount))
 	case strings.HasPrefix(id, menuPrefixOrg):
 		selectOrganization(strings.TrimPrefix(id, menuPrefixOrg))
+	case id == menuIDExitNodeNone:
+		disableExitNode()
+	case strings.HasPrefix(id, menuPrefixExitNode):
+		selectExitNode(strings.TrimPrefix(id, menuPrefixExitNode))
 	default:
 		logger.Error("Unknown tray menu item %q", id)
 	}
@@ -152,6 +156,7 @@ func selectOrganization(orgID string) {
 			break
 		}
 		publish()
+		refreshExitNodes()
 		if tunnelManager != nil && tunnelManager.IsConnected() {
 			if err := tunnelManager.SwitchOLMOrg(org.Id); err != nil {
 				logger.Error("Failed to switch tunnel organization: %v", err)

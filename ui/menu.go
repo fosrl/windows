@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 )
 
@@ -31,6 +32,9 @@ const (
 	menuIDLogout       = "account.logout"
 	menuPrefixAccount  = "account:"
 	menuPrefixOrg      = "org:"
+	menuIDExitNodeNone = "exitnode.none"
+	// menuPrefixExitNode is followed by the gateway site resource's numeric ID.
+	menuPrefixExitNode = "exitnode:"
 )
 
 // MenuItem is one row of the tray popup. Only visible items are included.
@@ -71,6 +75,12 @@ type menuOrg struct {
 	Name string
 }
 
+// menuExitNode is a gateway site resource that can be selected as the exit node.
+type menuExitNode struct {
+	ID   int
+	Name string
+}
+
 type menuServerInfo struct {
 	Build                  string
 	EnterpriseLicenseValid bool
@@ -102,6 +112,12 @@ type menuInputs struct {
 	CurrentOrgID string
 	// CurrentOrgName is empty when no organization is selected.
 	CurrentOrgName string
+
+	// ExitNodes are the gateway resources available in the current org. The
+	// exit node section is hidden when there are none.
+	ExitNodes []menuExitNode
+	// ActiveExitNodeID is the ID of the selected exit node, or 0 for none.
+	ActiveExitNodeID int
 
 	HasUpdate          bool
 	CLIInstalled       bool
@@ -190,6 +206,10 @@ func buildMenuState(in menuInputs) MenuState {
 		items = append(items, header("Organization"))
 		items = append(items, orgSubmenu(in))
 	}
+	if showAuthSection && !in.SessionExpired && len(in.ExitNodes) > 0 {
+		items = append(items, header("Exit Node"))
+		items = append(items, exitNodeSubmenu(in))
+	}
 
 	items = append(items, separator())
 
@@ -268,6 +288,26 @@ func orgSubmenu(in menuInputs) MenuItem {
 		label = in.CurrentOrgName
 	}
 	return MenuItem{ID: "orgs", Kind: MenuKindSubmenu, Label: label, Enabled: true, Items: sub}
+}
+
+func exitNodeSubmenu(in menuInputs) MenuItem {
+	sub := []MenuItem{header("Route all traffic through"), separator()}
+
+	none := item(menuIDExitNodeNone, "None", !in.TunnelPhase.transitional())
+	none.Checked = in.ActiveExitNodeID == 0
+	sub = append(sub, none)
+
+	label := "None"
+	for _, n := range in.ExitNodes {
+		it := item(menuPrefixExitNode+strconv.Itoa(n.ID), n.Name, !in.TunnelPhase.transitional())
+		it.Checked = n.ID == in.ActiveExitNodeID
+		sub = append(sub, it)
+		if it.Checked {
+			label = n.Name
+		}
+	}
+
+	return MenuItem{ID: "exitnodes", Kind: MenuKindSubmenu, Label: label, Enabled: true, Items: sub}
 }
 
 func moreSubmenu(in menuInputs) MenuItem {

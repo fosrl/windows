@@ -30,6 +30,7 @@ func registerIPCCallbacks() {
 		if state == tunnel.StateStopped {
 			handleAlwaysOnStopped()
 		}
+		onTunnelStateForExitNodes(state)
 		updateTrayForState(state)
 		publish()
 	})

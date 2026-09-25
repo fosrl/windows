@@ -121,6 +121,12 @@ type Config struct {
 	TunnelDNS           bool     `json:"tunnelDns"`
 	PreferLocalRoutes   bool     `json:"preferLocalRoutes"`
 
+	// GatewaySiteResourceId/GatewaySiteIds, when set, establish the exit node
+	// (gateway) as the tunnel comes up. The resource ID is what olm uses to
+	// apply later server-pushed changes to that resource only.
+	GatewaySiteResourceId int   `json:"gatewaySiteResourceId,omitempty"`
+	GatewaySiteIds        []int `json:"gatewaySiteIds,omitempty"`
+
 	InitialFingerprint json.RawMessage `json:"initialFingerprint,omitempty"`
 	InitialPostures    json.RawMessage `json:"initialPostures,omitempty"`
 }

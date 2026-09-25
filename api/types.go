@@ -178,3 +178,20 @@ type ServerInfo struct {
 	EnterpriseLicenseValid bool    `json:"enterpriseLicenseValid"`
 	EnterpriseLicenseType  *string `json:"enterpriseLicenseType,omitempty"`
 }
+
+// SiteResource is the (partial) shape of an entry returned by
+// GET /org/:orgId/site-resources. Only the fields the exit node menu needs are modeled.
+type SiteResource struct {
+	SiteResourceID int      `json:"siteResourceId"`
+	NiceID         string   `json:"niceId"`
+	Name           string   `json:"name"`
+	Mode           string   `json:"mode"`
+	Enabled        bool     `json:"enabled"`
+	SiteIDs        []int    `json:"siteIds"`
+	SiteNames      []string `json:"siteNames"`
+}
+
+// ListSiteResourcesResponse is the inner `data` of GET /org/:orgId/site-resources.
+type ListSiteResourcesResponse struct {
+	SiteResources []SiteResource `json:"siteResources"`
+}

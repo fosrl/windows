@@ -280,3 +280,59 @@ func TestCollapseSeparators(t *testing.T) {
 		t.Fatalf("got %q", got)
 	}
 }
+
+func TestMenuExitNodeHiddenWithoutGateways(t *testing.T) {
+	in := signedIn()
+	items := buildMenuState(in).Items
+	if findID(items, "exitnodes") != nil || find(items, "Exit Node") != nil {
+		t.Fatal("exit node section must be hidden when no exit nodes are available")
+	}
+}
+
+func TestMenuExitNodeHiddenWhenSessionExpired(t *testing.T) {
+	in := signedIn()
+	in.ExitNodes = []menuExitNode{{ID: 7, Name: "Office"}}
+	in.SessionExpired = true
+	if findID(buildMenuState(in).Items, "exitnodes") != nil {
+		t.Fatal("exit node section must be hidden when the session expired")
+	}
+}
+
+func TestMenuExitNodeSubmenu(t *testing.T) {
+	in := signedIn()
+	in.ExitNodes = []menuExitNode{{ID: 7, Name: "Office"}, {ID: 9, Name: "Home"}}
+
+	// nothing selected: submenu is labelled None and "None" is checked
+	sub := findID(buildMenuState(in).Items, "exitnodes")
+	if sub == nil || sub.Kind != MenuKindSubmenu || sub.Label != "None" {
+		t.Fatalf("got %+v", sub)
+	}
+	if none := findID(sub.Items, menuIDExitNodeNone); none == nil || !none.Checked {
+		t.Fatalf("None should be checked: %+v", none)
+	}
+	for _, id := range []string{"exitnode:7", "exitnode:9"} {
+		if it := findID(sub.Items, id); it == nil || it.Checked || !it.Enabled {
+			t.Fatalf("%s: %+v", id, it)
+		}
+	}
+
+	// one selected: it is checked, labels the submenu, and None is not checked
+	in.ActiveExitNodeID = 9
+	sub = findID(buildMenuState(in).Items, "exitnodes")
+	if sub.Label != "Home" {
+		t.Fatalf("label = %q", sub.Label)
+	}
+	if it := findID(sub.Items, "exitnode:9"); !it.Checked {
+		t.Fatalf("selected exit node should be checked: %+v", it)
+	}
+	if none := findID(sub.Items, menuIDExitNodeNone); none.Checked {
+		t.Fatal("None must not be checked when an exit node is selected")
+	}
+
+	// switching is blocked while the tunnel is connecting/disconnecting
+	in.TunnelPhase = phaseStarting
+	sub = findID(buildMenuState(in).Items, "exitnodes")
+	if it := findID(sub.Items, "exitnode:7"); it.Enabled {
+		t.Fatal("exit node switching should be disabled while transitional")
+	}
+}

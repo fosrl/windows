@@ -54,6 +54,7 @@ func Run(d Deps) error {
 	accountManager = d.Accounts
 	apiClient = d.API
 	tunnelManager = tunnel.NewManager(d.Auth, d.Config, d.Accounts, d.Secrets, managers.NewIPCAdapter())
+	tunnelManager.SetGatewayResolver(resolveSavedExitNode)
 
 	assets, err := fs.Sub(frontendDist, "frontend/dist")
 	if err != nil {

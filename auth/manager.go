@@ -184,6 +184,7 @@ func (am *AuthManager) LoginWithDeviceAuth(ctx context.Context, hostnameOverride
 	if hostnameOverride != nil && *hostnameOverride != "" {
 		// Create temporary client with override hostname
 		loginClient = api.NewAPIClient(*hostnameOverride, "")
+		loginClient.SetSessionCookieName(am.configManager.GetSessionCookieName())
 	} else {
 		// Use main API client
 		loginClient = am.apiClient
