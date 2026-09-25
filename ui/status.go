@@ -81,7 +81,7 @@ func pollStatus(quit chan struct{}) {
 
 // buildStatusView must be called with statusMu held.
 func buildStatusView(state tunnel.State, status *tunnel.OLMStatusResponse, now time.Time) StatusView {
-	view := StatusView{StateText: state.DisplayText()}
+	view := StatusView{StateText: state.DisplayText(), Gateway: gatewayLabel(false, 0)}
 	switch state {
 	case tunnel.StateRunning:
 		view.Color = statusColorGreen
@@ -101,6 +101,14 @@ func buildStatusView(state tunnel.State, status *tunnel.OLMStatusResponse, now t
 	view.Version = status.Version
 	view.Agent = status.Agent
 	view.OrgID = status.OrgID
+	view.Gateway = gatewayLabel(status.GatewayActive, status.GatewaySiteResourceID)
+
+	gatewaySites := map[int]bool{}
+	if status.GatewayActive {
+		for _, id := range status.GatewaySiteIDs {
+			gatewaySites[id] = true
+		}
+	}
 
 	var exitNode *peerInput
 	if status.ExitNode != nil {
@@ -123,6 +131,7 @@ func buildStatusView(state tunnel.State, status *tunnel.OLMStatusResponse, now t
 			LastSeen:  p.LastSeen,
 			IsLocal:   p.IsLocal,
 			IsRelay:   p.IsRelay,
+			IsGateway: gatewaySites[siteID],
 		})
 	}
 	view.Sites = statusSites.update(exitNode, peers, now)

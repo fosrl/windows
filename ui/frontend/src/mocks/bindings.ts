@@ -54,11 +54,11 @@ const settings: Settings = {
 };
 
 const status: StatusView = {
-  stateText: "Connected", color: "green", version: "1.9.0", agent: "Pangolin Windows", orgId: "fossorial",
+  stateText: "Connected", color: "green", version: "1.9.0", agent: "Pangolin Windows", orgId: "fossorial", gateway: "Active (resource 12)",
   sites: [
-    { id: -1, name: "Pangolin Server", endpoint: "203.0.113.10:51820", status: "Connected", color: "green", connection: "", lastSeen: new Date(Date.now() - 4000).toISOString() },
-    { id: 3, name: "Home Lab", endpoint: "198.51.100.7:51820", status: "Connected", color: "green", connection: "Direct", lastSeen: new Date(Date.now() - 90000).toISOString() },
-    { id: 7, name: "Office", endpoint: "", status: "Connecting", color: "yellow", connection: "Relay", lastSeen: "" },
+    { id: -1, name: "Pangolin Server", endpoint: "203.0.113.10:51820", status: "Connected", color: "green", connection: "", lastSeen: new Date(Date.now() - 4000).toISOString(), gateway: false },
+    { id: 3, name: "Home Lab", endpoint: "198.51.100.7:51820", status: "Connected", color: "green", connection: "Direct", lastSeen: new Date(Date.now() - 90000).toISOString(), gateway: true },
+    { id: 7, name: "Office", endpoint: "", status: "Connecting", color: "yellow", connection: "Relay", lastSeen: "", gateway: false },
   ],
   json: JSON.stringify({ connected: true, registered: true, version: "1.9.0" }, null, 2),
 };

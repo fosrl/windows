@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"fmt"
 	"sort"
 	"time"
 )
@@ -28,17 +29,22 @@ type StatusSite struct {
 	Connection string `json:"connection"`
 	// LastSeen is an RFC 3339 time, or empty when unknown.
 	LastSeen string `json:"lastSeen"`
+	// Gateway is true when the site is one of those currently used as the exit
+	// node (gateway) that all traffic is routed through.
+	Gateway bool `json:"gateway"`
 }
 
 // StatusView is everything the Status tab renders.
 type StatusView struct {
-	StateText string       `json:"stateText"`
-	Color     string       `json:"color"`
-	Version   string       `json:"version"`
-	Agent     string       `json:"agent"`
-	OrgID     string       `json:"orgId"`
-	Sites     []StatusSite `json:"sites"`
-	JSON      string       `json:"json"`
+	StateText string `json:"stateText"`
+	Color     string `json:"color"`
+	Version   string `json:"version"`
+	Agent     string `json:"agent"`
+	OrgID     string `json:"orgId"`
+	// Gateway summarizes the exit node: "Off", or "Active (resource N)".
+	Gateway string       `json:"gateway"`
+	Sites   []StatusSite `json:"sites"`
+	JSON    string       `json:"json"`
 }
 
 type peerInput struct {
@@ -49,6 +55,19 @@ type peerInput struct {
 	LastSeen  time.Time
 	IsLocal   bool
 	IsRelay   bool
+	IsGateway bool
+}
+
+// gatewayLabel summarizes the exit node the same way the CLI status does:
+// "Off", or "Active (resource N)" with the gateway site resource's ID.
+func gatewayLabel(active bool, siteResourceID int) string {
+	if !active {
+		return "Off"
+	}
+	if siteResourceID != 0 {
+		return fmt.Sprintf("Active (resource %d)", siteResourceID)
+	}
+	return "Active"
 }
 
 // connectionLabel matches the macOS app's SiteStatusItem.connectionLabel.
@@ -128,6 +147,7 @@ func (t *siteTracker) update(exitNode *peerInput, peers []peerInput, now time.Ti
 		site := StatusSite{ID: id, Name: name, Endpoint: p.Endpoint}
 		if id != exitNodeSiteID {
 			site.Connection = connectionLabel(p.IsLocal, p.IsRelay)
+			site.Gateway = p.IsGateway
 		}
 		if !p.LastSeen.IsZero() {
 			site.LastSeen = p.LastSeen.UTC().Format(time.RFC3339)

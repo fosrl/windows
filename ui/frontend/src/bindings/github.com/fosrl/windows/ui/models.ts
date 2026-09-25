@@ -116,6 +116,12 @@ export interface StatusSite {
      * LastSeen is an RFC 3339 time, or empty when unknown.
      */
     "lastSeen": string;
+
+    /**
+     * Gateway is true when the site is one of those currently used as the exit
+     * node (gateway) that all traffic is routed through.
+     */
+    "gateway": boolean;
 }
 
 /**
@@ -127,6 +133,11 @@ export interface StatusView {
     "version": string;
     "agent": string;
     "orgId": string;
+
+    /**
+     * Gateway summarizes the exit node: "Off", or "Active (resource N)".
+     */
+    "gateway": string;
     "sites": StatusSite[] | null;
     "json": string;
 }

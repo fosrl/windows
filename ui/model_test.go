@@ -98,6 +98,39 @@ func TestSiteTracker(t *testing.T) {
 	}
 }
 
+func TestSiteTrackerGateway(t *testing.T) {
+	tr := newSiteTracker()
+	sites := tr.update(
+		&peerInput{Connected: true, IsGateway: true}, // the Pangolin Server row is never a gateway site
+		[]peerInput{
+			{ID: 1, Name: "a", Connected: true, IsGateway: true},
+			{ID: 2, Name: "b", Connected: true},
+		},
+		time.Now(),
+	)
+	if sites[0].Gateway || !sites[1].Gateway || sites[2].Gateway {
+		t.Fatalf("gateway flags: %+v", sites)
+	}
+}
+
+func TestGatewayLabel(t *testing.T) {
+	cases := []struct {
+		active bool
+		id     int
+		want   string
+	}{
+		{false, 0, "Off"},
+		{false, 12, "Off"},
+		{true, 12, "Active (resource 12)"},
+		{true, 0, "Active"},
+	}
+	for _, c := range cases {
+		if got := gatewayLabel(c.active, c.id); got != c.want {
+			t.Errorf("gatewayLabel(%v, %d) = %q, want %q", c.active, c.id, got, c.want)
+		}
+	}
+}
+
 func TestSiteTrackerDetails(t *testing.T) {
 	seen := time.Date(2026, 9, 24, 10, 0, 0, 0, time.UTC)
 	tr := newSiteTracker()

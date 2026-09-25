@@ -10,6 +10,7 @@ const empty: StatusView = {
   version: "",
   agent: "",
   orgId: "",
+  gateway: "Off",
   sites: [],
   json: '{\n  "connected": false\n}',
 };
@@ -101,6 +102,11 @@ export function StatusTab() {
                 <Value>{view.orgId}</Value>
               </Row>
             )}
+            {view.orgId && (
+              <Row title="Exit Node">
+                <Value>{view.gateway}</Value>
+              </Row>
+            )}
           </Section>
 
           <Section header="Sites">
@@ -158,6 +164,7 @@ function SiteSheet({ site, onClose }: { site?: StatusSite; onClose: () => void }
             </span>
           </Detail>
           <Detail label="Connection" value={site.connection || "—"} />
+          <Detail label="Gateway" value={site.connection ? (site.gateway ? "Yes" : "No") : "—"} />
           <Detail label="Endpoint" value={site.endpoint || "—"} />
           <Detail label="Last Seen" value={relativeTime(site.lastSeen)} />
         </div>
