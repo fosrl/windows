@@ -25,6 +25,7 @@ export type {
     MenuState,
     PrefsOpened,
     Settings,
+    SettingsResult,
     StatusSite,
     StatusView,
     TrayLayout

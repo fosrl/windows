@@ -26,7 +26,8 @@ function App() {
 }
 
 if (route === "tray") document.documentElement.classList.add("tray");
-if (route === "login") document.documentElement.classList.add("theme-light");
+else document.documentElement.classList.add("mac");
+if (route === "login") document.documentElement.classList.add("login");
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>

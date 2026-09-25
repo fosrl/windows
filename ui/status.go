@@ -104,14 +104,26 @@ func buildStatusView(state tunnel.State, status *tunnel.OLMStatusResponse, now t
 
 	var exitNode *peerInput
 	if status.ExitNode != nil {
-		exitNode = &peerInput{Endpoint: status.ExitNode.Endpoint, Connected: status.ExitNode.Connected}
+		exitNode = &peerInput{
+			Endpoint:  status.ExitNode.Endpoint,
+			Connected: status.ExitNode.Connected,
+			LastSeen:  status.ExitNode.LastSeen,
+		}
 	}
 	peers := make([]peerInput, 0, len(status.PeerStatuses))
 	for siteID, p := range status.PeerStatuses {
 		if p == nil {
 			continue
 		}
-		peers = append(peers, peerInput{ID: siteID, Name: p.SiteName, Endpoint: p.Endpoint, Connected: p.Connected})
+		peers = append(peers, peerInput{
+			ID:        siteID,
+			Name:      p.SiteName,
+			Endpoint:  p.Endpoint,
+			Connected: p.Connected,
+			LastSeen:  p.LastSeen,
+			IsLocal:   p.IsLocal,
+			IsRelay:   p.IsRelay,
+		})
 	}
 	view.Sites = statusSites.update(exitNode, peers, now)
 

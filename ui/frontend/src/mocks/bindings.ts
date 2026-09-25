@@ -56,9 +56,9 @@ const settings: Settings = {
 const status: StatusView = {
   stateText: "Connected", color: "green", version: "1.9.0", agent: "Pangolin Windows", orgId: "fossorial",
   sites: [
-    { id: -1, name: "Pangolin Server", endpoint: "203.0.113.10:51820", status: "Connected", color: "green" },
-    { id: 3, name: "Home Lab", endpoint: "198.51.100.7:51820", status: "Connected", color: "green" },
-    { id: 7, name: "Office", endpoint: "", status: "Connecting", color: "yellow" },
+    { id: -1, name: "Pangolin Server", endpoint: "203.0.113.10:51820", status: "Connected", color: "green", connection: "", lastSeen: new Date(Date.now() - 4000).toISOString() },
+    { id: 3, name: "Home Lab", endpoint: "198.51.100.7:51820", status: "Connected", color: "green", connection: "Direct", lastSeen: new Date(Date.now() - 90000).toISOString() },
+    { id: 7, name: "Office", endpoint: "", status: "Connecting", color: "yellow", connection: "Relay", lastSeen: "" },
   ],
   json: JSON.stringify({ connected: true, registered: true, version: "1.9.0" }, null, 2),
 };
@@ -89,7 +89,12 @@ export const MenuService = {
 };
 export const PreferencesService = {
   Opened: () => ok<PrefsOpened>({ tab: Number(params.get("tab") ?? 0), settings }),
-  Save: (f: Settings) => ok(f),
+  Update: (f: Settings) => {
+    Object.assign(settings, f);
+    if (!/^\d+$/.test(f.mtu) || +f.mtu < 576 || +f.mtu > 9000)
+      return ok({ settings: { ...settings, mtu: "1280" }, field: "mtu", error: "Enter an integer between 576 and 9000 (e.g., 1280)" });
+    return ok({ settings: { ...settings }, field: "", error: "" });
+  },
 };
 export const StatusService = { Current: () => ok(status) };
 export const LogsService = {

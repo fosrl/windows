@@ -30,7 +30,7 @@ func (PreferencesService) Opened() PrefsOpened {
 	prefsMu.Unlock()
 	return PrefsOpened{Tab: tab, Settings: currentSettings()}
 }
-func (PreferencesService) Save(form Settings) Settings { return saveSettings(form) }
+func (PreferencesService) Update(form Settings) SettingsResult { return applySettings(form) }
 
 // StatusService backs the Status tab.
 type StatusService struct{}

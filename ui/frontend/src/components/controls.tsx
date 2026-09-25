@@ -1,54 +1,56 @@
-import type { ButtonHTMLAttributes, InputHTMLAttributes, ReactNode } from "react";
+import {
+  useEffect,
+  useRef,
+  type ButtonHTMLAttributes,
+  type InputHTMLAttributes,
+  type ReactNode,
+  type SelectHTMLAttributes,
+} from "react";
 import { AppService } from "@bindings";
 import { report } from "../lib";
 
-function cx(...classes: (string | false | undefined)[]) {
+// Components that follow the macOS app's SwiftUI look: grouped forms,
+// switches, bordered buttons and sheets.
+
+export function cx(...classes: (string | false | undefined | null)[]) {
   return classes.filter(Boolean).join(" ");
 }
 
-/**
- * Push button. `accessKey` works like the old "&Save" accelerators: Alt+key
- * clicks the button, and the matching letter is underlined.
- */
+type ButtonVariant = "bordered" | "prominent";
+
+/** SwiftUI-style button: `.bordered` by default, `.borderedProminent` for the default action. */
 export function Button({
   children,
-  primary,
+  variant = "bordered",
+  size = "regular",
   className,
-  accessKey,
   ...props
-}: ButtonHTMLAttributes<HTMLButtonElement> & { primary?: boolean; children: string }) {
+}: ButtonHTMLAttributes<HTMLButtonElement> & {
+  variant?: ButtonVariant;
+  size?: "small" | "regular";
+  children: ReactNode;
+}) {
   return (
     <button
+      type="button"
       {...props}
-      accessKey={accessKey}
       className={cx(
-        "h-7 min-w-[75px] rounded-[4px] border px-3 text-[12px] leading-none",
-        "disabled:cursor-default disabled:opacity-50",
-        primary
-          ? "border-accent bg-accent text-accent-text enabled:hover:bg-accent-hover"
-          : "border-border-strong/60 bg-control enabled:hover:bg-control-hover enabled:active:bg-control-pressed",
+        "inline-flex shrink-0 items-center justify-center gap-1 rounded-[6px] leading-none whitespace-nowrap",
+        "shadow-[0_0.5px_1px_rgb(0_0_0/0.12)] transition-colors disabled:opacity-45",
+        size === "small" ? "h-[22px] px-2.5 text-[12px]" : "h-[26px] min-w-[68px] px-3 text-[13px]",
+        variant === "prominent"
+          ? "bg-mac-accent text-white enabled:hover:bg-mac-accent-hover"
+          : "border border-mac-control-border bg-mac-control enabled:hover:brightness-[0.97] enabled:active:brightness-[0.93]",
         className,
       )}
     >
-      <AccessKeyLabel text={children} accessKey={accessKey} />
+      {children}
     </button>
   );
 }
 
-function AccessKeyLabel({ text, accessKey }: { text: string; accessKey?: string }) {
-  if (!accessKey) return <>{text}</>;
-  const i = text.toLowerCase().indexOf(accessKey.toLowerCase());
-  if (i < 0) return <>{text}</>;
-  return (
-    <>
-      {text.slice(0, i)}
-      <u>{text[i]}</u>
-      {text.slice(i + 1)}
-    </>
-  );
-}
-
-export function Checkbox({
+/** macOS switch (`.toggleStyle(.switch)`). */
+export function Switch({
   checked,
   onChange,
   disabled,
@@ -57,17 +59,28 @@ export function Checkbox({
   checked: boolean;
   onChange: (checked: boolean) => void;
   disabled?: boolean;
-  label?: string;
+  label: string;
 }) {
   return (
-    <input
-      type="checkbox"
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
       aria-label={label}
-      checked={checked}
       disabled={disabled}
-      onChange={(e) => onChange(e.target.checked)}
-      className="size-[13px] accent-accent"
-    />
+      onClick={() => onChange(!checked)}
+      className={cx(
+        "relative h-[20px] w-[36px] shrink-0 rounded-full transition-colors duration-150 disabled:opacity-45",
+        checked ? "bg-mac-accent" : "bg-mac-switch-off",
+      )}
+    >
+      <span
+        className={cx(
+          "absolute top-[2px] size-[16px] rounded-full bg-white shadow-[0_1px_2px_rgb(0_0_0/0.3)] transition-[left] duration-150",
+          checked ? "left-[18px]" : "left-[2px]",
+        )}
+      />
+    </button>
   );
 }
 
@@ -76,113 +89,264 @@ export function TextField({ className, ...props }: InputHTMLAttributes<HTMLInput
     <input
       type="text"
       spellCheck={false}
+      autoComplete="off"
       {...props}
       className={cx(
-        "h-[23px] min-w-0 rounded-[3px] border border-border-strong/70 bg-surface px-1.5 text-[12px]",
-        "placeholder:text-text-secondary focus:border-accent focus:outline-none disabled:opacity-60",
-        "select-text",
+        "h-[26px] min-w-0 rounded-[6px] border border-mac-control-border bg-mac-control px-2 text-[13px]",
+        "shadow-[inset_0_0.5px_1px_rgb(0_0_0/0.06)] select-text placeholder:text-mac-tertiary",
+        "focus:outline-[3px] focus:outline-offset-0 focus:outline-mac-accent/45 disabled:opacity-50",
         className,
       )}
     />
   );
 }
 
-/** A link that opens in the default browser. */
-export function ExternalLink({ href, children }: { href: string; children: ReactNode }) {
+/** `.pickerStyle(.menu)`: a native select styled as a pop-up button. */
+export function Picker({ className, children, ...props }: SelectHTMLAttributes<HTMLSelectElement>) {
+  return (
+    <div className="relative">
+      <select
+        {...props}
+        className={cx(
+          "h-[22px] appearance-none rounded-[6px] border border-mac-control-border bg-mac-control py-0 pr-7 pl-2.5 text-[13px]",
+          "shadow-[0_0.5px_1px_rgb(0_0_0/0.12)]",
+          className,
+        )}
+      >
+        {children}
+      </select>
+      <span className="pointer-events-none absolute top-1/2 right-1 flex h-[16px] w-[16px] -translate-y-1/2 items-center justify-center rounded-[4px] bg-mac-accent text-white">
+        <svg viewBox="0 0 10 10" className="size-[9px]" fill="none" stroke="currentColor" strokeWidth="1.5">
+          <path d="M3 4 5 2 7 4M3 6l2 2 2-2" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </span>
+    </div>
+  );
+}
+
+/** A `Form` scroll area with `.formStyle(.grouped)` spacing. */
+export function Form({ children }: { children: ReactNode }) {
+  return (
+    <div className="min-h-0 flex-1 overflow-y-auto">
+      <div className="mx-auto flex max-w-[640px] flex-col gap-5 px-5 pt-3 pb-6">{children}</div>
+    </div>
+  );
+}
+
+/** A grouped form section: a header above a rounded box of rows. */
+export function Section({
+  header,
+  accessory,
+  children,
+}: {
+  header?: ReactNode;
+  accessory?: ReactNode;
+  children: ReactNode;
+}) {
+  return (
+    <section className="flex flex-col gap-1.5">
+      {(header || accessory) && (
+        <div className="flex min-h-[20px] items-end justify-between px-2.5">
+          <h2 className="text-[13px] font-semibold">{header}</h2>
+          {accessory}
+        </div>
+      )}
+      <div className="overflow-hidden rounded-[10px] border border-mac-group-border bg-mac-group">
+        <div className="flex flex-col [&>*+*]:relative [&>*+*]:before:pointer-events-none [&>*+*]:before:absolute [&>*+*]:before:inset-x-2.5 [&>*+*]:before:top-0 [&>*+*]:before:h-px [&>*+*]:before:bg-mac-separator">
+          {children}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/** A form row: title (and optional description) on the left, accessory on the right. */
+export function Row({
+  title,
+  description,
+  children,
+  onClick,
+}: {
+  title: ReactNode;
+  description?: ReactNode;
+  children?: ReactNode;
+  onClick?: () => void;
+}) {
+  return (
+    <div
+      onClick={onClick}
+      className={cx(
+        "flex min-h-[38px] items-center gap-4 px-2.5 py-2",
+        onClick && "cursor-default hover:bg-mac-fill active:bg-mac-separator",
+      )}
+    >
+      <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+        <div className="break-words">{title}</div>
+        {description && <div className="text-[11px] leading-[14px] text-mac-secondary">{description}</div>}
+      </div>
+      {children !== undefined && <div className="flex shrink-0 items-center gap-2">{children}</div>}
+    </div>
+  );
+}
+
+/** Secondary-colored value text shown at the trailing edge of a row. */
+export function Value({ children }: { children: ReactNode }) {
+  return <span className="max-w-[260px] truncate text-mac-secondary select-text">{children}</span>;
+}
+
+export function openExternal(href: string) {
+  report(AppService.OpenURL(href));
+}
+
+/** A `Link` row: accent title with the arrow.up.forward glyph. */
+export function LinkRow({ href, children }: { href: string; children: ReactNode }) {
   return (
     <a
       href={href}
       onClick={(e) => {
         e.preventDefault();
-        report(AppService.OpenURL(href));
+        openExternal(href);
       }}
-      className="text-link hover:underline"
+      className="flex min-h-[38px] items-center gap-4 px-2.5 py-2 text-mac-accent"
+    >
+      <span className="flex-1">{children}</span>
+      <ArrowUpForward />
+    </a>
+  );
+}
+
+/** An inline link that opens in the default browser. */
+export function ExternalLink({ href, children, className }: { href: string; children: ReactNode; className?: string }) {
+  return (
+    <a
+      href={href}
+      onClick={(e) => {
+        e.preventDefault();
+        openExternal(href);
+      }}
+      className={cx("text-mac-accent hover:underline", className)}
     >
       {children}
     </a>
   );
 }
 
-export function SectionTitle({ children }: { children: ReactNode }) {
-  return <div className="text-[13px] font-bold">{children}</div>;
-}
-
-export function Secondary({ children, className }: { children: ReactNode; className?: string }) {
-  return <div className={cx("whitespace-pre-line text-text-secondary", className)}>{children}</div>;
-}
-
-/** A form row: fixed 200px label column, then the control. */
-export function Row({ label, children }: { label: ReactNode; children: ReactNode }) {
+function ArrowUpForward() {
   return (
-    <div className="flex items-center gap-3">
-      <div className="w-[200px] shrink-0">{label}</div>
-      <div className="flex min-w-0 flex-1 items-center gap-1.5">{children}</div>
-    </div>
+    <svg viewBox="0 0 12 12" className="size-[11px] text-mac-secondary" fill="none" stroke="currentColor" strokeWidth="1.6">
+      <path d="M3.5 8.5 8.5 3.5M4.5 3.5h4v4" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
   );
 }
 
-export function Dot({ color, size = 12 }: { color: string; size?: number }) {
-  const colors: Record<string, string> = {
-    green: "var(--color-dot-green)",
-    gray: "var(--color-dot-gray)",
-    yellow: "var(--color-dot-yellow)",
-  };
+export function Chevron() {
+  return (
+    <svg viewBox="0 0 8 12" className="h-[11px] w-[7px] text-mac-tertiary" fill="none" stroke="currentColor" strokeWidth="1.8">
+      <path d="M2 2l4 4-4 4" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+const dotColors: Record<string, string> = {
+  green: "#34c759",
+  gray: "#8e8e93",
+  yellow: "#ffcc00",
+};
+
+/** 8pt status circle, as in the macOS status view. */
+export function StatusDot({ color }: { color: string }) {
   return (
     <span
       aria-hidden
-      className="inline-block shrink-0 rounded-full"
-      style={{ width: size - 4, height: size - 4, background: colors[color] ?? colors.gray, margin: 2 }}
+      className="inline-block size-[8px] shrink-0 rounded-full"
+      style={{ background: dotColors[color] ?? dotColors.gray }}
     />
   );
 }
 
-/** Indeterminate progress bar, like the Win32 marquee progress bar. */
-export function Marquee() {
+/** Small indeterminate spinner (`ProgressView()`). */
+export function Spinner({ size = 16 }: { size?: number }) {
   return (
-    <div className="relative h-[15px] w-full overflow-hidden rounded-[2px] border border-border-strong/60 bg-surface">
-      <div className="absolute inset-y-0 w-1/3 animate-[marquee_1.6s_linear_infinite] bg-[#06b025]" />
-      <style>{`@keyframes marquee { from { left: -33% } to { left: 100% } }`}</style>
+    <svg
+      viewBox="0 0 16 16"
+      width={size}
+      height={size}
+      className="text-mac-secondary"
+      style={{ animation: "mac-spin 0.9s steps(8) infinite" }}
+      aria-label="Loading"
+    >
+      {Array.from({ length: 8 }, (_, i) => (
+        <rect
+          key={i}
+          x="7.25"
+          y="1"
+          width="1.5"
+          height="4"
+          rx="0.75"
+          fill="currentColor"
+          opacity={0.25 + (i / 8) * 0.75}
+          transform={`rotate(${i * 45} 8 8)`}
+        />
+      ))}
+    </svg>
+  );
+}
+
+/** Indeterminate linear progress bar. */
+export function ProgressBar() {
+  return (
+    <div className="relative h-[6px] w-full overflow-hidden rounded-full bg-mac-fill">
+      <div
+        className="absolute inset-y-0 w-[35%] rounded-full bg-mac-accent"
+        style={{ animation: "mac-marquee 1.4s ease-in-out infinite" }}
+      />
     </div>
   );
 }
 
-/** Win32-style tab strip with a bordered page below it. */
-export function Tabs({
-  tabs,
-  index,
-  onChange,
+/**
+ * A modal sheet over the window, like SwiftUI's `.sheet`. Escape cancels and
+ * Enter runs the default action.
+ */
+export function Sheet({
   children,
-  className,
+  footer,
+  onCancel,
+  onSubmit,
+  divider = true,
 }: {
-  tabs: string[];
-  index: number;
-  onChange: (index: number) => void;
   children: ReactNode;
-  className?: string;
+  footer: ReactNode;
+  onCancel: () => void;
+  onSubmit: () => void;
+  /** Draw a separator above the footer, as the DNS and MTU sheets do. */
+  divider?: boolean;
 }) {
+  const ref = useRef<HTMLFormElement>(null);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onCancel();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onCancel]);
+
   return (
-    <div className={cx("flex min-h-0 min-w-0 flex-1 flex-col", className)}>
-      <div role="tablist" className="flex gap-0.5 border-b border-border">
-        {tabs.map((t, i) => (
-          <button
-            key={t}
-            role="tab"
-            aria-selected={i === index}
-            onClick={() => onChange(i)}
-            className={cx(
-              "-mb-px rounded-t-[3px] border px-3 py-1",
-              i === index
-                ? "border-border border-b-surface bg-surface"
-                : "border-transparent text-text-secondary hover:bg-control-hover",
-            )}
-          >
-            {t}
-          </button>
-        ))}
-      </div>
-      <div role="tabpanel" className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden border border-t-0 border-border bg-surface">
-        {children}
-      </div>
+    <div className="fixed inset-0 z-40 flex items-start justify-center bg-black/15 pt-[60px]">
+      <form
+        ref={ref}
+        onSubmit={(e) => {
+          e.preventDefault();
+          onSubmit();
+        }}
+        className="w-[400px] max-w-[calc(100%-32px)] overflow-hidden rounded-[10px] border border-mac-group-border bg-mac-sheet shadow-[0_10px_40px_rgb(0_0_0/0.25)]"
+        style={{ animation: "mac-sheet-in 0.16s ease-out" }}
+      >
+        <div className="flex flex-col gap-3 p-5">{children}</div>
+        <div className={cx("flex items-center gap-3 p-5", divider ? "border-t border-mac-separator" : "pt-0")}>
+          {footer}
+        </div>
+      </form>
     </div>
   );
 }

@@ -18,6 +18,6 @@ export function Opened(): $CancellablePromise<$models.PrefsOpened> {
     return $Call.ByID(1409912611);
 }
 
-export function Save(form: $models.Settings): $CancellablePromise<$models.Settings> {
-    return $Call.ByID(337758967, form);
+export function Update(form: $models.Settings): $CancellablePromise<$models.SettingsResult> {
+    return $Call.ByID(2264599907, form);
 }

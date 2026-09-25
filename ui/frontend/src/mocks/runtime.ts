@@ -12,3 +12,10 @@ export const Events = {
     handlers.get(name)?.forEach((cb) => cb({ data }));
   },
 };
+
+export const Clipboard = {
+  SetText(text: string) {
+    console.log("[mock] clipboard", text.length);
+    return Promise.resolve(true);
+  },
+};

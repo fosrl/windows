@@ -1,129 +1,225 @@
-import { useState, type ReactNode } from "react";
-import { PreferencesService, type Settings } from "@bindings";
-import { Button, Checkbox, ExternalLink, Row, Secondary, SectionTitle, TextField } from "../components/controls";
+import { useRef, useState } from "react";
+import { PreferencesService, type Settings, type SettingsResult } from "@bindings";
+import { Button, Form, LinkRow, Row, Section, Sheet, Switch, TextField, Value } from "../components/controls";
 import { report, urls } from "../lib";
 
+const defaultMTU = "1280";
+
+type EditField = "primaryDns" | "secondaryDns" | "mtu";
+
+/** Settings apply as soon as they change, like the macOS app. */
 export function PreferencesTab({ initial }: { initial: Settings }) {
   const [form, setForm] = useState<Settings>(initial);
-  const [saving, setSaving] = useState(false);
+  const [editing, setEditing] = useState<EditField | null>(null);
+  const formRef = useRef(form);
+  formRef.current = form;
   const disabled = form.disabled;
-  const set = (patch: Partial<Settings>) => setForm((f) => ({ ...f, ...patch }));
 
-  const save = () => {
-    setSaving(true);
-    report(
-      PreferencesService.Save(form)
-        .then(setForm)
-        .finally(() => setSaving(false)),
-    );
+  /** Saves a change. Resolves to the backend's result so sheets can show validation errors. */
+  const apply = async (patch: Partial<Settings>): Promise<SettingsResult> => {
+    const next = { ...formRef.current, ...patch };
+    setForm(next);
+    const result = await PreferencesService.Update(next);
+    setForm(result.settings);
+    return result;
   };
+  const toggle = (patch: Partial<Settings>) => report(apply(patch));
 
   return (
-    <div className="flex min-h-0 min-w-0 flex-1 flex-col p-[9px]">
-      <div className="min-h-0 flex-1 overflow-auto pr-1">
-        <fieldset disabled={disabled} className="flex min-w-[400px] flex-col gap-4 disabled:opacity-60">
-          <SectionTitle>General</SectionTitle>
+    <>
+      <Form>
+        {disabled && (
+          <div className="rounded-[10px] border border-mac-group-border bg-mac-group px-3 py-2 text-[12px] text-mac-secondary">
+            These settings are managed by your administrator.
+          </div>
+        )}
 
-          <Setting
-            label="Start at Login"
-            description="Starts Pangolin when you sign in to Windows."
-          >
-            <Checkbox
+        <Section header="General">
+          <Row title="Start at Login" description="Starts Pangolin when you sign in to Windows.">
+            <Switch
               label="Start at Login"
               checked={form.openAtLogin}
               disabled={disabled}
               // Turning off start at login also turns off connect at start.
-              onChange={(v) => set({ openAtLogin: v, autoConnect: v ? form.autoConnect : false })}
+              onChange={(v) => toggle({ openAtLogin: v, autoConnect: v ? form.autoConnect : false })}
             />
-          </Setting>
-
-          <Setting
-            label="Connect at Start"
-            description={"Connects the tunnel whenever Pangolin starts.\nAlso opens Pangolin at sign-in."}
+          </Row>
+          <Row
+            title="Connect at Start"
+            description="Connects the tunnel whenever Pangolin starts. Also opens Pangolin at sign-in."
           >
-            <Checkbox
+            <Switch
               label="Connect at Start"
               checked={form.autoConnect}
               disabled={disabled}
               // Connect at start implies start at login.
-              onChange={(v) => set({ autoConnect: v, openAtLogin: v ? true : form.openAtLogin })}
+              onChange={(v) => toggle({ autoConnect: v, openAtLogin: v ? true : form.openAtLogin })}
             />
-          </Setting>
+          </Row>
+        </Section>
 
-          <SectionTitle>DNS Settings</SectionTitle>
-
-          <Setting
-            label="Enable Aliases (DNS Override)"
-            description={
-              "When enabled, the client uses custom DNS servers to resolve internal\nresources and aliases. This overrides your system’s default DNS settings.\nQueries that cannot be resolved as a Pangolin resource will be forwarded\nto your configured Upstream DNS Server."
-            }
+        <Section header="DNS Settings">
+          <Row
+            title="Enable Aliases (DNS Override)"
+            description="When enabled, the client uses custom DNS servers to resolve internal resources and aliases. This overrides your system’s default DNS settings. Queries that cannot be resolved as a Pangolin resource will be forwarded to your configured Upstream DNS Server."
           >
-            <Checkbox
+            <Switch
               label="Enable Aliases (DNS Override)"
               checked={form.dnsOverride}
               disabled={disabled}
-              onChange={(v) => set({ dnsOverride: v })}
+              onChange={(v) => toggle({ dnsOverride: v })}
             />
-          </Setting>
-
-          <Setting
-            label="DNS Over Tunnel"
-            description={
-              "When enabled, DNS queries are routed through the tunnel for\nremote resolution. To ensure queries are tunneled correctly,\nyou must define the DNS server as a Pangolin resource and\nenter its address as an Upstream DNS Server."
-            }
+          </Row>
+          <Row
+            title="DNS Over Tunnel"
+            description="When enabled, DNS queries are routed through the tunnel for remote resolution. To ensure queries are tunneled correctly, you must define the DNS server as a Pangolin resource and enter its address as an Upstream DNS Server."
           >
-            <Checkbox
+            <Switch
               label="DNS Over Tunnel"
               checked={form.dnsTunnel}
               disabled={disabled}
-              onChange={(v) => set({ dnsTunnel: v })}
-            />
-          </Setting>
-
-          <Row label="Primary Upstream DNS Server">
-            <TextField
-              className="w-[150px]"
-              placeholder="Default: system DNS"
-              value={form.primaryDns}
-              onChange={(e) => set({ primaryDns: e.target.value })}
+              onChange={(v) => toggle({ dnsTunnel: v })}
             />
           </Row>
-          <Row label="Secondary Upstream DNS Server">
-            <TextField
-              className="w-[150px]"
-              placeholder="Default: system DNS"
-              value={form.secondaryDns}
-              onChange={(e) => set({ secondaryDns: e.target.value })}
-            />
+          <Row title="Primary Upstream DNS Server">
+            <Value>{form.primaryDns || "System DNS"}</Value>
+            <Button size="small" disabled={disabled} onClick={() => setEditing("primaryDns")}>
+              Set...
+            </Button>
           </Row>
-
-          <SectionTitle>Advanced</SectionTitle>
-
-          <Row label="MTU">
-            <TextField className="w-[150px]" value={form.mtu} onChange={(e) => set({ mtu: e.target.value })} />
+          <Row title="Secondary Upstream DNS Server">
+            <Value>{form.secondaryDns || "System DNS"}</Value>
+            <Button size="small" disabled={disabled} onClick={() => setEditing("secondaryDns")}>
+              Set...
+            </Button>
           </Row>
-          <Secondary>Your sites must be configured to use the same MTU value.</Secondary>
-        </fieldset>
+        </Section>
 
-        <div className="mt-6">
-          Tip: <ExternalLink href={urls.configureClient}>See the docs for more information on these settings</ExternalLink>
-        </div>
-      </div>
+        <Section header="Advanced">
+          <Row title="MTU" description="Your sites must be configured to use the same MTU value.">
+            <Value>{form.mtu}</Value>
+            <Button size="small" disabled={disabled} onClick={() => setEditing("mtu")}>
+              Set...
+            </Button>
+          </Row>
+        </Section>
 
-      <div className="flex justify-end pt-[9px]">
-        <Button accessKey="s" onClick={save} disabled={disabled || saving}>
-          Save
-        </Button>
-      </div>
-    </div>
+        <Section header="Help">
+          <LinkRow href={urls.configureClient}>See docs for more info on these settings</LinkRow>
+        </Section>
+      </Form>
+
+      {editing === "mtu" && (
+        <ValueSheet
+          title="MTU:"
+          initial={form.mtu}
+          hint="Enter an integer between 576 and 9000 (e.g., 1280)"
+          resetLabel="Default"
+          resetValue={defaultMTU}
+          onClose={() => setEditing(null)}
+          onSave={(v) => apply({ mtu: v })}
+          field="mtu"
+        />
+      )}
+      {(editing === "primaryDns" || editing === "secondaryDns") && (
+        <ValueSheet
+          title={editing === "primaryDns" ? "Primary Upstream DNS Server:" : "Secondary Upstream DNS Server:"}
+          initial={form[editing]}
+          placeholder="System DNS"
+          resetLabel="Use System DNS"
+          resetValue=""
+          resetSaves
+          onClose={() => setEditing(null)}
+          onSave={(v) => apply({ [editing]: v })}
+          field={editing}
+        />
+      )}
+    </>
   );
 }
 
-function Setting({ label, description, children }: { label: string; description: string; children: ReactNode }) {
+/** The DNS and MTU editing sheets from the macOS app. */
+function ValueSheet({
+  title,
+  initial,
+  placeholder,
+  hint,
+  resetLabel,
+  resetValue,
+  resetSaves,
+  field,
+  onSave,
+  onClose,
+}: {
+  title: string;
+  initial: string;
+  placeholder?: string;
+  hint?: string;
+  resetLabel: string;
+  resetValue: string;
+  /** "Use System DNS" saves right away; "Default" only fills the field. */
+  resetSaves?: boolean;
+  field: EditField;
+  onSave: (value: string) => Promise<SettingsResult>;
+  onClose: () => void;
+}) {
+  const [value, setValue] = useState(initial);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const save = async (v: string) => {
+    setBusy(true);
+    try {
+      const result = await onSave(v.trim());
+      if (result.field === field && result.error) setError(result.error);
+      else onClose();
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
-    <div className="flex flex-col gap-2">
-      <Row label={label}>{children}</Row>
-      <Secondary className="whitespace-pre">{description}</Secondary>
-    </div>
+    <Sheet
+      onCancel={onClose}
+      onSubmit={() => save(value)}
+      footer={
+        <>
+          <Button
+            onClick={() => {
+              setValue(resetValue);
+              setError("");
+              if (resetSaves) void save(resetValue);
+            }}
+          >
+            {resetLabel}
+          </Button>
+          <div className="flex-1" />
+          <Button onClick={onClose}>Cancel</Button>
+          <Button type="submit" variant="prominent" disabled={busy}>
+            Done
+          </Button>
+        </>
+      }
+    >
+      <label className="text-[13px]" htmlFor="sheet-value">
+        {title}
+      </label>
+      <TextField
+        id="sheet-value"
+        autoFocus
+        value={value}
+        placeholder={placeholder}
+        onChange={(e) => {
+          setValue(e.target.value);
+          setError("");
+        }}
+        className="w-full"
+      />
+      {(error || hint) && (
+        <div className={error ? "text-[11px] text-mac-danger" : "text-[11px] text-mac-secondary"}>{error || hint}</div>
+      )}
+    </Sheet>
   );
 }

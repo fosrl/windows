@@ -3,6 +3,7 @@
 package ui
 
 import (
+	"fmt"
 	"net"
 	"strconv"
 	"strings"
@@ -55,13 +56,20 @@ func isValidIPAddress(ip string) bool {
 	return net.ParseIP(ip) != nil
 }
 
-// saveSettings validates and saves the form, reporting problems in native
-// dialogs. It returns the values the form should show afterwards: an invalid
-// field is reset to its saved value.
-func saveSettings(form Settings) Settings {
-	owner := preferencesWindowOrNil()
+// SettingsResult is the outcome of applying a settings change. On a
+// validation error nothing is saved and Field names the invalid field
+// ("mtu", "primaryDns" or "secondaryDns") so the sheet can show Error inline.
+type SettingsResult struct {
+	Settings Settings `json:"settings"`
+	Field    string   `json:"field"`
+	Error    string   `json:"error"`
+}
+
+// applySettings validates and saves the form. Settings apply as soon as they
+// change, like the macOS app, so there is no Save button or confirmation.
+func applySettings(form Settings) SettingsResult {
 	if configManager == nil || configManager.GetUserSettingsDisabled() {
-		return currentSettings()
+		return SettingsResult{Settings: currentSettings()}
 	}
 
 	openAtLogin := form.OpenAtLogin || form.AutoConnect
@@ -69,21 +77,18 @@ func saveSettings(form Settings) Settings {
 	secondaryDNS := strings.TrimSpace(form.SecondaryDNS)
 	mtuText := strings.TrimSpace(form.MTU)
 
+	invalid := func(field, message string) SettingsResult {
+		return SettingsResult{Settings: currentSettings(), Field: field, Error: message}
+	}
 	mtu, err := strconv.Atoi(mtuText)
 	if mtuText == "" || err != nil || mtu < minMTU || mtu > maxMTU {
-		form.MTU = strconv.Itoa(configManager.GetMTU())
-		showWarning(owner, "Invalid Input", "MTU must be a whole number between 576 and 9000.")
-		return form
+		return invalid("mtu", fmt.Sprintf("Enter an integer between %d and %d (e.g., 1280)", minMTU, maxMTU))
 	}
 	if primaryDNS != "" && !isValidIPAddress(primaryDNS) {
-		form.PrimaryDNS = configManager.GetPrimaryDNS()
-		showWarning(owner, "Invalid Input", "Primary DNS Server must be a valid IP address.")
-		return form
+		return invalid("primaryDns", "Enter an IP address for the DNS server (e.g., 1.1.1.1)")
 	}
 	if secondaryDNS != "" && !isValidIPAddress(secondaryDNS) {
-		form.SecondaryDNS = configManager.GetSecondaryDNS()
-		showWarning(owner, "Invalid Input", "Secondary DNS Server must be a valid IP address.")
-		return form
+		return invalid("secondaryDns", "Enter an IP address for the DNS server (e.g., 1.1.1.1)")
 	}
 
 	// Start from the current config so fields not on this form (e.g.
@@ -112,9 +117,7 @@ func saveSettings(form Settings) Settings {
 	}
 
 	if !configManager.Save(cfg) {
-		showError(owner, "Save Failed", "Failed to save settings. Please try again.")
-		return form
+		showError(preferencesWindowOrNil(), "Save Failed", "Failed to save settings. Please try again.")
 	}
-	notify("Settings Saved", "Settings have been saved successfully.")
-	return currentSettings()
+	return SettingsResult{Settings: currentSettings()}
 }

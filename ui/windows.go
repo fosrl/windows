@@ -180,6 +180,23 @@ func positionTrayWindow() {
 	}
 }
 
+// windowBackground matches the page background so windows don't flash white
+// in dark mode before the page paints.
+func windowBackground() application.RGBA {
+	if w32.IsCurrentlyDarkMode() {
+		return application.NewRGB(0x1e, 0x1e, 0x1e)
+	}
+	return application.NewRGB(0xec, 0xec, 0xec)
+}
+
+// loginBackground is the login window color from the macOS app.
+func loginBackground() application.RGBA {
+	if w32.IsCurrentlyDarkMode() {
+		return application.NewRGB(0x16, 0x16, 0x18)
+	}
+	return application.NewRGB(0xfd, 0xfd, 0xfd)
+}
+
 type frameInsets struct{ left, top, right, bottom int }
 
 // trayFrameInsets measures, in DIPs, how far the tray window's client area is
@@ -221,13 +238,15 @@ func showPreferencesWindow(tab int) {
 	prefsTab = tab
 	if prefsWindow == nil {
 		prefsWindow = app.Window.NewWithOptions(application.WebviewWindowOptions{
-			Name:     "preferences",
-			Title:    "Pangolin Preferences",
-			URL:      "/#/preferences",
-			Width:    450,
-			Height:   600,
-			MinWidth: 320,
-			Hidden:   true,
+			Name:             "preferences",
+			Title:            "Pangolin Preferences",
+			URL:              "/#/preferences",
+			Width:            720,
+			Height:           560,
+			MinWidth:         600,
+			MinHeight:        400,
+			Hidden:           true,
+			BackgroundColour: windowBackground(),
 		})
 		// Closing only hides the window. Hooks run on the main thread, so the
 		// work that takes locks happens on a goroutine.
@@ -295,16 +314,13 @@ func showLoginWindow() {
 			Name:                "login",
 			Title:               "Login to Pangolin",
 			URL:                 "/#/login",
-			Width:               450,
-			Height:              330,
+			Width:               464,
+			Height:              340,
 			DisableResize:       true,
 			Hidden:              true,
 			MinimiseButtonState: application.ButtonHidden,
 			MaximiseButtonState: application.ButtonHidden,
-			BackgroundColour:    application.NewRGB(0xFC, 0xFC, 0xFC),
-			Windows: application.WindowsWindow{
-				Theme: application.Light,
-			},
+			BackgroundColour:    loginBackground(),
 		})
 		loginWindow.RegisterHook(events.Common.WindowClosing, func(e *application.WindowEvent) {
 			e.Cancel()
@@ -354,10 +370,11 @@ func openProgressWindow(kind, title, text string) func() {
 		Title:               title,
 		URL:                 "/#/progress?kind=" + kind,
 		Width:               420,
-		Height:              140,
+		Height:              150,
 		DisableResize:       true,
 		MinimiseButtonState: application.ButtonHidden,
 		MaximiseButtonState: application.ButtonHidden,
+		BackgroundColour:    windowBackground(),
 	})
 	progressWindows[kind] = w
 	w.Center()

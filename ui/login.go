@@ -31,6 +31,7 @@ const (
 	loginStageHosting = "hosting"
 	loginStageURL     = "url"
 	loginStageCode    = "code"
+	loginStageSuccess = "success"
 )
 
 // LoginView is what the login window renders.
@@ -83,7 +84,7 @@ func (s *loginSession) view() LoginView {
 	v := LoginView{
 		Stage:         s.stage,
 		SelfHostedURL: s.selfHostedURL,
-		ShowBack:      s.stage != loginStageHosting,
+		ShowBack:      s.stage != loginStageHosting && s.stage != loginStageSuccess,
 		BackEnabled:   !s.loggingIn,
 		ShowLogin:     s.stage == loginStageURL,
 		LoginEnabled:  !s.loggingIn && s.readyToLogin(),
@@ -342,9 +343,14 @@ func performLogin(s *loginSession) {
 	ok := withSession(s, func() {
 		s.loggingIn = false
 		s.succeeded = true
+		s.stage = loginStageSuccess
 	})
 	if ok {
-		closeLoginWindow()
+		// Show the success screen briefly before closing, like the macOS app.
+		time.Sleep(500 * time.Millisecond)
+		if activeSession() == s {
+			closeLoginWindow()
+		}
 	}
 }
 

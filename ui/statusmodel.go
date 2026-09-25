@@ -24,6 +24,10 @@ type StatusSite struct {
 	Endpoint string `json:"endpoint"`
 	Status   string `json:"status"`
 	Color    string `json:"color"`
+	// Connection is "Local", "Relay" or "Direct"; empty for the Pangolin Server row.
+	Connection string `json:"connection"`
+	// LastSeen is an RFC 3339 time, or empty when unknown.
+	LastSeen string `json:"lastSeen"`
 }
 
 // StatusView is everything the Status tab renders.
@@ -42,6 +46,20 @@ type peerInput struct {
 	Name      string
 	Endpoint  string
 	Connected bool
+	LastSeen  time.Time
+	IsLocal   bool
+	IsRelay   bool
+}
+
+// connectionLabel matches the macOS app's SiteStatusItem.connectionLabel.
+func connectionLabel(isLocal, isRelay bool) string {
+	switch {
+	case isLocal:
+		return "Local"
+	case isRelay:
+		return "Relay"
+	}
+	return "Direct"
 }
 
 // siteTracker keeps the per-site "first seen" times used for the connecting
@@ -108,6 +126,12 @@ func (t *siteTracker) update(exitNode *peerInput, peers []peerInput, now time.Ti
 			name = "Unknown"
 		}
 		site := StatusSite{ID: id, Name: name, Endpoint: p.Endpoint}
+		if id != exitNodeSiteID {
+			site.Connection = connectionLabel(p.IsLocal, p.IsRelay)
+		}
+		if !p.LastSeen.IsZero() {
+			site.LastSeen = p.LastSeen.UTC().Format(time.RFC3339)
+		}
 		switch {
 		case p.Connected:
 			site.Status, site.Color = "Connected", statusColorGreen

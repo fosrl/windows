@@ -4,7 +4,7 @@ import { LogsService, type LogEntry, type LogsSnapshot } from "@bindings";
 import { Button } from "../components/controls";
 import { report, useEvent } from "../lib";
 
-const rowHeight = 20;
+const rowHeight = 22;
 // Auto-scroll when the user is within this many rows of the bottom.
 const autoScrollThreshold = 10;
 
@@ -106,12 +106,16 @@ export function LogsTab({ visible }: { visible: boolean }) {
   };
 
   return (
-    <div className="flex min-h-0 min-w-0 flex-1 flex-col p-[9px]" onKeyDown={onKeyDown} onClick={() => setMenu(null)}>
-      <div className="flex min-h-0 flex-1 flex-col border border-border-strong/60 bg-surface">
-        <div className="flex h-[22px] shrink-0 border-b border-border text-left">
-          <div className="w-[180px] shrink-0 border-r border-border px-1.5 leading-[22px]">Time</div>
-          <div className="w-[80px] shrink-0 border-r border-border px-1.5 leading-[22px]">Level</div>
-          <div className="min-w-0 flex-1 px-1.5 leading-[22px]">Log message</div>
+    <div
+      className="flex min-h-0 min-w-0 flex-1 flex-col gap-3 px-5 pt-3 pb-4"
+      onKeyDown={onKeyDown}
+      onClick={() => setMenu(null)}
+    >
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-[10px] border border-mac-group-border bg-mac-group">
+        <div className="flex h-[26px] shrink-0 border-b border-mac-separator text-[12px] font-semibold text-mac-secondary">
+          <div className="w-[180px] shrink-0 px-2.5 leading-[26px]">Time</div>
+          <div className="w-[70px] shrink-0 border-l border-mac-separator px-2 leading-[26px]">Level</div>
+          <div className="min-w-0 flex-1 border-l border-mac-separator px-2 leading-[26px]">Message</div>
         </div>
         <div
           ref={scrollRef}
@@ -122,6 +126,9 @@ export function LogsTab({ visible }: { visible: boolean }) {
             setMenu({ x: e.clientX, y: e.clientY });
           }}
         >
+          {entries.length === 0 && (
+            <div className="flex h-full items-center justify-center text-mac-secondary">No log messages</div>
+          )}
           <div className="relative w-full" style={{ height: virtualizer.getTotalSize() }}>
             {virtualizer.getVirtualItems().map((row) => {
               const entry = entries[row.index];
@@ -133,18 +140,18 @@ export function LogsTab({ visible }: { visible: boolean }) {
                     if (e.button === 0 || !isSelected) clickRow(row.index, e);
                   }}
                   className={[
-                    "absolute left-0 flex w-full border-b border-border/70",
-                    isSelected ? "bg-row-selected" : row.index % 2 ? "bg-row-alt" : "",
+                    "absolute left-0 flex w-full font-mono text-[11.5px]",
+                    isSelected ? "bg-mac-accent text-white" : row.index % 2 ? "bg-mac-row-alt" : "",
                   ].join(" ")}
-                  style={{ top: row.start, height: rowHeight }}
+                  style={{ top: row.start, height: rowHeight, lineHeight: `${rowHeight}px` }}
                 >
-                  <div className="w-[180px] shrink-0 truncate border-r border-border/70 px-1.5 leading-[19px]">
+                  <div className={isSelected ? "w-[180px] shrink-0 truncate px-2.5" : "w-[180px] shrink-0 truncate px-2.5 text-mac-secondary"}>
                     {entry.stamp}
                   </div>
-                  <div className="w-[80px] shrink-0 truncate border-r border-border/70 px-1.5 leading-[19px]">
+                  <div className={["w-[70px] shrink-0 truncate px-2", isSelected ? "" : levelColor(entry.level)].join(" ")}>
                     {entry.level}
                   </div>
-                  <div className="min-w-0 flex-1 truncate px-1.5 leading-[19px]" title={entry.line}>
+                  <div className="min-w-0 flex-1 truncate px-2" title={entry.line}>
                     {entry.line}
                   </div>
                 </div>
@@ -154,13 +161,12 @@ export function LogsTab({ visible }: { visible: boolean }) {
         </div>
       </div>
 
-      <div className="flex justify-end gap-2 pt-[9px]">
-        <Button accessKey="c" onClick={clear}>
-          Clear
-        </Button>
-        <Button accessKey="s" onClick={save}>
-          Save
-        </Button>
+      <div className="flex shrink-0 items-center gap-2">
+        <span className="flex-1 text-[11px] text-mac-secondary">
+          {entries.length.toLocaleString()} {entries.length === 1 ? "message" : "messages"}
+        </span>
+        <Button onClick={clear}>Clear</Button>
+        <Button onClick={save}>Save...</Button>
       </div>
 
       {menu && (
@@ -170,13 +176,26 @@ export function LogsTab({ visible }: { visible: boolean }) {
           onClose={() => setMenu(null)}
           items={[
             { label: "Copy", shortcut: "Ctrl+C", enabled: selected.size > 0, run: copy },
-            { label: "Select all", shortcut: "Ctrl+A", enabled: selected.size < entries.length, run: selectAll },
-            { label: "Save to file…", shortcut: "Ctrl+S", enabled: true, run: save },
+            { label: "Select All", shortcut: "Ctrl+A", enabled: selected.size < entries.length, run: selectAll },
+            { label: "Save to File...", shortcut: "Ctrl+S", enabled: true, run: save },
           ]}
         />
       )}
     </div>
   );
+}
+
+function levelColor(level: string) {
+  switch (level.toUpperCase()) {
+    case "ERROR":
+    case "FATAL":
+      return "text-mac-danger";
+    case "WARN":
+    case "WARNING":
+      return "text-[#c27c00] dark:text-[#ffb340]";
+    default:
+      return "text-mac-secondary";
+  }
 }
 
 function ContextMenu({
@@ -216,7 +235,7 @@ function ContextMenu({
     <div
       ref={ref}
       role="menu"
-      className="fixed z-50 min-w-[180px] rounded-[8px] border border-menu-border bg-menu p-1 shadow-[0_4px_12px_rgba(0,0,0,0.18)]"
+      className="fixed z-50 min-w-[190px] rounded-[8px] border border-mac-group-border bg-mac-sheet p-[5px] shadow-[0_8px_24px_rgb(0_0_0/0.22)]"
       style={{ left: pos.x, top: pos.y }}
       onMouseDown={(e) => e.stopPropagation()}
     >
@@ -232,12 +251,12 @@ function ContextMenu({
             it.run();
           }}
           className={[
-            "flex h-7 items-center gap-6 rounded-[4px] px-2",
-            it.enabled ? "cursor-default hover:bg-menu-hover" : "text-text-disabled",
+            "flex h-[22px] items-center gap-6 rounded-[4px] px-2 text-[13px]",
+            it.enabled ? "cursor-default hover:bg-mac-accent hover:text-white" : "text-mac-tertiary",
           ].join(" ")}
         >
           <span className="flex-1">{it.label}</span>
-          <span className="text-text-secondary">{it.shortcut}</span>
+          <span className="opacity-60">{it.shortcut}</span>
         </div>
       ))}
     </div>

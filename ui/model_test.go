@@ -97,3 +97,29 @@ func TestSiteTracker(t *testing.T) {
 		t.Fatalf("no status should mean no sites: %+v", got)
 	}
 }
+
+func TestSiteTrackerDetails(t *testing.T) {
+	seen := time.Date(2026, 9, 24, 10, 0, 0, 0, time.UTC)
+	tr := newSiteTracker()
+	sites := tr.update(
+		&peerInput{Connected: true, LastSeen: seen},
+		[]peerInput{
+			{ID: 1, Name: "a", IsLocal: true, IsRelay: true},
+			{ID: 2, Name: "b", IsRelay: true},
+			{ID: 3, Name: "c"},
+		},
+		time.Now(),
+	)
+	if sites[0].Connection != "" || sites[0].LastSeen != "2026-09-24T10:00:00Z" {
+		t.Fatalf("exit node: %+v", sites[0])
+	}
+	want := []string{"Local", "Relay", "Direct"}
+	for i, w := range want {
+		if sites[i+1].Connection != w || sites[i+1].LastSeen != "" {
+			t.Errorf("site %d: %+v", i+1, sites[i+1])
+		}
+	}
+	if got := tr.update(nil, nil, time.Now()); len(got) != 0 {
+		t.Fatalf("no status should mean no sites: %+v", got)
+	}
+}

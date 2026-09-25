@@ -28,6 +28,28 @@
   --color-menu-hover: #ebebeb;
   --color-menu-border: #e0e0e0;
 
+  /* macOS-style surfaces for the Preferences, Login and Progress windows. */
+  --color-mac-window: #ececec;
+  --color-mac-sidebar: #e3e3e3;
+  --color-mac-group: rgb(0 0 0 / 0.035);
+  --color-mac-group-border: rgb(0 0 0 / 0.07);
+  --color-mac-separator: rgb(0 0 0 / 0.09);
+  --color-mac-label: rgb(0 0 0 / 0.85);
+  --color-mac-secondary: rgb(0 0 0 / 0.5);
+  --color-mac-tertiary: rgb(0 0 0 / 0.26);
+  /* Pangolin orange. */
+  --color-mac-accent: #f36217;
+  --color-mac-accent-hover: #f5752f;
+  --color-mac-fill: rgb(0 0 0 / 0.06);
+  --color-mac-control: #ffffff;
+  --color-mac-control-border: rgb(0 0 0 / 0.14);
+  --color-mac-switch-off: rgb(0 0 0 / 0.1);
+  --color-mac-sheet: #f6f6f6;
+  --color-mac-login: #fdfdfd;
+  --color-mac-row-alt: rgb(0 0 0 / 0.03);
+  --color-mac-selection: rgb(243 98 23 / 0.18);
+  --color-mac-danger: #ff3b30;
+
   --color-dot-green: rgb(0 200 0);
   --color-dot-gray: rgb(150 150 150);
   --color-dot-yellow: rgb(255 200 0);
@@ -55,6 +77,26 @@
       --color-menu: #2c2c2c;
       --color-menu-hover: #383838;
       --color-menu-border: #3f3f3f;
+
+      --color-mac-window: #1e1e1e;
+      --color-mac-sidebar: #2a2a2a;
+      --color-mac-group: rgb(255 255 255 / 0.045);
+      --color-mac-group-border: rgb(255 255 255 / 0.07);
+      --color-mac-separator: rgb(255 255 255 / 0.09);
+      --color-mac-label: rgb(255 255 255 / 0.86);
+      --color-mac-secondary: rgb(255 255 255 / 0.55);
+      --color-mac-tertiary: rgb(255 255 255 / 0.25);
+      --color-mac-accent: #f36217;
+      --color-mac-accent-hover: #f5752f;
+      --color-mac-fill: rgb(255 255 255 / 0.08);
+      --color-mac-control: rgb(255 255 255 / 0.1);
+      --color-mac-control-border: rgb(255 255 255 / 0.12);
+      --color-mac-switch-off: rgb(255 255 255 / 0.16);
+      --color-mac-sheet: #2c2c2e;
+      --color-mac-login: #161618;
+      --color-mac-row-alt: rgb(255 255 255 / 0.03);
+      --color-mac-selection: rgb(243 98 23 / 0.3);
+      --color-mac-danger: #ff453a;
     }
   }
 
@@ -81,9 +123,14 @@
     background: transparent;
   }
 
-  /* The login window is always light, as before. */
-  html.theme-light body {
-    background: #fcfcfc;
+  /* Preferences, Login and Progress use the macOS look. */
+  html.mac body {
+    font-size: 13px;
+    color: var(--color-mac-label);
+    background: var(--color-mac-window);
+  }
+  html.mac.login body {
+    background: var(--color-mac-login);
   }
 
   input,
@@ -110,5 +157,48 @@
   }
   ::-webkit-scrollbar-corner {
     background: transparent;
+  }
+}
+
+@layer base {
+  /* macOS-style focus ring. */
+  html.mac :focus-visible {
+    outline: 3px solid color-mix(in srgb, var(--color-mac-accent) 45%, transparent);
+    outline-offset: 0;
+  }
+
+  /* Thin overlay-style scrollbars, like macOS. */
+  html.mac ::-webkit-scrollbar {
+    width: 11px;
+    height: 11px;
+  }
+  html.mac ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  html.mac ::-webkit-scrollbar-thumb {
+    background: var(--color-mac-tertiary);
+    border: 3px solid transparent;
+    background-clip: padding-box;
+    border-radius: 6px;
+  }
+
+  @keyframes mac-spin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+  @keyframes mac-sheet-in {
+    from {
+      opacity: 0;
+      transform: translateY(-12px);
+    }
+  }
+  @keyframes mac-marquee {
+    from {
+      left: -35%;
+    }
+    to {
+      left: 100%;
+    }
   }
 }

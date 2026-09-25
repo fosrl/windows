@@ -87,6 +87,17 @@ export interface Settings {
 }
 
 /**
+ * SettingsResult is the outcome of applying a settings change. On a
+ * validation error nothing is saved and Field names the invalid field
+ * ("mtu", "primaryDns" or "secondaryDns") so the sheet can show Error inline.
+ */
+export interface SettingsResult {
+    "settings": Settings;
+    "field": string;
+    "error": string;
+}
+
+/**
  * StatusSite is one row of the Sites list in the Status tab.
  */
 export interface StatusSite {
@@ -95,6 +106,16 @@ export interface StatusSite {
     "endpoint": string;
     "status": string;
     "color": string;
+
+    /**
+     * Connection is "Local", "Relay" or "Direct"; empty for the Pangolin Server row.
+     */
+    "connection": string;
+
+    /**
+     * LastSeen is an RFC 3339 time, or empty when unknown.
+     */
+    "lastSeen": string;
 }
 
 /**
