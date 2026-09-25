@@ -164,7 +164,7 @@ function SiteSheet({ site, onClose }: { site?: StatusSite; onClose: () => void }
             </span>
           </Detail>
           <Detail label="Connection" value={site.connection || "—"} />
-          <Detail label="Gateway" value={site.connection ? (site.gateway ? "Yes" : "No") : "—"} />
+          <Detail label="Exit Node" value={site.connection ? (site.gateway ? "Yes" : "No") : "—"} />
           <Detail label="Endpoint" value={site.endpoint || "—"} />
           <Detail label="Last Seen" value={relativeTime(site.lastSeen)} />
         </div>
