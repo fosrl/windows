@@ -41,7 +41,7 @@ type StatusView struct {
 	Version   string `json:"version"`
 	Agent     string `json:"agent"`
 	OrgID     string `json:"orgId"`
-	// Gateway summarizes the exit node: "Off", or "Active (resource N)".
+	// Gateway summarizes the exit node: "Off", or "Active".
 	Gateway string       `json:"gateway"`
 	Sites   []StatusSite `json:"sites"`
 	JSON    string       `json:"json"`
@@ -59,13 +59,13 @@ type peerInput struct {
 }
 
 // gatewayLabel summarizes the exit node the same way the CLI status does:
-// "Off", or "Active (resource N)" with the gateway site resource's ID.
+// "Off", or "Active" with the gateway site resource's ID.
 func gatewayLabel(active bool, siteResourceID int) string {
 	if !active {
 		return "Off"
 	}
 	if siteResourceID != 0 {
-		return fmt.Sprintf("Active (resource %d)", siteResourceID)
+		return fmt.Sprintf("Active", siteResourceID)
 	}
 	return "Active"
 }

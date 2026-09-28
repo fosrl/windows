@@ -121,7 +121,7 @@ func TestGatewayLabel(t *testing.T) {
 	}{
 		{false, 0, "Off"},
 		{false, 12, "Off"},
-		{true, 12, "Active (resource 12)"},
+		{true, 12, "Active"},
 		{true, 0, "Active"},
 	}
 	for _, c := range cases {

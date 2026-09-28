@@ -125,7 +125,7 @@ const settings: Settings = {
 };
 
 const status: StatusView = {
-  stateText: "Connected", color: "green", version: "1.9.0", agent: "Pangolin Windows", orgId: "fossorial", gateway: "Active (resource 12)",
+  stateText: "Connected", color: "green", version: "1.9.0", agent: "Pangolin Windows", orgId: "fossorial", gateway: "Active",
   sites: [
     { id: -1, name: "Pangolin Server", endpoint: "203.0.113.10:51820", status: "Connected", color: "green", connection: "", lastSeen: new Date(Date.now() - 4000).toISOString(), gateway: false },
     { id: 3, name: "Home Lab", endpoint: "198.51.100.7:51820", status: "Connected", color: "green", connection: "Direct", lastSeen: new Date(Date.now() - 90000).toISOString(), gateway: true },
