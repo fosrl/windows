@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { LogsService, type LogEntry, type LogsSnapshot } from "@bindings";
 import { Button } from "../components/controls";
@@ -7,6 +7,8 @@ import { report, useEvent } from "../lib";
 const rowHeight = 22;
 // Auto-scroll when the user is within this many rows of the bottom.
 const autoScrollThreshold = 10;
+// Fixed width of the Time and Level columns plus the Message cell padding.
+const fixedColumnsWidth = 180 + 70 + 16;
 
 export function LogsTab({ visible }: { visible: boolean }) {
   const [entries, setEntries] = useState<LogEntry[]>([]);
@@ -14,6 +16,7 @@ export function LogsTab({ visible }: { visible: boolean }) {
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
   const anchor = useRef<number | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const headerRef = useRef<HTMLDivElement>(null);
   const stickToBottom = useRef(true);
 
   const virtualizer = useVirtualizer({
@@ -22,6 +25,11 @@ export function LogsTab({ visible }: { visible: boolean }) {
     estimateSize: () => rowHeight,
     overscan: 20,
   });
+
+  // Rows are virtualized, so size the content to the longest line up front
+  // (monospace, so characters map to `ch`) to give it a stable scroll width.
+  const longestLine = useMemo(() => entries.reduce((max, e) => Math.max(max, e.line.length), 0), [entries]);
+  const contentWidth = `calc(${fixedColumnsWidth}px + ${longestLine}ch)`;
 
   const nearBottom = () => {
     const el = scrollRef.current;
@@ -112,15 +120,22 @@ export function LogsTab({ visible }: { visible: boolean }) {
       onClick={() => setMenu(null)}
     >
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-[10px] border border-mac-group-border bg-mac-group">
-        <div className="flex h-[26px] shrink-0 border-b border-mac-separator text-[12px] font-semibold text-mac-secondary">
-          <div className="w-[180px] shrink-0 px-2.5 leading-[26px]">Time</div>
-          <div className="w-[70px] shrink-0 border-l border-mac-separator px-2 leading-[26px]">Level</div>
-          <div className="min-w-0 flex-1 border-l border-mac-separator px-2 leading-[26px]">Message</div>
+        <div ref={headerRef} className="shrink-0 overflow-hidden border-b border-mac-separator">
+          <div className="font-mono text-[11.5px]" style={{ width: contentWidth, minWidth: "100%" }}>
+            <div className="flex h-[26px] font-sans text-[12px] font-semibold text-mac-secondary">
+              <div className="w-[180px] shrink-0 px-2.5 leading-[26px]">Time</div>
+              <div className="w-[70px] shrink-0 border-l border-mac-separator px-2 leading-[26px]">Level</div>
+              <div className="min-w-0 flex-1 border-l border-mac-separator px-2 leading-[26px]">Message</div>
+            </div>
+          </div>
         </div>
         <div
           ref={scrollRef}
           tabIndex={0}
           className="min-h-0 flex-1 overflow-auto outline-none"
+          onScroll={(e) => {
+            if (headerRef.current) headerRef.current.scrollLeft = e.currentTarget.scrollLeft;
+          }}
           onContextMenu={(e) => {
             e.preventDefault();
             setMenu({ x: e.clientX, y: e.clientY });
@@ -129,7 +144,10 @@ export function LogsTab({ visible }: { visible: boolean }) {
           {entries.length === 0 && (
             <div className="flex h-full items-center justify-center text-mac-secondary">No log messages</div>
           )}
-          <div className="relative w-full" style={{ height: virtualizer.getTotalSize() }}>
+          <div
+            className="relative font-mono text-[11.5px]"
+            style={{ height: virtualizer.getTotalSize(), width: contentWidth, minWidth: "100%" }}
+          >
             {virtualizer.getVirtualItems().map((row) => {
               const entry = entries[row.index];
               const isSelected = selected.has(entry.seq);
@@ -151,7 +169,7 @@ export function LogsTab({ visible }: { visible: boolean }) {
                   <div className={["w-[70px] shrink-0 truncate px-2", isSelected ? "" : levelColor(entry.level)].join(" ")}>
                     {entry.level}
                   </div>
-                  <div className="min-w-0 flex-1 truncate px-2" title={entry.line}>
+                  <div className="min-w-0 flex-1 whitespace-pre px-2">
                     {entry.line}
                   </div>
                 </div>
