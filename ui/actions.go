@@ -29,9 +29,11 @@ func openURL(url string) {
 // invokeMenuItem runs the action for a tray popup item. It is called on a
 // service goroutine, so it may block.
 func invokeMenuItem(id string) {
-	// Like the macOS menu, the popup stays open for the connect switch and for
-	// account and organization switches so their progress shows.
-	keepOpen := id == menuIDConnect || strings.HasPrefix(id, menuPrefixAccount) || strings.HasPrefix(id, menuPrefixOrg)
+	// Like the macOS menu, the popup stays open for the connect switch, for
+	// account and organization switches so their progress shows, and for exit
+	// node selection so the checkmark just moves.
+	keepOpen := id == menuIDConnect || strings.HasPrefix(id, menuPrefixAccount) || strings.HasPrefix(id, menuPrefixOrg) ||
+		id == menuIDExitNodeNone || strings.HasPrefix(id, menuPrefixExitNode)
 	if !keepOpen {
 		hideTrayPopup()
 	}
