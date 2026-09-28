@@ -18,6 +18,13 @@ export function Hide(): $CancellablePromise<void> {
     return $Call.ByID(2876902081);
 }
 
+/**
+ * HideReady is called once the popup has painted itself transparent for hiding.
+ */
+export function HideReady(): $CancellablePromise<void> {
+    return $Call.ByID(1975564104);
+}
+
 export function Invoke(id: string): $CancellablePromise<void> {
     return $Call.ByID(2561977761, id);
 }
@@ -26,8 +33,24 @@ export function Layout(): $CancellablePromise<$models.TrayLayout> {
     return $Call.ByID(1064267347);
 }
 
+/**
+ * OpenReady is called once the popup has drawn the menu while opening, with
+ * the window height it needs.
+ */
+export function OpenReady(height: number): $CancellablePromise<void> {
+    return $Call.ByID(3316759108, height);
+}
+
 export function Resize(height: number): $CancellablePromise<void> {
     return $Call.ByID(662057829, height);
+}
+
+/**
+ * SetSitesVisible is called when the sites submenu opens or closes, so site
+ * status is only polled while it is on screen.
+ */
+export function SetSitesVisible(visible: boolean): $CancellablePromise<void> {
+    return $Call.ByID(2059415649, visible);
 }
 
 export function State(): $CancellablePromise<$models.MenuState> {

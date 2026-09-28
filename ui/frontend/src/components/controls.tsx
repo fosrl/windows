@@ -251,6 +251,7 @@ const dotColors: Record<string, string> = {
   green: "#34c759",
   gray: "#8e8e93",
   yellow: "#ffcc00",
+  orange: "#ff9500",
 };
 
 /** 8pt status circle, as in the macOS status view. */

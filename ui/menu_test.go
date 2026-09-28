@@ -3,6 +3,7 @@ package ui
 import (
 	"strings"
 	"testing"
+	"time"
 )
 
 func labels(items []MenuItem) []string {
@@ -38,9 +39,8 @@ func findID(items []MenuItem, id string) *MenuItem {
 
 func signedIn() menuInputs {
 	return menuInputs{
-		Authenticated:   true,
-		TunnelPhase:     phaseStopped,
-		TunnelStateText: "Disconnected",
+		Authenticated: true,
+		TunnelPhase:   phaseStopped,
 		Accounts: []menuAccount{
 			{UserID: "u1", Display: "a@example.com", Email: "a@example.com", Hostname: "https://one"},
 		},
@@ -51,60 +51,107 @@ func signedIn() menuInputs {
 		CLIInstalled:    true,
 		Version:         "1.2.3",
 		Year:            2026,
+		Now:             time.Date(2026, 9, 28, 12, 0, 0, 0, time.UTC),
 	}
 }
 
+func boolPtr(v bool) *bool { return &v }
+
 func TestMenuSignedOut(t *testing.T) {
-	got := strings.Join(labels(buildMenuState(menuInputs{LoginLabel: "Login to Account", CLIInstalled: true}).Items), "|")
-	want := "Login to Account|---|Preferences|More|---|Quit"
+	got := strings.Join(labels(buildMenuState(menuInputs{CLIInstalled: true}).Items), "|")
+	want := "Log In…|---|Preferences…|More|---|Quit Pangolin"
 	if got != want {
 		t.Fatalf("got %q\nwant %q", got, want)
 	}
 }
 
-func TestMenuInitializing(t *testing.T) {
+func TestMenuLoadingStates(t *testing.T) {
+	in := signedIn()
+	if buildMenuState(in).Loading {
+		t.Fatal("menu should not be loading")
+	}
+	for name, mutate := range map[string]func(*menuInputs){
+		"initializing":     func(in *menuInputs) { in.Initializing = true },
+		"switchingAccount": func(in *menuInputs) { in.SwitchingAccountID = "u1" },
+		"switchingOrg":     func(in *menuInputs) { in.SwitchingOrgID = "o2" },
+		"loggingOut":       func(in *menuInputs) { in.LoggingOut = true },
+	} {
+		in := signedIn()
+		mutate(&in)
+		if !buildMenuState(in).Loading {
+			t.Errorf("%s: expected the loading spinner", name)
+		}
+	}
+}
+
+func TestMenuInitializingHidesTunnel(t *testing.T) {
 	in := signedIn()
 	in.Initializing = true
 	items := buildMenuState(in).Items
-	if find(items, "Loading...") == nil {
-		t.Fatal("expected Loading...")
-	}
 	if findID(items, menuIDConnect) != nil || findID(items, "orgs") != nil {
-		t.Fatal("auth section should be hidden while initializing")
-	}
-	// Accounts stay visible, as before.
-	if findID(items, "accounts") == nil {
-		t.Fatal("expected account submenu")
+		t.Fatal("tunnel and org sections should be hidden while initializing")
 	}
 }
 
 func TestMenuSignedInStopped(t *testing.T) {
 	got := strings.Join(labels(buildMenuState(signedIn()).Items), "|")
-	want := "Status: Disconnected|Connect|---|Account|a@example.com|Organization|Org One|---|Preferences|More|---|Quit"
+	want := "Disconnected|Connect|---|Account|a@example.com|Organization|Org One|---|Preferences…|More|---|Quit Pangolin"
 	if got != want {
 		t.Fatalf("got %q\nwant %q", got, want)
 	}
 }
 
-func TestMenuConnectLabels(t *testing.T) {
+func TestMenuTunnelStatus(t *testing.T) {
 	cases := []struct {
 		phase   tunnelPhase
-		label   string
-		enabled bool
-		checked bool
+		pending *bool
+		text    string
+		dot     string
+		loading bool
 	}{
-		{phaseStopped, "Connect", true, false},
-		{phaseStarting, "Disconnect", true, false},
-		{phaseRunning, "Disconnect", true, true},
-		{phaseOther, "Disconnect", true, false},
-		{phaseStopping, "Disconnecting...", false, false},
+		{phaseStopped, nil, "Disconnected", menuDotGray, false},
+		{phaseStarting, nil, "Registering…", menuDotOrange, true},
+		{phaseRunning, nil, "Connected", menuDotGreen, false},
+		{phaseStopping, nil, "Disconnecting…", menuDotGray, true},
+		{phaseOther, nil, "Disconnected", menuDotGray, false},
+		{phaseStopped, boolPtr(true), "Registering…", menuDotOrange, true},
+		{phaseRunning, boolPtr(false), "Disconnecting…", menuDotGray, true},
 	}
 	for _, c := range cases {
 		in := signedIn()
 		in.TunnelPhase = c.phase
+		in.PendingTunnelOn = c.pending
+		it := findID(buildMenuState(in).Items, menuIDSites)
+		if it == nil || it.Kind != MenuKindStatus || it.Label != c.text || it.Dot != c.dot || it.Loading != c.loading {
+			t.Errorf("phase %v pending %v: got %+v", c.phase, c.pending, it)
+		}
+	}
+}
+
+func TestMenuConnectToggle(t *testing.T) {
+	cases := []struct {
+		phase   tunnelPhase
+		pending *bool
+		label   string
+		enabled bool
+		checked bool
+	}{
+		{phaseStopped, nil, "Connect", true, false},
+		{phaseStarting, nil, "Disconnect", true, true},
+		{phaseRunning, nil, "Disconnect", true, true},
+		{phaseOther, nil, "Disconnect", true, true},
+		{phaseStopping, nil, "Disconnect", false, true},
+		// A pending click flips the switch at once and blocks another click.
+		{phaseStopped, boolPtr(true), "Connect", false, true},
+		{phaseRunning, boolPtr(false), "Disconnect", false, false},
+	}
+	for _, c := range cases {
+		in := signedIn()
+		in.TunnelPhase = c.phase
+		in.PendingTunnelOn = c.pending
 		it := findID(buildMenuState(in).Items, menuIDConnect)
-		if it == nil || it.Label != c.label || it.Enabled != c.enabled || it.Checked != c.checked {
-			t.Errorf("phase %v: got %+v", c.phase, it)
+		if it == nil || it.Kind != MenuKindToggle || it.Label != c.label || it.Enabled != c.enabled || it.Checked != c.checked {
+			t.Errorf("phase %v pending %v: got %+v", c.phase, c.pending, it)
 		}
 	}
 }
@@ -133,27 +180,46 @@ func TestMenuSessionExpired(t *testing.T) {
 	in.SessionExpired = true
 	in.LoggedOut = true
 	in.ErrorMessage = "should not show"
+	in.ConnectionError = "should not show either"
 	in.ServerInfo = &menuServerInfo{Build: "oss"}
 	items := buildMenuState(in).Items
-	if find(items, "Status: Account Locked") == nil {
-		t.Fatal("expected Account Locked status")
+	got := strings.Join(labels(items), "|")
+	want := "Account Locked|Connect|Your session expired. Log in again to connect.|Log In…|---|Account|a@example.com|Organization|Org One|---|Preferences…|More|---|Quit Pangolin"
+	if got != want {
+		t.Fatalf("got %q\nwant %q", got, want)
 	}
-	if findID(items, menuIDConnect) != nil {
-		t.Fatal("connect should be hidden when the session expired")
+	if it := findID(items, menuIDConnect); it.Enabled {
+		t.Fatal("a locked account can't connect")
+	}
+	if it := find(items, "Your session expired. Log in again to connect."); it.Kind != MenuKindLabel || it.Icon != menuIconLock {
+		t.Fatalf("unexpected notice %+v", it)
 	}
 	if it := findID(items, menuIDReAuth); it == nil || !it.Enabled {
-		t.Fatal("expected enabled Log In")
+		t.Fatal("expected enabled Log In…")
 	}
-	if findID(items, "orgs") == nil {
-		t.Fatal("cached org should stay visible")
-	}
-	if find(items, "should not show") != nil || find(items, "Community Edition. Consider supporting.") != nil {
-		t.Fatal("error and watermark should be hidden when the session expired")
+
+	// It can still turn a running tunnel off.
+	in.TunnelPhase = phaseRunning
+	if it := findID(buildMenuState(in).Items, menuIDConnect); !it.Enabled || it.Label != "Disconnect" {
+		t.Fatalf("got %+v", it)
 	}
 
 	in.DeviceAuthInProgress = true
 	if it := findID(buildMenuState(in).Items, menuIDReAuth); it.Enabled {
-		t.Fatal("Log In should be disabled while device auth runs")
+		t.Fatal("Log In… should be disabled while device auth runs")
+	}
+}
+
+func TestMenuConnectionError(t *testing.T) {
+	in := signedIn()
+	in.ConnectionError = "Could not connect"
+	items := buildMenuState(in).Items
+	it := find(items, "Could not connect")
+	if it == nil || it.Kind != MenuKindLabel || it.Icon != menuIconWarning {
+		t.Fatalf("got %+v", it)
+	}
+	if items[2].Label != "Could not connect" {
+		t.Fatalf("error should follow the switch, got %q", labels(items))
 	}
 }
 
@@ -162,7 +228,22 @@ func TestMenuLoggedOutHidesAuthSection(t *testing.T) {
 	in.LoggedOut = true
 	items := buildMenuState(in).Items
 	if findID(items, menuIDConnect) != nil || findID(items, "orgs") != nil {
-		t.Fatal("auth section should be hidden when logged out")
+		t.Fatal("tunnel and org sections should be hidden when logged out")
+	}
+	if findID(items, "accounts") == nil {
+		t.Fatal("accounts should stay visible")
+	}
+}
+
+func TestMenuNoActiveAccountHidesTunnel(t *testing.T) {
+	in := signedIn()
+	in.ActiveAccountID = ""
+	items := buildMenuState(in).Items
+	if findID(items, menuIDConnect) != nil {
+		t.Fatal("tunnel section needs an active account")
+	}
+	if got := findID(items, "accounts").Label; got != "Select Account" {
+		t.Fatalf("account title %q", got)
 	}
 }
 
@@ -171,19 +252,31 @@ func TestMenuServerDownAndError(t *testing.T) {
 	in.ServerDown = true
 	in.ErrorMessage = "boom"
 	items := buildMenuState(in).Items
-	if find(items, "The server appears to be down.") == nil {
-		t.Fatal("expected server down message")
+	got := strings.Join(labels(items), "|")
+	want := "Disconnected|Connect|---|The server appears to be down.|---|Account|a@example.com|Organization|Org One|---|Preferences…|More|---|Quit Pangolin"
+	if got != want {
+		t.Fatalf("got %q\nwant %q", got, want)
 	}
 	if find(items, "boom") != nil {
 		t.Fatal("error message should be hidden while the server is down")
 	}
-	if findID(items, menuIDConnect) == nil {
-		t.Fatal("auth section should stay visible while the server is down")
-	}
 
 	in.ServerDown = false
-	if find(buildMenuState(in).Items, "boom") == nil {
+	if it := find(buildMenuState(in).Items, "boom"); it == nil || it.Icon != menuIconWarning {
 		t.Fatal("expected error message")
+	}
+}
+
+func TestMenuLicenseNoticeAfterQuit(t *testing.T) {
+	in := signedIn()
+	in.ServerInfo = &menuServerInfo{Build: "oss"}
+	items := buildMenuState(in).Items
+	last := items[len(items)-1]
+	if last.Kind != MenuKindLabel || last.Label != "Community Edition. Consider supporting." {
+		t.Fatalf("got %+v", last)
+	}
+	if items[len(items)-3].ID != menuIDQuit || items[len(items)-2].Kind != MenuKindSeparator {
+		t.Fatalf("notice should follow Quit: %q", labels(items))
 	}
 }
 
@@ -216,15 +309,23 @@ func TestMenuUpdateAndCLI(t *testing.T) {
 	in.CLIInstalling = true
 	in.CheckUpdateVisible = true
 	items := buildMenuState(in).Items
-	if items[0].ID != menuIDUpdate {
+	if items[0].ID != menuIDUpdate || items[1].Kind != MenuKindSeparator {
 		t.Fatalf("update item should be first, got %+v", items[0])
 	}
 	more := findID(items, "more")
-	if findID(more.Items, menuIDCheckUpdates) == nil {
-		t.Fatal("expected Check for Updates")
+	got := strings.Join(labels(more.Items), "|")
+	want := "Support|How Pangolin Works|Documentation|---|© 2026 Fossorial, Inc.|Terms of Service|Privacy Policy|---|Version 1.2.3|Check for Updates…|Installing CLI…"
+	if got != want {
+		t.Fatalf("got %q\nwant %q", got, want)
 	}
-	cli := findID(more.Items, menuIDInstallCLI)
-	if cli == nil || cli.Enabled || cli.Label != "Installing CLI…" {
+	if more.Items[4].Kind != MenuKindHeader || more.Items[8].Kind != MenuKindHeader {
+		t.Fatal("copyright and version should be headers")
+	}
+	if cli := findID(more.Items, menuIDInstallCLI); cli.Enabled {
+		t.Fatalf("unexpected CLI item %+v", cli)
+	}
+	in.CLIInstalling = false
+	if cli := findID(findID(buildMenuState(in).Items, "more").Items, menuIDInstallCLI); cli.Label != "Install Pangolin CLI…" || !cli.Enabled {
 		t.Fatalf("unexpected CLI item %+v", cli)
 	}
 	in.CLIInstalled = true
@@ -245,20 +346,41 @@ func TestMenuAccounts(t *testing.T) {
 		t.Fatalf("submenu label %q", accounts.Label)
 	}
 	got := strings.Join(labels(accounts.Items), "|")
-	want := "Available Accounts|---|a@example.com (https://one)|a@example.com (https://two)|b@example.com|---|Add Account|Logout"
+	want := "Available Accounts|a@example.com (https://one)|a@example.com (https://two)|b@example.com|---|Add Account…|Log Out"
 	if got != want {
 		t.Fatalf("got %q\nwant %q", got, want)
 	}
-	if !findID(accounts.Items, menuPrefixAccount+"u1").Checked || findID(accounts.Items, menuPrefixAccount+"u2").Checked {
+	if !accounts.Items[0].Inset {
+		t.Fatal("header should be inset")
+	}
+	u1, u2 := findID(accounts.Items, menuPrefixAccount+"u1"), findID(accounts.Items, menuPrefixAccount+"u2")
+	if !u1.Checked || u2.Checked || !u1.Checkable || !u2.Checkable {
 		t.Fatal("only the active account should be checked")
+	}
+
+	in.CurrentUserDisplay = "Alice"
+	if got := findID(buildMenuState(in).Items, "accounts").Label; got != "Alice" {
+		t.Fatalf("title should prefer the signed-in user, got %q", got)
+	}
+
+	in.SwitchingAccountID = "u2"
+	accounts = findID(buildMenuState(in).Items, "accounts")
+	if !accounts.Loading || !findID(accounts.Items, menuPrefixAccount+"u2").Loading {
+		t.Fatal("expected spinners while switching")
+	}
+	if findID(accounts.Items, menuPrefixAccount+"u3").Enabled || findID(accounts.Items, menuIDAddAccount).Enabled {
+		t.Fatal("rows should be disabled while switching")
 	}
 }
 
 func TestMenuOrgs(t *testing.T) {
 	in := signedIn()
 	orgs := findID(buildMenuState(in).Items, "orgs")
-	if orgs.Label != "Org One" || orgs.Items[0].Label != "2 Organizations" {
+	if orgs.Label != "Org One" || orgs.Items[0].Label != "2 Organizations" || !orgs.Items[0].Inset {
 		t.Fatalf("unexpected org submenu %+v", orgs)
+	}
+	if got := strings.Join(labels(orgs.Items), "|"); got != "2 Organizations|Org One|Org Two" {
+		t.Fatalf("got %q", got)
 	}
 
 	in.Orgs = []menuOrg{{ID: "o1", Name: "Solo"}}
@@ -269,8 +391,120 @@ func TestMenuOrgs(t *testing.T) {
 	in.Orgs = nil
 	in.CurrentOrgID, in.CurrentOrgName = "", ""
 	orgs = findID(buildMenuState(in).Items, "orgs")
-	if orgs.Label != "Organizations" || orgs.Items[0].Label != "0 Organizations" || orgs.Items[2].Label != "No organizations" {
+	if orgs.Label != "Select Organization" || len(orgs.Items) != 1 || orgs.Items[0].Label != "No Organizations" || orgs.Items[0].Kind != MenuKindLabel {
 		t.Fatalf("unexpected empty org submenu %+v", orgs)
+	}
+
+	in.SwitchingAccountID = "u1"
+	orgs = findID(buildMenuState(in).Items, "orgs")
+	if orgs.Label != "Loading…" || orgs.Items[0].Label != "Loading…" {
+		t.Fatalf("unexpected org submenu while switching accounts %+v", orgs)
+	}
+}
+
+func TestMenuSitesSubmenu(t *testing.T) {
+	in := signedIn()
+	if it := findID(buildMenuState(in).Items, menuIDSites); len(it.Items) != 0 {
+		t.Fatal("sites only open while connected")
+	}
+
+	in.TunnelPhase = phaseRunning
+	in.Connected = true
+	sites := findID(buildMenuState(in).Items, menuIDSites)
+	if got := strings.Join(labels(sites.Items), "|"); got != "Open Status…|---|Loading…" {
+		t.Fatalf("got %q", got)
+	}
+
+	in.SitesLoaded = true
+	sites = findID(buildMenuState(in).Items, menuIDSites)
+	if got := strings.Join(labels(sites.Items), "|"); got != "Open Status…|---|No sites" {
+		t.Fatalf("got %q", got)
+	}
+
+	in.SitesLoaded, in.Connected = false, false
+	sites = findID(buildMenuState(in).Items, menuIDSites)
+	if got := strings.Join(labels(sites.Items), "|"); got != "Open Status…|---|Connect to see sites." {
+		t.Fatalf("got %q", got)
+	}
+
+	in.SitesLoaded = true
+	in.Sites = []StatusSite{
+		{ID: exitNodeSiteID, Name: "Pangolin Server", Endpoint: "203.0.113.1:51820", Status: "Connected", Color: statusColorGreen,
+			LastSeen: in.Now.Add(-12 * time.Second).Format(time.RFC3339)},
+		{ID: 4, Name: "Office", Status: "Connecting", Color: statusColorYellow, Connection: "Relay"},
+	}
+	sites = findID(buildMenuState(in).Items, menuIDSites)
+	if got := strings.Join(labels(sites.Items), "|"); got != "Open Status…|---|2 Sites|Pangolin Server|Office" {
+		t.Fatalf("got %q", got)
+	}
+	server := findID(sites.Items, "site:-1")
+	if server.Kind != MenuKindSubmenu || server.Dot != menuDotGreen {
+		t.Fatalf("got %+v", server)
+	}
+	var details []string
+	for _, d := range server.Items[1:] {
+		details = append(details, d.Label+"="+d.Value)
+	}
+	if got := strings.Join(details, "|"); got != "Status=Connected|Connection=—|Endpoint=203.0.113.1:51820|Last Seen=12s ago" {
+		t.Fatalf("got %q", got)
+	}
+	if office := findID(sites.Items, "site:4"); office.Dot != menuDotYellow || office.Items[4].Value != "—" {
+		t.Fatalf("got %+v", office)
+	}
+
+	// A pending disconnect closes the sites submenu.
+	in.PendingTunnelOn = boolPtr(false)
+	if it := findID(buildMenuState(in).Items, menuIDSites); len(it.Items) != 0 {
+		t.Fatal("sites should close while disconnecting")
+	}
+}
+
+func TestRelativeTime(t *testing.T) {
+	now := time.Date(2026, 9, 28, 12, 0, 0, 0, time.UTC)
+	cases := map[time.Duration]string{
+		5 * time.Second:  "5s ago",
+		90 * time.Second: "1m ago",
+		3 * time.Hour:    "3h ago",
+		50 * time.Hour:   "2d ago",
+		-time.Minute:     "0s ago",
+	}
+	for ago, want := range cases {
+		if got := relativeTime(now.Add(-ago).Format(time.RFC3339), now); got != want {
+			t.Errorf("%v: got %q want %q", ago, got, want)
+		}
+	}
+	if relativeTime("", now) != "" {
+		t.Error("empty time should stay empty")
+	}
+}
+
+func TestPhaseDebouncer(t *testing.T) {
+	var d phaseDebouncer
+	start := time.Now()
+	if got, _ := d.update(phaseRunning, start, false); got != phaseRunning {
+		t.Fatalf("got %v", got)
+	}
+	// A drop is held back...
+	got, wait := d.update(phaseStarting, start.Add(100*time.Millisecond), false)
+	if got != phaseRunning || wait != tunnelDropDelay {
+		t.Fatalf("got %v wait %v", got, wait)
+	}
+	// ...and recovering before the delay never shows it.
+	if got, _ := d.update(phaseRunning, start.Add(time.Second), false); got != phaseRunning {
+		t.Fatalf("got %v", got)
+	}
+	d.update(phaseStopped, start.Add(2*time.Second), false)
+	if got, _ := d.update(phaseStopped, start.Add(2*time.Second+tunnelDropDelay), false); got != phaseStopped {
+		t.Fatalf("drop should show after the delay, got %v", got)
+	}
+	// Drops the user asked for show at once, as do non-drops.
+	d.update(phaseRunning, start.Add(5*time.Second), false)
+	if got, _ := d.update(phaseStopped, start.Add(5*time.Second), true); got != phaseStopped {
+		t.Fatalf("got %v", got)
+	}
+	d.update(phaseRunning, start.Add(6*time.Second), false)
+	if got, _ := d.update(phaseStopping, start.Add(6*time.Second), false); got != phaseStopping {
+		t.Fatalf("got %v", got)
 	}
 }
 
@@ -306,6 +540,9 @@ func TestMenuExitNodeSubmenu(t *testing.T) {
 	sub := findID(buildMenuState(in).Items, "exitnodes")
 	if sub == nil || sub.Kind != MenuKindSubmenu || sub.Label != "None" {
 		t.Fatalf("got %+v", sub)
+	}
+	if got := strings.Join(labels(sub.Items), "|"); got != "Route All Traffic Through|None|Office|Home" {
+		t.Fatalf("got %q", got)
 	}
 	if none := findID(sub.Items, menuIDExitNodeNone); none == nil || !none.Checked {
 		t.Fatalf("None should be checked: %+v", none)

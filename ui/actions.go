@@ -29,7 +29,12 @@ func openURL(url string) {
 // invokeMenuItem runs the action for a tray popup item. It is called on a
 // service goroutine, so it may block.
 func invokeMenuItem(id string) {
-	hideTrayPopup()
+	// Like the macOS menu, the popup stays open for the connect switch and for
+	// account and organization switches so their progress shows.
+	keepOpen := id == menuIDConnect || strings.HasPrefix(id, menuPrefixAccount) || strings.HasPrefix(id, menuPrefixOrg)
+	if !keepOpen {
+		hideTrayPopup()
+	}
 
 	switch {
 	case id == menuIDUpdate:
@@ -49,6 +54,8 @@ func invokeMenuItem(id string) {
 		showPreferencesWindow(0)
 	case id == menuIDQuit:
 		quit()
+	case id == menuIDOpenStatus:
+		showPreferencesWindow(1)
 	case id == menuIDHowItWorks:
 		openURL(urlHowItWorks)
 	case id == menuIDDocs:
@@ -85,23 +92,36 @@ func toggleConnection() {
 	// can cancel the connection process at any time.
 	switch state := tunnelManager.State(); state {
 	case tunnel.StateStopped:
+		on := true
+		setPendingTunnel(&on)
+		setConnectionError("")
+		publish()
 		openStatusTabOnConnect()
 		setAlwaysOn(true)
 		if err := tunnelManager.Connect(); err != nil {
 			logger.Error("Failed to start tunnel: %v", err)
 			setAlwaysOn(false)
+			setPendingTunnel(nil)
 			notifyConnectionError(err, "Connection Failed")
 		}
 	case tunnel.StateStopping:
-		// The Connect item is disabled while stopping.
+		// The connect switch is disabled while stopping.
+		return
 	default:
 		logger.Info("Disconnecting...")
+		off := false
+		setPendingTunnel(&off)
+		publish()
 		setAlwaysOn(false)
 		if err := tunnelManager.Disconnect(); err != nil {
 			logger.Error("Failed to stop tunnel: %v", err)
+			setPendingTunnel(nil)
 			notifyConnectionError(err, "Disconnect Failed")
 		}
 	}
+	// The state callback may have fired before the pending value was set.
+	onTunnelStateForMenu(tunnelManager.State())
+	publish()
 }
 
 func openStatusTabOnConnect() {
@@ -120,6 +140,19 @@ func switchAccount(userID string) {
 		publish()
 		return
 	}
+	if active, _ := accountManager.ActiveAccount(); active != nil && active.UserID == userID {
+		return
+	}
+	stateMu.RLock()
+	busy := switchingAccountID != "" || switchingOrgID != "" || loggingOut
+	stateMu.RUnlock()
+	if busy {
+		return
+	}
+	// A connection error belongs to the account it happened on.
+	setConnectionError("")
+	setSwitchingAccount(userID)
+	defer setSwitchingAccount("")
 
 	// Switching users requires the tunnel to go down.
 	logger.Info("Stopping tunnel before switching accounts")
@@ -143,6 +176,18 @@ func selectOrganization(orgID string) {
 	if authManager == nil {
 		return
 	}
+	if org := authManager.CurrentOrg(); org != nil && org.Id == orgID {
+		return
+	}
+	stateMu.RLock()
+	busy := switchingAccountID != "" || switchingOrgID != "" || loggingOut
+	stateMu.RUnlock()
+	if busy {
+		return
+	}
+	setConnectionError("")
+	setSwitchingOrg(orgID)
+	defer setSwitchingOrg("")
 	var found bool
 	for _, org := range authManager.Organizations() {
 		if org.Id != orgID {
@@ -175,6 +220,9 @@ func logout() {
 	if authManager == nil {
 		return
 	}
+	setConnectionError("")
+	setLoggingOut(true)
+	defer setLoggingOut(false)
 	// Always stop any running tunnel before logout.
 	logger.Info("Stopping tunnel before logout")
 	if err := managers.IPCClientStopTunnel(); err != nil {

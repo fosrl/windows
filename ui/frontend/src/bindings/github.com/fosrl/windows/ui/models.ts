@@ -50,6 +50,37 @@ export interface MenuItem {
     "label": string;
     "enabled": boolean;
     "checked": boolean;
+
+    /**
+     * Checkable reserves the leading check column, so checked and unchecked rows line up.
+     */
+    "checkable": boolean;
+
+    /**
+     * Loading shows a small spinner: in the check column of a checkable row,
+     * otherwise trailing the label.
+     */
+    "loading": boolean;
+
+    /**
+     * Dot is a status dot color shown before the label.
+     */
+    "dot": string;
+
+    /**
+     * Icon is shown before a label's text.
+     */
+    "icon": string;
+
+    /**
+     * Inset indents a header to line up with the text of checkable rows.
+     */
+    "inset": boolean;
+
+    /**
+     * Value is the right-hand text of a detail row.
+     */
+    "value": string;
     "items"?: MenuItem[] | null;
 }
 
@@ -58,6 +89,12 @@ export interface MenuItem {
  */
 export interface MenuState {
     "items": MenuItem[] | null;
+
+    /**
+     * Loading replaces the whole panel with a spinner, as the macOS menu does
+     * while starting up and while switching accounts or organizations.
+     */
+    "loading": boolean;
 }
 
 /**

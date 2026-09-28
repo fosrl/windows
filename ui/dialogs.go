@@ -104,5 +104,6 @@ func notifyConnectionError(err error, fallbackTitle string) {
 		title = connErr.Title
 		message = connErr.Message
 	}
+	setConnectionError(message)
 	showConnectionErrorNotification(title, message)
 }

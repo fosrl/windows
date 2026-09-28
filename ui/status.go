@@ -16,14 +16,25 @@ var (
 	statusQuit    chan struct{}
 	statusSites   = newSiteTracker()
 	statusCurrent StatusView
+	// statusLoaded is true once an OLM status has been read since polling started.
+	statusLoaded bool
+	// statusRefs counts the views polling: the preferences window and the
+	// tray's sites submenu.
+	statusRefs int
+	// statusMenuVisible is true while the tray's sites submenu is open.
+	statusMenuVisible bool
 )
 
+// startStatusPolling starts polling for one more view; pair each call with
+// stopStatusPolling.
 func startStatusPolling() {
 	statusMu.Lock()
 	defer statusMu.Unlock()
+	statusRefs++
 	if statusQuit != nil {
 		return
 	}
+	statusLoaded = false
 	statusSites.reset()
 	statusQuit = make(chan struct{})
 	quit := statusQuit
@@ -34,10 +45,44 @@ func startStatusPolling() {
 func stopStatusPolling() {
 	statusMu.Lock()
 	defer statusMu.Unlock()
-	if statusQuit != nil {
+	if statusRefs > 0 {
+		statusRefs--
+	}
+	if statusRefs == 0 && statusQuit != nil {
 		close(statusQuit)
 		statusQuit = nil
 	}
+}
+
+// setMenuSitesVisible starts or stops polling for the tray's sites submenu.
+func setMenuSitesVisible(visible bool) {
+	statusMu.Lock()
+	changed := statusMenuVisible != visible
+	statusMenuVisible = visible
+	statusMu.Unlock()
+	if !changed {
+		return
+	}
+	if visible {
+		startStatusPolling()
+	} else {
+		stopStatusPolling()
+	}
+	publish()
+}
+
+func menuSitesVisible() bool {
+	statusMu.Lock()
+	defer statusMu.Unlock()
+	return statusMenuVisible
+}
+
+// currentStatusSites returns the sites for the tray menu, and whether an OLM
+// status has been read yet.
+func currentStatusSites() ([]StatusSite, bool) {
+	statusMu.Lock()
+	defer statusMu.Unlock()
+	return statusCurrent.Sites, statusLoaded
 }
 
 func currentStatusView() StatusView {
@@ -72,10 +117,17 @@ func pollStatus(quit chan struct{}) {
 			return
 		}
 		statusCurrent = buildStatusView(state, status, time.Now())
+		if status != nil {
+			statusLoaded = true
+		}
 		view := statusCurrent
+		menuVisible := statusMenuVisible
 		statusMu.Unlock()
 
 		app.Event.Emit(eventStatusUpdate, view)
+		if menuVisible {
+			publish()
+		}
 	}
 }
 

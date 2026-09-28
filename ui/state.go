@@ -5,6 +5,7 @@ package ui
 import (
 	"errors"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -42,6 +43,17 @@ var (
 	cliInstalled         bool
 	cliInstallInProgress bool
 
+	// Progress shown in the menu while it stays open, as on macOS.
+	pendingTunnelOn    *bool
+	pendingTunnelTimer *time.Timer
+	connectionError    string
+	switchingAccountID string
+	switchingOrgID     string
+	loggingOut         bool
+
+	tunnelDisplay      phaseDebouncer
+	tunnelDisplayTimer *time.Timer
+
 	alwaysOn      bool
 	alwaysOnMutex sync.Mutex
 
@@ -68,6 +80,84 @@ func setCLIInstallInProgress(v bool) {
 	publish()
 }
 
+// pendingTunnelTimeout clears a pending switch click if the tunnel never
+// reports the requested state.
+const pendingTunnelTimeout = 30 * time.Second
+
+func setPendingTunnel(on *bool) {
+	stateMu.Lock()
+	pendingTunnelOn = on
+	if pendingTunnelTimer != nil {
+		pendingTunnelTimer.Stop()
+		pendingTunnelTimer = nil
+	}
+	if on != nil {
+		pendingTunnelTimer = time.AfterFunc(pendingTunnelTimeout, func() {
+			setPendingTunnel(nil)
+			publish()
+		})
+	}
+	stateMu.Unlock()
+}
+
+// onTunnelStateForMenu clears a pending switch click once the tunnel has
+// moved toward the requested state.
+func onTunnelStateForMenu(state tunnel.State) {
+	stateMu.RLock()
+	p := pendingTunnelOn
+	stateMu.RUnlock()
+	if p != nil && *p == (state != tunnel.StateStopped) {
+		setPendingTunnel(nil)
+	}
+	if state == tunnel.StateRunning {
+		setConnectionError("")
+	}
+}
+
+func setConnectionError(message string) {
+	stateMu.Lock()
+	connectionError = message
+	stateMu.Unlock()
+}
+
+func setSwitchingAccount(userID string) {
+	stateMu.Lock()
+	switchingAccountID = userID
+	stateMu.Unlock()
+	publish()
+}
+
+func setSwitchingOrg(orgID string) {
+	stateMu.Lock()
+	switchingOrgID = orgID
+	stateMu.Unlock()
+	publish()
+}
+
+func setLoggingOut(v bool) {
+	stateMu.Lock()
+	loggingOut = v
+	stateMu.Unlock()
+	publish()
+}
+
+// displayedTunnelPhase debounces drops in the tunnel state. While one is held
+// back it schedules a publish for when it should show.
+func displayedTunnelPhase(raw tunnelPhase, immediate bool) tunnelPhase {
+	stateMu.Lock()
+	defer stateMu.Unlock()
+	shown, wait := tunnelDisplay.update(raw, time.Now(), immediate)
+	if wait > 0 && tunnelDisplayTimer == nil {
+		tunnelDisplayTimer = time.AfterFunc(wait, func() {
+			stateMu.Lock()
+			tunnelDisplayTimer = nil
+			stateMu.Unlock()
+			publish()
+		})
+	}
+	return shown
+}
+
 func currentTunnelState() tunnel.State {
 	if tunnelManager == nil {
 		return tunnel.StateStopped
@@ -79,7 +169,7 @@ func phaseForState(s tunnel.State) tunnelPhase {
 	switch s {
 	case tunnel.StateStopped:
 		return phaseStopped
-	case tunnel.StateStarting, tunnel.StateRegistering, tunnel.StateRegistered:
+	case tunnel.StateStarting, tunnel.StateRegistering, tunnel.StateRegistered, tunnel.StateReconnecting:
 		return phaseStarting
 	case tunnel.StateRunning:
 		return phaseRunning
@@ -93,6 +183,7 @@ func phaseForState(s tunnel.State) tunnelPhase {
 // collectMenuInputs snapshots the managers for buildMenuState.
 func collectMenuInputs() menuInputs {
 	in := menuInputs{
+		Now:                time.Now(),
 		Version:            version.Number,
 		Year:               time.Now().Year(),
 		CheckUpdateVisible: config.CheckForUpdatesButtonEnabled(),
@@ -103,13 +194,25 @@ func collectMenuInputs() menuInputs {
 	in.HasUpdate = hasUpdate
 	in.CLIInstalled = cliInstalled
 	in.CLIInstalling = cliInstallInProgress
+	if pendingTunnelOn != nil {
+		v := *pendingTunnelOn
+		in.PendingTunnelOn = &v
+	}
+	in.ConnectionError = connectionError
+	in.SwitchingAccountID = switchingAccountID
+	in.SwitchingOrgID = switchingOrgID
+	in.LoggingOut = loggingOut
 	stateMu.RUnlock()
 
-	state := currentTunnelState()
-	in.TunnelPhase = phaseForState(state)
-	in.TunnelStateText = state.DisplayText()
+	rawPhase := phaseForState(currentTunnelState())
+	// Drops the user asked for show right away.
+	in.TunnelPhase = displayedTunnelPhase(rawPhase, in.PendingTunnelOn != nil || in.switching())
 	if tunnelManager != nil {
 		in.Connected = tunnelManager.IsConnected()
+	}
+	if menuSitesVisible() {
+		view, loaded := currentStatusSites()
+		in.Sites, in.SitesLoaded = view, loaded
 	}
 
 	if authManager != nil {
@@ -139,7 +242,10 @@ func collectMenuInputs() menuInputs {
 			in.CurrentOrgID = org.Id
 			in.CurrentOrgName = org.Name
 		}
-		in.ExitNodes, in.ActiveExitNodeID = currentExitNodes(in.CurrentOrgID, in.TunnelPhase == phaseRunning)
+		in.ExitNodes, in.ActiveExitNodeID = currentExitNodes(in.CurrentOrgID, rawPhase == phaseRunning)
+		if user := authManager.CurrentUser(); user != nil {
+			in.CurrentUserDisplay = auth.UserDisplayName(user)
+		}
 	}
 
 	if accountManager != nil {
@@ -153,26 +259,16 @@ func collectMenuInputs() menuInputs {
 			})
 		}
 		sort.Slice(in.Accounts, func(i, j int) bool {
-			if in.Accounts[i].Display != in.Accounts[j].Display {
-				return in.Accounts[i].Display < in.Accounts[j].Display
+			// Case-insensitive, like the macOS accounts submenu.
+			di, dj := strings.ToLower(in.Accounts[i].Display), strings.ToLower(in.Accounts[j].Display)
+			if di != dj {
+				return di < dj
 			}
 			return in.Accounts[i].Hostname < in.Accounts[j].Hostname
 		})
 		active, _ := accountManager.ActiveAccount()
 		if active != nil {
 			in.ActiveAccountID = active.UserID
-		}
-
-		in.LoginLabel = "Login to Account"
-		if in.Authenticated {
-			switch {
-			case active == nil:
-				in.LoginLabel = "Select Account"
-			case authManager.CurrentUser() != nil:
-				in.LoginLabel = auth.UserDisplayName(authManager.CurrentUser())
-			default:
-				in.LoginLabel = auth.AccountDisplayName(active)
-			}
 		}
 	}
 

@@ -49,6 +49,12 @@
   --color-mac-row-alt: rgb(0 0 0 / 0.03);
   --color-mac-selection: rgb(243 98 23 / 0.18);
   --color-mac-danger: #ff3b30;
+  --color-mac-warning: #ff9500;
+  /* Tray popup, styled after the macOS menu bar panel. */
+  --color-mac-menu: #f4f4f4;
+  --color-mac-menu-border: rgb(0 0 0 / 0.12);
+  --color-mac-menu-hover: rgb(0 0 0 / 0.1);
+  --color-mac-menu-pressed: rgb(0 0 0 / 0.16);
 
   --color-dot-green: rgb(0 200 0);
   --color-dot-gray: rgb(150 150 150);
@@ -97,6 +103,11 @@
       --color-mac-row-alt: rgb(255 255 255 / 0.03);
       --color-mac-selection: rgb(243 98 23 / 0.3);
       --color-mac-danger: #ff453a;
+      --color-mac-warning: #ff9f0a;
+      --color-mac-menu: #2a2a2c;
+      --color-mac-menu-border: rgb(255 255 255 / 0.12);
+      --color-mac-menu-hover: rgb(255 255 255 / 0.1);
+      --color-mac-menu-pressed: rgb(255 255 255 / 0.16);
     }
   }
 
@@ -185,6 +196,39 @@
   @keyframes mac-spin {
     to {
       transform: rotate(360deg);
+    }
+  }
+  /* Tray popup transitions. */
+  @keyframes tray-fade-in {
+    from {
+      opacity: 0;
+      filter: blur(3px);
+    }
+  }
+  @keyframes tray-submenu-in {
+    from {
+      opacity: 0;
+      transform: translateX(var(--tray-submenu-from, 0));
+    }
+  }
+  .tray-fade-in {
+    animation: tray-fade-in 180ms ease-out;
+  }
+  .tray-submenu-in-left,
+  .tray-submenu-in-right {
+    animation: tray-submenu-in 140ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+  .tray-submenu-in-left {
+    --tray-submenu-from: 4px;
+  }
+  .tray-submenu-in-right {
+    --tray-submenu-from: -4px;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .tray-fade-in,
+    .tray-submenu-in-left,
+    .tray-submenu-in-right {
+      animation: none;
     }
   }
   @keyframes mac-sheet-in {

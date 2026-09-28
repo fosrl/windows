@@ -21,6 +21,17 @@ func (MenuService) Invoke(id string)   { invokeMenuItem(id) }
 func (MenuService) Resize(height int)  { resizeTrayWindow(height) }
 func (MenuService) Hide()              { hideTrayPopup() }
 
+// HideReady is called once the popup has painted itself transparent for hiding.
+func (MenuService) HideReady() { trayHideReady() }
+
+// OpenReady is called once the popup has drawn the menu while opening, with
+// the window height it needs.
+func (MenuService) OpenReady(height int) { trayOpenReady(height) }
+
+// SetSitesVisible is called when the sites submenu opens or closes, so site
+// status is only polled while it is on screen.
+func (MenuService) SetSitesVisible(visible bool) { setMenuSitesVisible(visible) }
+
 // PreferencesService backs the Preferences tab.
 type PreferencesService struct{}
 

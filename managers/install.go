@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/fosrl/newt/logger"
 	"github.com/fosrl/windows/config"
 	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/svc"
@@ -149,11 +150,15 @@ func InstallTunnel(configJSON string) error {
 			return err
 		}
 		if status.State != svc.Stopped && err != windows.ERROR_SERVICE_MARKED_FOR_DELETE {
-			if _, ctrlErr := service.Control(svc.Stop); ctrlErr != nil {
-				service.Close()
-				return fmt.Errorf("failed to stop running tunnel service: %w", ctrlErr)
+			// A service that is already stopping can't take another Stop; just
+			// wait for it to finish.
+			if status.State != svc.StopPending {
+				if _, ctrlErr := service.Control(svc.Stop); ctrlErr != nil && !stopInProgress(ctrlErr) {
+					service.Close()
+					return fmt.Errorf("failed to stop running tunnel service: %w", ctrlErr)
+				}
 			}
-			if !waitForServiceStopped(service, 30*time.Second) {
+			if !waitForServiceStopped(service, serviceStopTimeout) {
 				service.Close()
 				return errors.New("timed out waiting for tunnel service to stop")
 			}
@@ -225,13 +230,19 @@ func UninstallTunnel(name string) error {
 		}
 		return err
 	}
-	defer service.Close()
-
-	service.Control(svc.Stop)
+	// Wait for the service to actually stop, so the tunnel only reads as
+	// stopped once another one can be started.
+	if _, ctrlErr := service.Control(svc.Stop); ctrlErr == nil || stopInProgress(ctrlErr) {
+		if !waitForServiceStopped(service, serviceStopTimeout) {
+			logger.Error("Timed out waiting for tunnel service %s to stop", serviceName)
+		}
+	}
 	err = service.Delete()
+	service.Close()
 	if err != nil && err != windows.ERROR_SERVICE_MARKED_FOR_DELETE {
 		return err
 	}
+	waitForServiceDeleted(m, serviceName, serviceDeleteTimeout)
 
 	// Clean up config file
 	configDir := filepath.Join(os.Getenv("ProgramData"), config.AppName, "Tunnels")
@@ -239,6 +250,32 @@ func UninstallTunnel(name string) error {
 	os.Remove(configPath) // Best effort cleanup
 
 	return nil
+}
+
+const (
+	serviceStopTimeout   = 30 * time.Second
+	serviceDeleteTimeout = 10 * time.Second
+)
+
+// stopInProgress reports whether a Stop control failed only because the
+// service is already stopping or stopped.
+func stopInProgress(err error) bool {
+	return errors.Is(err, windows.ERROR_SERVICE_CANNOT_ACCEPT_CTRL) || errors.Is(err, windows.ERROR_SERVICE_NOT_ACTIVE)
+}
+
+// waitForServiceDeleted waits until a service marked for deletion is gone.
+func waitForServiceDeleted(m *mgr.Mgr, name string, timeout time.Duration) {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		service, err := m.OpenService(name)
+		if err != nil && err != windows.ERROR_SERVICE_MARKED_FOR_DELETE {
+			return
+		}
+		if service != nil {
+			service.Close()
+		}
+		time.Sleep(time.Second / 3)
+	}
 }
 
 func waitForServiceStopped(service *mgr.Service, timeout time.Duration) bool {

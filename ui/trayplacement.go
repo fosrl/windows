@@ -1,11 +1,13 @@
 package ui
 
-// Tray popup geometry in DIPs. The window is wide enough for the menu plus one
-// cascading submenu and has a transparent margin for the drop shadow.
+// Tray popup geometry in DIPs. The window is wide enough for the menu plus two
+// cascading submenus (sites, then a site's details) and has a transparent
+// margin for the drop shadow. The panel width matches the macOS menu.
 const (
-	trayPanelWidth    = 260
+	trayPanelWidth    = 310
+	traySubmenuLevels = 2
 	trayShadowPadding = 8
-	trayWindowWidth   = 2*trayPanelWidth + 2*trayShadowPadding
+	trayWindowWidth   = (1+traySubmenuLevels)*trayPanelWidth + 2*trayShadowPadding
 )
 
 // TrayLayout tells the popup which side submenus open on and which edge the
@@ -50,11 +52,12 @@ func placeTrayWindow(cursorX, cursorY, height int, work trayRect) (trayRect, Tra
 
 	layout := TrayLayout{PanelWidth: trayPanelWidth, Padding: trayShadowPadding}
 	windowX := panelX
-	if panelX+panelOuter+trayPanelWidth <= right {
+	submenusWidth := traySubmenuLevels * trayPanelWidth
+	if panelX+panelOuter+submenusWidth <= right {
 		layout.SubmenuSide = "right"
 	} else {
 		layout.SubmenuSide = "left"
-		windowX = panelX - trayPanelWidth
+		windowX = panelX - submenusWidth
 	}
 
 	// Open downward from the cursor when the whole menu fits below it;

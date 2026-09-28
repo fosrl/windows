@@ -31,6 +31,7 @@ func registerIPCCallbacks() {
 			handleAlwaysOnStopped()
 		}
 		onTunnelStateForExitNodes(state)
+		onTunnelStateForMenu(state)
 		updateTrayForState(state)
 		publish()
 	})
@@ -41,7 +42,9 @@ func registerIPCCallbacks() {
 		if message == "" {
 			message = fmt.Sprintf("Error code: %s", err.Code)
 		}
+		setConnectionError(message)
 		showConnectionErrorNotification("Connection Error", message)
+		publish()
 	})
 }
 
