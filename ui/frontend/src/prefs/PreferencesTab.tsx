@@ -98,7 +98,7 @@ export function PreferencesTab({ initial }: { initial: Settings }) {
         <Section header="Advanced">
           <Row
             title="Exit Node Takes Precedence Over Resources"
-            description="When enabled, routes for individual resources are not added to the system and their aliases are not resolved, so all traffic is sent through the exit node instead of directly to resources. Exit node (gateway) routes are unaffected."
+            description="When enabled, routes for individual resources are not added to the system and their aliases are not resolved, so all traffic is sent through the exit node instead of directly to resources."
           >
             <Switch
               label="Exit Node Takes Precedence Over Resources"
