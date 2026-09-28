@@ -26,6 +26,12 @@ var (
 	// olmGatewayResourceID is the gateway resource olm reports it is routing
 	// through while the tunnel is up (0 for none).
 	olmGatewayResourceID int
+	// hasOLMGatewayStatus is true once olm has confirmed (registered) what it is
+	// actually routing through for the current run of the tunnel. Until then,
+	// currentExitNodes falls back to the saved choice instead of olmGatewayResourceID,
+	// which would otherwise read as "none" for the moment between the tunnel
+	// reporting Running and the first status refresh actually landing.
+	hasOLMGatewayStatus bool
 )
 
 // usableGateways drops gateway resources that can't be used as an exit node.
@@ -56,28 +62,45 @@ func currentExitNodes(orgID string, running bool) (nodes []menuExitNode, activeI
 			savedResourceID = accountManager.GetExitNode(active.UserID)
 		}
 	}
+	useOLM := running && hasOLMGatewayStatus
 	for _, g := range exitNodeList {
 		nodes = append(nodes, menuExitNode{ID: g.SiteResourceID, Name: g.Name})
-		if !running && savedResourceID != 0 && g.SiteResourceID == savedResourceID {
+		if !useOLM && savedResourceID != 0 && g.SiteResourceID == savedResourceID {
 			activeID = g.SiteResourceID
 		}
 	}
-	if running {
+	if useOLM {
 		activeID = olmGatewayResourceID
 	}
 	return nodes, activeID
 }
 
-func setOLMGatewayResourceID(id int) {
+// resetOLMGatewayStatus clears the gateway ID and forgets any confirmation from olm,
+// so currentExitNodes goes back to showing the saved choice until olm confirms again.
+func resetOLMGatewayStatus() {
 	exitNodeMu.Lock()
-	olmGatewayResourceID = id
+	hasOLMGatewayStatus = false
+	olmGatewayResourceID = 0
+	exitNodeMu.Unlock()
+}
+
+// setOLMGatewayStatus records a confirmed answer from olm (or a live SelectGateway/
+// DisableGateway call, which is confirmed by construction).
+func setOLMGatewayStatus(active bool, resourceID int) {
+	exitNodeMu.Lock()
+	hasOLMGatewayStatus = true
+	if active {
+		olmGatewayResourceID = resourceID
+	} else {
+		olmGatewayResourceID = 0
+	}
 	exitNodeMu.Unlock()
 }
 
 // refreshOLMGateway reads the gateway selection olm is currently using.
 func refreshOLMGateway() {
 	if tunnelManager == nil || tunnelManager.State() != tunnel.StateRunning {
-		setOLMGatewayResourceID(0)
+		resetOLMGatewayStatus()
 		return
 	}
 	status, err := tunnelManager.GetOLMStatus()
@@ -85,11 +108,12 @@ func refreshOLMGateway() {
 		logger.Error("Failed to read exit node status from OLM: %v", err)
 		return
 	}
-	if status.GatewayActive {
-		setOLMGatewayResourceID(status.GatewaySiteResourceID)
-	} else {
-		setOLMGatewayResourceID(0)
+	if !status.Registered {
+		// olm applies any pending gateway synchronously before marking itself
+		// registered, so GatewayActive isn't a trustworthy answer yet.
+		return
 	}
+	setOLMGatewayStatus(status.GatewayActive, status.GatewaySiteResourceID)
 }
 
 // refreshExitNodes reloads the org's exit nodes and olm's gateway state, then
@@ -127,7 +151,7 @@ func onTunnelStateForExitNodes(state tunnel.State) {
 		// Connecting applies the saved exit node, so pick up the result.
 		refreshExitNodes()
 	case tunnel.StateStopped:
-		setOLMGatewayResourceID(0)
+		resetOLMGatewayStatus()
 	}
 }
 
@@ -173,7 +197,7 @@ func selectExitNode(idStr string) {
 			refreshExitNodes()
 			return
 		}
-		setOLMGatewayResourceID(gateway.SiteResourceID)
+		setOLMGatewayStatus(true, gateway.SiteResourceID)
 	}
 
 	active, err := accountManager.ActiveAccount()
@@ -198,7 +222,7 @@ func disableExitNode() {
 			refreshExitNodes()
 			return
 		}
-		setOLMGatewayResourceID(0)
+		setOLMGatewayStatus(false, 0)
 	}
 
 	if active, err := accountManager.ActiveAccount(); err == nil {
