@@ -40,22 +40,28 @@ func invokeMenuItem(id string) {
 	case id == menuIDUpdate:
 		triggerUpdate()
 	case id == menuIDReAuth:
-		if authManager != nil {
-			authManager.SetStartDeviceAuthImmediately(true)
+		// Log in again to the active account, from Preferences > Accounts.
+		var hostname string
+		if accountManager != nil {
+			if active, _ := accountManager.ActiveAccount(); active != nil {
+				hostname = active.Hostname
+			}
 		}
-		showLoginWindow()
+		showPreferencesWindow(prefsTabAccounts, &LoginRequest{Hostname: hostname})
 	case id == menuIDConnect:
 		toggleConnection()
 	case id == menuIDLogin, id == menuIDAddAccount:
-		showLoginWindow()
+		showPreferencesWindow(prefsTabAccounts, &LoginRequest{})
+	case id == menuIDManageAccounts:
+		showPreferencesWindow(prefsTabAccounts, nil)
 	case id == menuIDLogout:
 		logout()
 	case id == menuIDPreferences:
-		showPreferencesWindow(0)
+		showPreferencesWindow(prefsTabPreferences, nil)
 	case id == menuIDQuit:
 		quit()
 	case id == menuIDOpenStatus:
-		showPreferencesWindow(1)
+		showPreferencesWindow(prefsTabStatus, nil)
 	case id == menuIDHowItWorks:
 		openURL(urlHowItWorks)
 	case id == menuIDDocs:
@@ -128,7 +134,7 @@ func openStatusTabOnConnect() {
 	if configManager == nil || !configManager.GetOpenStatusTabOnConnect() {
 		return
 	}
-	showPreferencesWindow(1)
+	showPreferencesWindow(prefsTabStatus, nil)
 }
 
 func switchAccount(userID string) {
@@ -144,7 +150,7 @@ func switchAccount(userID string) {
 		return
 	}
 	stateMu.RLock()
-	busy := switchingAccountID != "" || switchingOrgID != "" || loggingOut
+	busy := switchingAccountID != "" || switchingOrgID != "" || loggingOut || removingAccountID != ""
 	stateMu.RUnlock()
 	if busy {
 		return
@@ -180,7 +186,7 @@ func selectOrganization(orgID string) {
 		return
 	}
 	stateMu.RLock()
-	busy := switchingAccountID != "" || switchingOrgID != "" || loggingOut
+	busy := switchingAccountID != "" || switchingOrgID != "" || loggingOut || removingAccountID != ""
 	stateMu.RUnlock()
 	if busy {
 		return
@@ -216,23 +222,13 @@ func selectOrganization(orgID string) {
 	publish()
 }
 
+// logout signs out of the active account and removes it, like the macOS
+// client's Log Out.
 func logout() {
-	if authManager == nil {
+	if accountManager == nil || accountManager.ActiveUserID == "" {
 		return
 	}
-	setConnectionError("")
-	setLoggingOut(true)
-	defer setLoggingOut(false)
-	// Always stop any running tunnel before logout.
-	logger.Info("Stopping tunnel before logout")
-	if err := managers.IPCClientStopTunnel(); err != nil {
-		logger.Error("Failed to stop tunnel before logout: %v", err)
-	}
-	if err := authManager.Logout(); err != nil {
-		logger.Error("Failed to logout: %v", err)
-		showError(nil, "Logout Failed", fmt.Sprintf("Failed to logout: %v", err))
-	}
-	publish()
+	deleteAccount(accountManager.ActiveUserID)
 }
 
 // quit stops any active tunnels and exits the UI process. The manager service keeps running.

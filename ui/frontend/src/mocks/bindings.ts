@@ -1,5 +1,6 @@
 // Fake backend for previewing the UI in a plain browser (`npm run mock`).
 import type {
+  AccountsView,
   AppInfo,
   LogsSnapshot,
   LoginView,
@@ -143,13 +144,30 @@ const logs: LogsSnapshot = {
   })),
 };
 
-const stage = params.get("stage") ?? "hosting";
-const login: LoginView = {
-  stage, selfHostedUrl: stage === "url" ? "pangolin.example.com" : "",
-  code: stage === "code" ? "A B C D - E F G H" : "",
-  manualUrl: stage === "code" ? "https://app.pangolin.net/auth/login/device" : "",
-  showBack: stage !== "hosting", backEnabled: stage !== "code", showLogin: stage === "url", loginEnabled: stage === "url",
+// Accounts tab: `?accounts=none` shows the welcome screen.
+const accounts: AccountsView = {
+  busyUserId: "", tunnelStarting: false,
+  accounts: params.get("accounts") === "none" ? [] : [
+    { userId: "1", displayName: "milo@pangolin.net", host: "app.pangolin.net", hostname: "https://app.pangolin.net", subtitle: "app.pangolin.net · Fossorial", active: true, locked: false },
+    { userId: "2", displayName: "ops@example.com", host: "pangolin.example.com", hostname: "https://pangolin.example.com", subtitle: "pangolin.example.com", active: false, locked: false },
+    { userId: "3", displayName: "lab@home.arpa", host: "pangolin.home.arpa", hostname: "https://pangolin.home.arpa", subtitle: "pangolin.home.arpa · Login required", active: false, locked: true },
+  ],
 };
+
+// Login sheet: `?step=` previews a step; otherwise Continue walks through them.
+const loginView = (step: string, extra: Partial<LoginView> = {}): LoginView => ({
+  session: 1, step, host: "app.pangolin.net", code: "ABCD-EFGH", email: "milo@pangolin.net", error: "",
+  renewing: false, fixedHost: false, selfHosted: false, serverUrl: "", ...extra,
+});
+function mockLoginStart(hostname: string) {
+  log("login start", hostname);
+  const host = new URL(hostname).host;
+  const emit = (step: string) => Events.Emit("login:state", loginView(step, { host }));
+  emit("starting");
+  setTimeout(() => emit("code"), 900);
+  setTimeout(() => emit("success"), 3500);
+  return ok(undefined);
+}
 
 const layout: TrayLayout = { submenuSide: "right", anchor: "top", panelWidth: 310, padding: 8 };
 
@@ -159,7 +177,10 @@ export const MenuService = {
   SetSitesVisible: (v: boolean) => ok(log("sites visible", v)), HideReady: () => ok(log("hide ready")), OpenReady: (h: number) => ok(log("open ready", h)),
 };
 export const PreferencesService = {
-  Opened: () => ok<PrefsOpened>({ tab: Number(params.get("tab") ?? 0), settings }),
+  Opened: () => ok<PrefsOpened>({
+    tab: Number(params.get("tab") ?? 0), settings,
+    login: params.has("step") ? { id: 1, hostname: params.get("renew") ?? "" } : null,
+  }),
   Update: (f: Settings) => {
     Object.assign(settings, f);
     if (!/^\d+$/.test(f.mtu) || +f.mtu < 576 || +f.mtu > 9000)
@@ -172,9 +193,13 @@ export const LogsService = {
   Snapshot: () => ok(logs), Clear: () => ok(log("clear")), Copy: (s: number[]) => ok(log("copy", s)), Export: () => ok(log("export")),
 };
 export const LoginService = {
-  State: () => ok(login), ChooseCloud: () => ok(log("cloud")), ChooseSelfHosted: () => ok(log("self")),
-  SetURL: (u: string) => ok(log("url", u)), Login: () => ok(log("login")), Back: () => ok(log("back")),
-  Cancel: () => ok(log("cancel")), CopyCode: () => ok(log("copy")), OpenBrowser: () => ok(log("browser")),
+  State: () => ok(loginView(params.get("step") ?? "server")),
+  Open: (renew: string) => ok(loginView(params.get("step") ?? (renew ? "loading" : "server"), { renewing: !!renew, fixedHost: !!renew })),
+  Start: mockLoginStart, Back: () => ok(log("back")), Close: (id: number) => ok(log("close", id)),
+  CopyCode: () => ok(log("copy")), OpenBrowser: () => ok(log("browser")),
+};
+export const AccountsService = {
+  State: () => ok(accounts), Switch: (id: string) => ok(log("switch", id)), Remove: (id: string) => ok(log("remove", id)),
 };
 export const AppService = {
   Info: () => ok<AppInfo>({ version: "0.9.0", year: 2026 }),

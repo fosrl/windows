@@ -72,6 +72,7 @@ func Run(d Deps) error {
 			application.NewService(&StatusService{}),
 			application.NewService(&LogsService{}),
 			application.NewService(&LoginService{}),
+			application.NewService(&AccountsService{}),
 			application.NewService(&AppService{}),
 			application.NewService(&notifierService{}),
 		},

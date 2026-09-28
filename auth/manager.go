@@ -222,7 +222,8 @@ func (am *AuthManager) LoginWithDeviceAuth(ctx context.Context, hostnameOverride
 	verified := false
 	var sessionToken *string
 
-	ticker := time.NewTicker(3 * time.Second)
+	// Poll every second, like the macOS client, so approval shows up promptly.
+	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
 
 	for !verified && time.Now().Before(expiresAt) {
@@ -852,15 +853,9 @@ func (am *AuthManager) Logout() error {
 
 	userID := am.accountManager.ActiveUserID
 
-	// Get all accounts before removing the current one
-	// We need to find the next available account to switch to
-	var nextAccountID string
-	for accountID := range am.accountManager.Accounts {
-		if accountID != userID {
-			nextAccountID = accountID
-			break
-		}
-	}
+	// Find the account to switch to afterwards: the first remaining one by
+	// name, as the macOS client does.
+	nextAccountID := am.nextAccountAfter(userID)
 
 	// Clear local data
 	am.apiClient.UpdateSessionToken("")
@@ -895,6 +890,51 @@ func (am *AuthManager) Logout() error {
 	}
 
 	return nil
+}
+
+// nextAccountAfter returns the first account other than userID, ordered by
+// display name, or "" when there is none.
+func (am *AuthManager) nextAccountAfter(userID string) string {
+	var next *config.Account
+	for id, account := range am.accountManager.Accounts {
+		if id == userID {
+			continue
+		}
+		account := account
+		if next == nil || strings.ToLower(AccountDisplayName(&account)) < strings.ToLower(AccountDisplayName(next)) {
+			next = &account
+		}
+	}
+	if next == nil {
+		return ""
+	}
+	return next.UserID
+}
+
+// HasSession reports whether a session token is stored for the account.
+func (am *AuthManager) HasSession(userID string) bool {
+	_, ok := am.secretManager.GetSessionToken(userID)
+	return ok
+}
+
+// DeleteAccount signs out of an account and removes it. The active account
+// goes through Logout, which switches to the next account. Any other account
+// is removed locally and signed out on its server in the background.
+func (am *AuthManager) DeleteAccount(userID string) error {
+	if userID == am.accountManager.ActiveUserID {
+		return am.Logout()
+	}
+	account, ok := am.accountManager.Accounts[userID]
+	if !ok {
+		return nil
+	}
+	if token, ok := am.secretManager.GetSessionToken(userID); ok && account.Hostname != "" {
+		client := api.NewAPIClient(account.Hostname, token)
+		client.SetSessionCookieName(am.configManager.GetSessionCookieName())
+		go func() { _ = client.Logout() }()
+	}
+	_ = am.secretManager.DeleteSessionToken(userID)
+	return am.accountManager.RemoveAccount(userID)
 }
 
 // CheckHealthAndSetState performs a health check and updates the server down state

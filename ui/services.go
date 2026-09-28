@@ -37,9 +37,8 @@ type PreferencesService struct{}
 
 func (PreferencesService) Opened() PrefsOpened {
 	prefsMu.Lock()
-	tab := prefsTab
-	prefsMu.Unlock()
-	return PrefsOpened{Tab: tab, Settings: currentSettings()}
+	defer prefsMu.Unlock()
+	return currentPrefsOpened()
 }
 func (PreferencesService) Update(form Settings) SettingsResult { return applySettings(form) }
 
@@ -56,18 +55,28 @@ func (LogsService) Clear()                 { clearLogs() }
 func (LogsService) Copy(seqs []uint64)     { copyLogLines(seqs) }
 func (LogsService) Export()                { exportLogs() }
 
-// LoginService backs the login window.
+// LoginService backs the add-account sheet in Preferences > Accounts.
 type LoginService struct{}
 
-func (LoginService) State() LoginView  { return currentLoginView() }
-func (LoginService) ChooseCloud()      { loginChooseCloud() }
-func (LoginService) ChooseSelfHosted() { loginChooseSelfHosted() }
-func (LoginService) SetURL(u string)   { loginSetURL(u) }
-func (LoginService) Login()            { loginSubmit() }
-func (LoginService) Back()             { loginBack() }
-func (LoginService) Cancel()           { closeLoginWindow() }
+func (LoginService) State() LoginView { return currentLoginView() }
+
+// Open starts a session for a newly shown sheet; renewHostname is the server
+// of an account to log in to again, or "" to add an account.
+func (LoginService) Open(renewHostname string) LoginView { return loginOpen(renewHostname) }
+func (LoginService) Start(hostname string)               { loginStart(hostname) }
+func (LoginService) Back()                               { loginBack() }
+
+// Close ends the sheet's session, cancelling a login that hasn't finished.
+func (LoginService) Close(session int) { loginClose(session) }
 func (LoginService) CopyCode()         { loginCopyCode() }
 func (LoginService) OpenBrowser()      { loginOpenBrowser() }
+
+// AccountsService backs Preferences > Accounts.
+type AccountsService struct{}
+
+func (AccountsService) State() AccountsView  { return currentAccountsView() }
+func (AccountsService) Switch(userID string) { switchAccount(userID) }
+func (AccountsService) Remove(userID string) { deleteAccount(userID) }
 
 // AppInfo is static information shown in the About tab.
 type AppInfo struct {

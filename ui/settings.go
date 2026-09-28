@@ -34,6 +34,8 @@ type Settings struct {
 type PrefsOpened struct {
 	Tab      int      `json:"tab"`
 	Settings Settings `json:"settings"`
+	// Login, when set, opens the add-account sheet on the Accounts tab.
+	Login *LoginRequest `json:"login"`
 }
 
 func currentSettings() Settings {

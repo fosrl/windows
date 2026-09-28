@@ -4,6 +4,7 @@ package ui
 
 import (
 	"sync"
+	"sync/atomic"
 	"time"
 	"unsafe"
 
@@ -60,9 +61,11 @@ var (
 	prefsMu     sync.Mutex
 	prefsTab    int
 	prefsOpen   bool
-
-	loginWindow *application.WebviewWindow
-	loginMu     sync.Mutex
+	// prefsLogin is the login request waiting for the Accounts tab.
+	prefsLogin *LoginRequest
+	// prefsVisible mirrors prefsOpen for readers that must not take prefsMu.
+	prefsVisible atomic.Bool
+	prefsLoginID int
 
 	progressMu      sync.Mutex
 	progressWindows = map[string]*application.WebviewWindow{}
@@ -447,14 +450,6 @@ func windowBackground() application.RGBA {
 	return application.NewRGB(0xec, 0xec, 0xec)
 }
 
-// loginBackground is the login window color from the macOS app.
-func loginBackground() application.RGBA {
-	if w32.IsCurrentlyDarkMode() {
-		return application.NewRGB(0x16, 0x16, 0x18)
-	}
-	return application.NewRGB(0xfd, 0xfd, 0xfd)
-}
-
 type frameInsets struct{ left, top, right, bottom int }
 
 // trayFrameInsets measures, in DIPs, how far the tray window's client area is
@@ -487,13 +482,42 @@ func trayFrameInsets(scale float32) frameInsets {
 	}
 }
 
+// Preferences sidebar sections, in order. The frontend uses the same indexes.
+const (
+	prefsTabPreferences = iota
+	prefsTabAccounts
+	prefsTabStatus
+	prefsTabLogs
+	prefsTabAbout
+)
+
+// LoginRequest asks Preferences > Accounts to show the add-account sheet.
+type LoginRequest struct {
+	// ID tells requests apart, so each one opens a fresh sheet.
+	ID int `json:"id"`
+	// Hostname is the server of an account to log in to again, or "" to add one.
+	Hostname string `json:"hostname"`
+}
+
+// currentPrefsOpened must be called with prefsMu held.
+func currentPrefsOpened() PrefsOpened {
+	return PrefsOpened{Tab: prefsTab, Settings: currentSettings(), Login: prefsLogin}
+}
+
 // showPreferencesWindow shows the preferences window on the given tab,
 // creating it on first use.
-func showPreferencesWindow(tab int) {
+func showPreferencesWindow(tab int, login *LoginRequest) {
 	prefsMu.Lock()
 	defer prefsMu.Unlock()
 
 	prefsTab = tab
+	prefsLogin = nil
+	if login != nil {
+		// Each request opens a fresh sheet, even for the same server.
+		prefsLoginID++
+		login.ID = prefsLoginID
+		prefsLogin = login
+	}
 	if prefsWindow == nil {
 		prefsWindow = app.Window.NewWithOptions(application.WebviewWindowOptions{
 			Name:             "preferences",
@@ -516,10 +540,11 @@ func showPreferencesWindow(tab int) {
 
 	if !prefsOpen {
 		prefsOpen = true
+		prefsVisible.Store(true)
 		startStatusPolling()
 		startLogTail()
 	}
-	prefsWindow.EmitEvent("prefs:opened", PrefsOpened{Tab: tab, Settings: currentSettings()})
+	prefsWindow.EmitEvent("prefs:opened", currentPrefsOpened())
 	prefsWindow.Show()
 	if prefsWindow.IsMinimised() {
 		prefsWindow.Restore()
@@ -536,6 +561,7 @@ func hidePreferencesWindow() {
 	prefsWindow.Hide()
 	if prefsOpen {
 		prefsOpen = false
+		prefsVisible.Store(false)
 		stopStatusPolling()
 		stopLogTail()
 	}
@@ -548,69 +574,6 @@ func preferencesWindowOrNil() application.Window {
 		return nil
 	}
 	return prefsWindow
-}
-
-// showLoginWindow opens the login window, or focuses it when it is already open.
-func showLoginWindow() {
-	loginMu.Lock()
-	defer loginMu.Unlock()
-
-	if loginWindow != nil && loginWindow.IsVisible() {
-		// Auto-start only applies when the window is first opened.
-		if authManager != nil {
-			authManager.ClearStartDeviceAuthImmediately()
-		}
-		if loginWindow.IsMinimised() {
-			loginWindow.Restore()
-		}
-		loginWindow.Focus()
-		return
-	}
-
-	if loginWindow == nil {
-		loginWindow = app.Window.NewWithOptions(application.WebviewWindowOptions{
-			Name:                "login",
-			Title:               "Login to Pangolin",
-			URL:                 "/#/login",
-			Width:               464,
-			Height:              340,
-			DisableResize:       true,
-			Hidden:              true,
-			MinimiseButtonState: application.ButtonHidden,
-			MaximiseButtonState: application.ButtonHidden,
-			BackgroundColour:    loginBackground(),
-		})
-		loginWindow.RegisterHook(events.Common.WindowClosing, func(e *application.WindowEvent) {
-			e.Cancel()
-			go closeLoginWindow()
-		})
-	}
-
-	startLoginFlow()
-	loginWindow.Center()
-	loginWindow.Show()
-	loginWindow.Focus()
-}
-
-// closeLoginWindow hides the login window and ends the login flow.
-func closeLoginWindow() {
-	loginMu.Lock()
-	w := loginWindow
-	loginMu.Unlock()
-	if w != nil {
-		w.Hide()
-	}
-	endLoginFlow()
-	publish()
-}
-
-func loginWindowOrNil() application.Window {
-	loginMu.Lock()
-	defer loginMu.Unlock()
-	if loginWindow == nil {
-		return nil
-	}
-	return loginWindow
 }
 
 // openProgressWindow shows a small marquee progress window and returns a

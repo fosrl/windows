@@ -346,7 +346,7 @@ func TestMenuAccounts(t *testing.T) {
 		t.Fatalf("submenu label %q", accounts.Label)
 	}
 	got := strings.Join(labels(accounts.Items), "|")
-	want := "Available Accounts|a@example.com (https://one)|a@example.com (https://two)|b@example.com|---|Add Account…|Log Out"
+	want := "Available Accounts|a@example.com (https://one)|a@example.com (https://two)|b@example.com|---|Add Account…|Manage Accounts…|Log Out"
 	if got != want {
 		t.Fatalf("got %q\nwant %q", got, want)
 	}

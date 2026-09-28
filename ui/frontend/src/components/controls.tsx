@@ -7,6 +7,7 @@ import {
   type SelectHTMLAttributes,
 } from "react";
 import { AppService } from "@bindings";
+import appIcon from "../assets/app_icon.svg";
 import { report } from "../lib";
 
 // Components that follow the macOS app's SwiftUI look: grouped forms,
@@ -27,7 +28,7 @@ export function Button({
   ...props
 }: ButtonHTMLAttributes<HTMLButtonElement> & {
   variant?: ButtonVariant;
-  size?: "small" | "regular";
+  size?: "small" | "regular" | "large";
   children: ReactNode;
 }) {
   return (
@@ -37,7 +38,11 @@ export function Button({
       className={cx(
         "inline-flex shrink-0 items-center justify-center gap-1 rounded-[6px] leading-none whitespace-nowrap",
         "shadow-[0_0.5px_1px_rgb(0_0_0/0.12)] transition-colors disabled:opacity-45",
-        size === "small" ? "h-[22px] px-2.5 text-[12px]" : "h-[26px] min-w-[68px] px-3 text-[13px]",
+        size === "small"
+          ? "h-[22px] px-2.5 text-[12px]"
+          : size === "large"
+            ? "h-[30px] min-w-[80px] rounded-[7px] px-4 text-[13px]"
+            : "h-[26px] min-w-[68px] px-3 text-[13px]",
         variant === "prominent"
           ? "bg-mac-accent text-white enabled:hover:bg-mac-accent-hover"
           : "border border-mac-control-border bg-mac-control enabled:hover:brightness-[0.97] enabled:active:brightness-[0.93]",
@@ -315,6 +320,8 @@ export function Sheet({
   onCancel,
   onSubmit,
   divider = true,
+  width = 400,
+  footerPadding = 20,
 }: {
   children: ReactNode;
   footer: ReactNode;
@@ -322,6 +329,8 @@ export function Sheet({
   onSubmit: () => void;
   /** Draw a separator above the footer, as the DNS and MTU sheets do. */
   divider?: boolean;
+  width?: number;
+  footerPadding?: number;
 }) {
   const ref = useRef<HTMLFormElement>(null);
   useEffect(() => {
@@ -340,14 +349,103 @@ export function Sheet({
           e.preventDefault();
           onSubmit();
         }}
-        className="w-[400px] max-w-[calc(100%-32px)] overflow-hidden rounded-[10px] border border-mac-group-border bg-mac-sheet shadow-[0_10px_40px_rgb(0_0_0/0.25)]"
-        style={{ animation: "mac-sheet-in 0.16s ease-out" }}
+        className="max-w-[calc(100%-32px)] overflow-hidden rounded-[10px] border border-mac-group-border bg-mac-sheet shadow-[0_10px_40px_rgb(0_0_0/0.25)]"
+        style={{ width, animation: "mac-sheet-in 0.16s ease-out" }}
       >
         <div className="flex flex-col gap-3 p-5">{children}</div>
-        <div className={cx("flex items-center gap-3 p-5", divider ? "border-t border-mac-separator" : "pt-0")}>
+        <div
+          className={cx("flex items-center gap-3", divider ? "border-t border-mac-separator" : "!pt-0")}
+          style={{ padding: footerPadding }}
+        >
           {footer}
         </div>
       </form>
     </div>
+  );
+}
+
+/**
+ * A macOS alert (`.alert`): the app icon, a bold title, a message and a row of
+ * buttons, centered over the window. Escape cancels.
+ */
+export function Alert({
+  title,
+  message,
+  confirmLabel,
+  destructive,
+  onConfirm,
+  onCancel,
+}: {
+  title: string;
+  message: string;
+  confirmLabel: string;
+  destructive?: boolean;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onCancel();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onCancel]);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/15">
+      <div
+        role="alertdialog"
+        aria-label={title}
+        className="flex w-[260px] flex-col items-center rounded-[12px] border border-mac-group-border bg-mac-sheet p-4 pt-5 text-center shadow-[0_10px_40px_rgb(0_0_0/0.3)]"
+        style={{ animation: "mac-sheet-in 0.16s ease-out" }}
+      >
+        <img src={appIcon} alt="" className="size-[64px]" />
+        <div className="mt-2.5 text-[13px] font-bold break-words">{title}</div>
+        <div className="mt-1.5 text-[11px] leading-[14px] break-words">{message}</div>
+        <div className="mt-4 flex w-full gap-2">
+          <Button className="flex-1" onClick={onCancel} autoFocus>
+            Cancel
+          </Button>
+          <Button className={cx("flex-1", destructive && "text-mac-danger")} onClick={onConfirm}>
+            {confirmLabel}
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** A macOS radio button with a title and optional detail line. */
+export function Radio({
+  checked,
+  onSelect,
+  title,
+  detail,
+}: {
+  checked: boolean;
+  onSelect: () => void;
+  title: ReactNode;
+  detail?: ReactNode;
+}) {
+  return (
+    <label className="flex cursor-default items-start gap-2 py-0.5">
+      <input type="radio" checked={checked} onChange={onSelect} className="peer sr-only" />
+      <span
+        aria-hidden
+        className={cx(
+          "mt-[2px] flex size-[14px] shrink-0 items-center justify-center rounded-full border transition-colors",
+          "peer-focus-visible:outline-3 peer-focus-visible:outline-[color-mix(in_srgb,var(--color-mac-accent)_45%,transparent)]",
+          checked
+            ? "border-mac-accent bg-mac-accent"
+            : "border-mac-control-border bg-mac-control shadow-[inset_0_0.5px_1px_rgb(0_0_0/0.08)]",
+        )}
+      >
+        {checked && <span className="size-[6px] rounded-full bg-white" />}
+      </span>
+      <span className="flex flex-col">
+        <span className="text-[13px]">{title}</span>
+        {detail && <span className="text-[11px] text-mac-secondary">{detail}</span>}
+      </span>
+    </label>
   );
 }

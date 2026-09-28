@@ -45,7 +45,6 @@
   --color-mac-control-border: rgb(0 0 0 / 0.14);
   --color-mac-switch-off: rgb(0 0 0 / 0.1);
   --color-mac-sheet: #f6f6f6;
-  --color-mac-login: #fdfdfd;
   --color-mac-row-alt: rgb(0 0 0 / 0.03);
   --color-mac-selection: rgb(243 98 23 / 0.18);
   --color-mac-danger: #ff3b30;
@@ -99,7 +98,6 @@
       --color-mac-control-border: rgb(255 255 255 / 0.12);
       --color-mac-switch-off: rgb(255 255 255 / 0.16);
       --color-mac-sheet: #2c2c2e;
-      --color-mac-login: #161618;
       --color-mac-row-alt: rgb(255 255 255 / 0.03);
       --color-mac-selection: rgb(243 98 23 / 0.3);
       --color-mac-danger: #ff453a;
@@ -139,9 +137,6 @@
     font-size: 13px;
     color: var(--color-mac-label);
     background: var(--color-mac-window);
-  }
-  html.mac.login body {
-    background: var(--color-mac-login);
   }
 
   input,
@@ -228,6 +223,21 @@
     .tray-fade-in,
     .tray-submenu-in-left,
     .tray-submenu-in-right {
+      animation: none;
+    }
+  }
+  /* Step changes in a sheet, like the macOS `.menuBlur` transition. */
+  @keyframes mac-step-in {
+    from {
+      opacity: 0;
+      filter: blur(8px);
+    }
+  }
+  .mac-step-in {
+    animation: mac-step-in 300ms cubic-bezier(0.32, 0.72, 0, 1);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .mac-step-in {
       animation: none;
     }
   }

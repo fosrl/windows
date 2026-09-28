@@ -25,9 +25,8 @@ const (
 	eventLogsReset     = "logs:reset"
 	eventLogsAppend    = "logs:append"
 	eventLoginState    = "login:state"
+	eventAccountsState = "accounts:state"
 	eventProgressText  = "progress:text"
-	eventPrefsTab      = "prefs:tab"
-	eventPrefsSettings = "prefs:settings"
 )
 
 var (
@@ -50,6 +49,7 @@ var (
 	switchingAccountID string
 	switchingOrgID     string
 	loggingOut         bool
+	removingAccountID  string
 
 	tunnelDisplay      phaseDebouncer
 	tunnelDisplayTimer *time.Timer
@@ -285,6 +285,10 @@ func publish() {
 		return
 	}
 	app.Event.Emit(eventMenuState, currentMenuState())
+	// Keep Preferences > Accounts in step with the tray.
+	if prefsVisible.Load() {
+		app.Event.Emit(eventAccountsState, currentAccountsView())
+	}
 }
 
 // handleMenuOpen verifies the session and refreshes organizations when the tray popup opens.

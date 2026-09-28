@@ -41,24 +41,25 @@ const (
 
 // Menu item IDs dispatched back from the tray popup to invokeMenuItem.
 const (
-	menuIDUpdate       = "update"
-	menuIDReAuth       = "reauth"
-	menuIDConnect      = "connect"
-	menuIDLogin        = "login"
-	menuIDPreferences  = "preferences"
-	menuIDQuit         = "quit"
-	menuIDOpenStatus   = "sites.openStatus"
-	menuIDHowItWorks   = "more.howItWorks"
-	menuIDDocs         = "more.docs"
-	menuIDTerms        = "more.terms"
-	menuIDPrivacy      = "more.privacy"
-	menuIDCheckUpdates = "more.checkUpdates"
-	menuIDInstallCLI   = "more.installCLI"
-	menuIDAddAccount   = "account.add"
-	menuIDLogout       = "account.logout"
-	menuPrefixAccount  = "account:"
-	menuPrefixOrg      = "org:"
-	menuIDExitNodeNone = "exitnode.none"
+	menuIDUpdate         = "update"
+	menuIDReAuth         = "reauth"
+	menuIDConnect        = "connect"
+	menuIDLogin          = "login"
+	menuIDPreferences    = "preferences"
+	menuIDQuit           = "quit"
+	menuIDOpenStatus     = "sites.openStatus"
+	menuIDHowItWorks     = "more.howItWorks"
+	menuIDDocs           = "more.docs"
+	menuIDTerms          = "more.terms"
+	menuIDPrivacy        = "more.privacy"
+	menuIDCheckUpdates   = "more.checkUpdates"
+	menuIDInstallCLI     = "more.installCLI"
+	menuIDAddAccount     = "account.add"
+	menuIDLogout         = "account.logout"
+	menuIDManageAccounts = "account.manage"
+	menuPrefixAccount    = "account:"
+	menuPrefixOrg        = "org:"
+	menuIDExitNodeNone   = "exitnode.none"
 	// menuPrefixExitNode is followed by the gateway site resource's numeric ID.
 	menuPrefixExitNode = "exitnode:"
 	// menuIDSites is the tunnel status row, which opens the sites submenu while connected.
@@ -461,7 +462,9 @@ func accountSubmenu(in menuInputs) MenuItem {
 		title = "Select Account"
 	}
 
-	sub = append(sub, separator(), item(menuIDAddAccount, "Add Account…", !in.switching()))
+	sub = append(sub, separator(),
+		item(menuIDAddAccount, "Add Account…", !in.switching()),
+		item(menuIDManageAccounts, "Manage Accounts…", true))
 	if in.ActiveAccountID != "" {
 		logoutItem := item(menuIDLogout, "Log Out", !in.switching())
 		logoutItem.Loading = in.LoggingOut
