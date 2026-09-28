@@ -32,6 +32,14 @@ type Account struct {
 	Username string `json:"username"`
 	Name     string `json:"name"`
 	Hostname string `json:"hostname"`
+
+	// The exit node (a gateway-mode site resource) selected from the tray
+	// menu, re-applied on the next connect. It can differ per account, so
+	// it's stored here rather than on the root config, and it belongs to the
+	// account's currently selected org (OrgID above). Only the resource ID
+	// is stored (not the niceId, which can be renamed); its sites are looked
+	// up from the server on every connect so they can't go stale.
+	ExitNodeResourceID int `json:"exitNodeResourceId,omitempty"`
 }
 
 func NewAccountManager() *AccountManager {
@@ -154,6 +162,35 @@ func (m *AccountManager) SetUserOrganization(userID string, orgID string) error 
 		return errors.New("account does not exist")
 	}
 
+	return m.saveLocked()
+}
+
+// GetExitNode returns the resource ID of userID's selected exit node, or 0 if
+// none is selected or the account doesn't exist.
+func (m *AccountManager) GetExitNode(userID string) int {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	account, ok := m.Accounts[userID]
+	if !ok {
+		return 0
+	}
+	return account.ExitNodeResourceID
+}
+
+// SetExitNode records the selected exit node (a gateway resource) for userID;
+// resourceID 0 clears it.
+func (m *AccountManager) SetExitNode(userID string, resourceID int) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	account, ok := m.Accounts[userID]
+	if !ok {
+		return errors.New("account does not exist")
+	}
+
+	account.ExitNodeResourceID = resourceID
+	m.Accounts[userID] = account
 	return m.saveLocked()
 }
 

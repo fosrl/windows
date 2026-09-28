@@ -50,12 +50,6 @@ type Config struct {
 	AutoUpdateChecksEnabled      *bool    `json:"autoUpdateChecksEnabled,omitempty"`
 	CheckForUpdatesButtonEnabled *bool    `json:"checkForUpdatesButtonEnabled,omitempty"`
 	UpdateCheckIntervalSeconds   *int     `json:"updateCheckIntervalSeconds,omitempty"`
-
-	// The exit node (gateway site resource) selected from the tray menu. Only
-	// the niceId is stored, so its current ID and sites are always looked up
-	// from the server when connecting rather than going stale.
-	ExitNodeNiceID *string `json:"exitNodeNiceId,omitempty"`
-	ExitNodeOrgID  *string `json:"exitNodeOrgId,omitempty"`
 }
 
 // SystemConfig represents machine-wide configuration stored under
@@ -301,41 +295,6 @@ func (cm *ConfigManager) SetPreferLocalRoutes(value bool) bool {
 
 	cfg := cm.getConfigCopy()
 	cfg.PreferLocalRoutes = &value
-	return cm.save(cfg)
-}
-
-// GetExitNode returns the org and niceId of the selected exit node, or empty
-// strings if none is selected.
-func (cm *ConfigManager) GetExitNode() (orgID, niceID string) {
-	cm.mu.RLock()
-	defer cm.mu.RUnlock()
-
-	if cm.config == nil {
-		return "", ""
-	}
-	if cm.config.ExitNodeOrgID != nil {
-		orgID = *cm.config.ExitNodeOrgID
-	}
-	if cm.config.ExitNodeNiceID != nil {
-		niceID = *cm.config.ExitNodeNiceID
-	}
-	return orgID, niceID
-}
-
-// SetExitNode records the selected exit node and saves to config. Empty
-// arguments clear the selection.
-func (cm *ConfigManager) SetExitNode(orgID, niceID string) bool {
-	cm.mu.Lock()
-	defer cm.mu.Unlock()
-
-	cfg := cm.getConfigCopy()
-	if niceID == "" {
-		cfg.ExitNodeOrgID = nil
-		cfg.ExitNodeNiceID = nil
-	} else {
-		cfg.ExitNodeOrgID = &orgID
-		cfg.ExitNodeNiceID = &niceID
-	}
 	return cm.save(cfg)
 }
 
@@ -721,15 +680,6 @@ func mergeConfig(base, override *Config) *Config {
 		v := *override.UpdateCheckIntervalSeconds
 		merged.UpdateCheckIntervalSeconds = &v
 	}
-	if override.ExitNodeNiceID != nil {
-		v := *override.ExitNodeNiceID
-		merged.ExitNodeNiceID = &v
-	}
-	if override.ExitNodeOrgID != nil {
-		v := *override.ExitNodeOrgID
-		merged.ExitNodeOrgID = &v
-	}
-
 	return merged
 }
 
@@ -810,14 +760,6 @@ func copyConfig(src *Config) *Config {
 	if src.UpdateCheckIntervalSeconds != nil {
 		updateCheckIntervalSeconds := *src.UpdateCheckIntervalSeconds
 		cfg.UpdateCheckIntervalSeconds = &updateCheckIntervalSeconds
-	}
-	if src.ExitNodeNiceID != nil {
-		exitNodeNiceID := *src.ExitNodeNiceID
-		cfg.ExitNodeNiceID = &exitNodeNiceID
-	}
-	if src.ExitNodeOrgID != nil {
-		exitNodeOrgID := *src.ExitNodeOrgID
-		cfg.ExitNodeOrgID = &exitNodeOrgID
 	}
 	return cfg
 }

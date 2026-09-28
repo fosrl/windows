@@ -14,9 +14,9 @@ import (
 
 // Exit nodes are the org's gateway-mode site resources. Selecting one routes
 // all tunnel traffic through its sites. The list comes from the server and is
-// cached for the tray menu; the selection itself is saved in the config (by
-// niceId) so it is re-applied on the next connect, and applied live through
-// olm when the tunnel is already up.
+// cached for the tray menu; the selection itself is saved on the active
+// account (by resource ID) so it is re-applied on the next connect, and
+// applied live through olm when the tunnel is already up.
 
 var (
 	exitNodeMu sync.Mutex
@@ -50,13 +50,15 @@ func currentExitNodes(orgID string, running bool) (nodes []menuExitNode, activeI
 		return nil, 0
 	}
 
-	savedOrg, savedNiceID := "", ""
-	if configManager != nil {
-		savedOrg, savedNiceID = configManager.GetExitNode()
+	savedResourceID := 0
+	if accountManager != nil {
+		if active, err := accountManager.ActiveAccount(); err == nil {
+			savedResourceID = accountManager.GetExitNode(active.UserID)
+		}
 	}
 	for _, g := range exitNodeList {
 		nodes = append(nodes, menuExitNode{ID: g.SiteResourceID, Name: g.Name})
-		if !running && savedNiceID != "" && g.NiceID == savedNiceID && (savedOrg == "" || savedOrg == orgID) {
+		if !running && savedResourceID != 0 && g.SiteResourceID == savedResourceID {
 			activeID = g.SiteResourceID
 		}
 	}
@@ -147,7 +149,7 @@ func findExitNode(orgID string, id int) (api.SiteResource, bool) {
 // gateway resource ID (as a string, from the menu item ID). With the tunnel up
 // it takes effect immediately; otherwise it is applied on the next connect.
 func selectExitNode(idStr string) {
-	if authManager == nil || configManager == nil || tunnelManager == nil {
+	if authManager == nil || accountManager == nil || tunnelManager == nil {
 		return
 	}
 	org := authManager.CurrentOrg()
@@ -174,7 +176,8 @@ func selectExitNode(idStr string) {
 		setOLMGatewayResourceID(gateway.SiteResourceID)
 	}
 
-	if !configManager.SetExitNode(org.Id, gateway.NiceID) {
+	active, err := accountManager.ActiveAccount()
+	if err != nil || accountManager.SetExitNode(active.UserID, gateway.SiteResourceID) != nil {
 		logger.Warn("Exit node applied but could not be saved for the next connect")
 	}
 	logger.Info("Exit node set to %s", gateway.Name)
@@ -184,7 +187,7 @@ func selectExitNode(idStr string) {
 // disableExitNode stops routing traffic through an exit node and forgets the
 // saved selection.
 func disableExitNode() {
-	if configManager == nil || tunnelManager == nil {
+	if accountManager == nil || tunnelManager == nil {
 		return
 	}
 
@@ -198,42 +201,44 @@ func disableExitNode() {
 		setOLMGatewayResourceID(0)
 	}
 
-	configManager.SetExitNode("", "")
+	if active, err := accountManager.ActiveAccount(); err == nil {
+		_ = accountManager.SetExitNode(active.UserID, 0)
+	}
 	logger.Info("Exit node disabled")
 	publish()
 }
 
 // resolveSavedExitNode turns the saved exit node into the resource and site IDs
 // to establish when connecting, or 0/nil to connect without one. Only the
-// niceId is saved, so a deleted, disabled or site-less resource is skipped.
+// resource ID is saved, so a deleted, disabled or site-less resource is skipped.
 func resolveSavedExitNode(orgID string) (int, []int) {
-	if configManager == nil || apiClient == nil {
+	if accountManager == nil || apiClient == nil {
 		return 0, nil
 	}
-	savedOrg, niceID := configManager.GetExitNode()
-	if niceID == "" {
+	active, err := accountManager.ActiveAccount()
+	if err != nil {
 		return 0, nil
 	}
-	if savedOrg != "" && savedOrg != orgID {
-		logger.Info("Saved exit node '%s' belongs to a different organization; not using it", niceID)
+	resourceID := accountManager.GetExitNode(active.UserID)
+	if resourceID == 0 {
 		return 0, nil
 	}
 
 	gateways, err := apiClient.ListGatewayResources(orgID)
 	if err != nil {
-		logger.Warn("Could not look up saved exit node '%s' (%v); connecting without it", niceID, err)
+		logger.Warn("Could not look up saved exit node (%v); connecting without it", err)
 		return 0, nil
 	}
 	for _, g := range gateways {
-		if g.NiceID != niceID {
+		if g.SiteResourceID != resourceID {
 			continue
 		}
 		if !g.Enabled || len(g.SiteIDs) == 0 {
-			logger.Warn("Saved exit node '%s' is disabled or has no sites; not using it", niceID)
+			logger.Warn("Saved exit node '%s' is disabled or has no sites; not using it", g.NiceID)
 			return 0, nil
 		}
 		return g.SiteResourceID, g.SiteIDs
 	}
-	logger.Warn("Saved exit node '%s' no longer exists; not using it", niceID)
+	logger.Warn("Saved exit node no longer exists; not using it")
 	return 0, nil
 }
