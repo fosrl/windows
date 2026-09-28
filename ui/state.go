@@ -183,6 +183,7 @@ func phaseForState(s tunnel.State) tunnelPhase {
 // collectMenuInputs snapshots the managers for buildMenuState.
 func collectMenuInputs() menuInputs {
 	in := menuInputs{
+		Onboarding:         onboardingNeeded(),
 		Now:                time.Now(),
 		Version:            version.Number,
 		Year:               time.Now().Year(),

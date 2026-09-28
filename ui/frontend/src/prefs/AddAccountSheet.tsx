@@ -279,8 +279,11 @@ function AnimatedHeight({ children }: { children: ReactNode }) {
       cancelAnimationFrame(t);
     };
   }, []);
+  // The negative margin and matching padding leave room for focus rings,
+  // which draw outside the fields and would otherwise be clipped.
   return (
     <div
+      className="-mx-1 px-1"
       style={{
         height,
         overflow: "hidden",

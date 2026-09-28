@@ -50,6 +50,9 @@ type Config struct {
 	AutoUpdateChecksEnabled      *bool    `json:"autoUpdateChecksEnabled,omitempty"`
 	CheckForUpdatesButtonEnabled *bool    `json:"checkForUpdatesButtonEnabled,omitempty"`
 	UpdateCheckIntervalSeconds   *int     `json:"updateCheckIntervalSeconds,omitempty"`
+	// Onboarding progress, like the macOS client's OnboardingStateManager.
+	OnboardingSeenWelcome         *bool `json:"onboardingSeenWelcome,omitempty"`
+	OnboardingAcknowledgedPrivacy *bool `json:"onboardingAcknowledgedPrivacy,omitempty"`
 }
 
 // SystemConfig represents machine-wide configuration stored under
@@ -269,6 +272,67 @@ func (cm *ConfigManager) SetExitNodeTakesPrecedence(value bool) bool {
 
 	cfg := cm.getConfigCopy()
 	cfg.ExitNodeTakesPrecedence = &value
+	return cm.save(cfg)
+}
+
+// OnboardingNeverStarted reports whether setup has never been shown on this
+// computer: neither onboarding flag has been written.
+func (cm *ConfigManager) OnboardingNeverStarted() bool {
+	cm.mu.RLock()
+	defer cm.mu.RUnlock()
+	return cm.config == nil || (cm.config.OnboardingSeenWelcome == nil && cm.config.OnboardingAcknowledgedPrivacy == nil)
+}
+
+// MarkOnboardingStarted records that setup has been shown, without marking any
+// step done, so a later launch can tell a new install from one mid-setup.
+func (cm *ConfigManager) MarkOnboardingStarted() bool {
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+	if cm.config != nil && cm.config.OnboardingSeenWelcome != nil {
+		return true
+	}
+	cfg := cm.getConfigCopy()
+	notYet := false
+	cfg.OnboardingSeenWelcome = &notYet
+	return cm.save(cfg)
+}
+
+// UserConfigExists reports whether the per-user config file exists, which
+// means the app was set up or used on this computer before.
+func (cm *ConfigManager) UserConfigExists() bool {
+	_, err := os.Stat(cm.configPath)
+	return err == nil
+}
+
+// GetOnboardingSeenWelcome reports whether the setup welcome page was completed.
+func (cm *ConfigManager) GetOnboardingSeenWelcome() bool {
+	cm.mu.RLock()
+	defer cm.mu.RUnlock()
+	return cm.config != nil && cm.config.OnboardingSeenWelcome != nil && *cm.config.OnboardingSeenWelcome
+}
+
+// SetOnboardingSeenWelcome records that the setup welcome page was completed.
+func (cm *ConfigManager) SetOnboardingSeenWelcome(value bool) bool {
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+	cfg := cm.getConfigCopy()
+	cfg.OnboardingSeenWelcome = &value
+	return cm.save(cfg)
+}
+
+// GetOnboardingAcknowledgedPrivacy reports whether the setup privacy page was confirmed.
+func (cm *ConfigManager) GetOnboardingAcknowledgedPrivacy() bool {
+	cm.mu.RLock()
+	defer cm.mu.RUnlock()
+	return cm.config != nil && cm.config.OnboardingAcknowledgedPrivacy != nil && *cm.config.OnboardingAcknowledgedPrivacy
+}
+
+// SetOnboardingAcknowledgedPrivacy records that the setup privacy page was confirmed.
+func (cm *ConfigManager) SetOnboardingAcknowledgedPrivacy(value bool) bool {
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+	cfg := cm.getConfigCopy()
+	cfg.OnboardingAcknowledgedPrivacy = &value
 	return cm.save(cfg)
 }
 
@@ -680,6 +744,14 @@ func mergeConfig(base, override *Config) *Config {
 		v := *override.UpdateCheckIntervalSeconds
 		merged.UpdateCheckIntervalSeconds = &v
 	}
+	if override.OnboardingSeenWelcome != nil {
+		v := *override.OnboardingSeenWelcome
+		merged.OnboardingSeenWelcome = &v
+	}
+	if override.OnboardingAcknowledgedPrivacy != nil {
+		v := *override.OnboardingAcknowledgedPrivacy
+		merged.OnboardingAcknowledgedPrivacy = &v
+	}
 	return merged
 }
 
@@ -760,6 +832,14 @@ func copyConfig(src *Config) *Config {
 	if src.UpdateCheckIntervalSeconds != nil {
 		updateCheckIntervalSeconds := *src.UpdateCheckIntervalSeconds
 		cfg.UpdateCheckIntervalSeconds = &updateCheckIntervalSeconds
+	}
+	if src.OnboardingSeenWelcome != nil {
+		onboardingSeenWelcome := *src.OnboardingSeenWelcome
+		cfg.OnboardingSeenWelcome = &onboardingSeenWelcome
+	}
+	if src.OnboardingAcknowledgedPrivacy != nil {
+		onboardingAcknowledgedPrivacy := *src.OnboardingAcknowledgedPrivacy
+		cfg.OnboardingAcknowledgedPrivacy = &onboardingAcknowledgedPrivacy
 	}
 	return cfg
 }

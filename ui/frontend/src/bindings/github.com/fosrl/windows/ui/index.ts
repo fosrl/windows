@@ -6,6 +6,7 @@ import * as AppService from "./appservice.js";
 import * as LoginService from "./loginservice.js";
 import * as LogsService from "./logsservice.js";
 import * as MenuService from "./menuservice.js";
+import * as OnboardingService from "./onboardingservice.js";
 import * as PreferencesService from "./preferencesservice.js";
 import * as StatusService from "./statusservice.js";
 export {
@@ -14,6 +15,7 @@ export {
     LoginService,
     LogsService,
     MenuService,
+    OnboardingService,
     PreferencesService,
     StatusService
 };
@@ -28,6 +30,7 @@ export type {
     LogsSnapshot,
     MenuItem,
     MenuState,
+    OnboardingState,
     PrefsOpened,
     Settings,
     SettingsResult,

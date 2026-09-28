@@ -71,6 +71,14 @@ func (LoginService) Close(session int) { loginClose(session) }
 func (LoginService) CopyCode()         { loginCopyCode() }
 func (LoginService) OpenBrowser()      { loginOpenBrowser() }
 
+// OnboardingService backs the setup window.
+type OnboardingService struct{}
+
+func (OnboardingService) State() OnboardingState   { return currentOnboardingState() }
+func (OnboardingService) MarkWelcomeSeen()         { markOnboardingWelcomeSeen() }
+func (OnboardingService) MarkPrivacyAcknowledged() { markOnboardingPrivacyAcknowledged() }
+func (OnboardingService) Close()                   { closeOnboardingWindow() }
+
 // AccountsService backs Preferences > Accounts.
 type AccountsService struct{}
 

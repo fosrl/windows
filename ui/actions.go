@@ -52,6 +52,8 @@ func invokeMenuItem(id string) {
 		toggleConnection()
 	case id == menuIDLogin, id == menuIDAddAccount:
 		showPreferencesWindow(prefsTabAccounts, &LoginRequest{})
+	case id == menuIDOpenSetup:
+		showOnboardingWindow()
 	case id == menuIDManageAccounts:
 		showPreferencesWindow(prefsTabAccounts, nil)
 	case id == menuIDLogout:
@@ -98,6 +100,11 @@ func toggleConnection() {
 	// can cancel the connection process at any time.
 	switch state := tunnelManager.State(); state {
 	case tunnel.StateStopped:
+		// Connecting needs setup to be finished; open it instead, like macOS.
+		if onboardingNeeded() {
+			showOnboardingWindow()
+			return
+		}
 		on := true
 		setPendingTunnel(&on)
 		setConnectionError("")

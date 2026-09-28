@@ -177,6 +177,21 @@ export interface MenuState {
 }
 
 /**
+ * OnboardingState is what the setup window needs to pick and render its pages.
+ */
+export interface OnboardingState {
+    "seenWelcome": boolean;
+    "acknowledgedPrivacy": boolean;
+    "hasAccounts": boolean;
+
+    /**
+     * Opened is bumped each time the window is shown, so it starts over at the
+     * first unfinished page.
+     */
+    "opened": number;
+}
+
+/**
  * PrefsOpened is sent to the preferences window each time it is shown.
  */
 export interface PrefsOpened {

@@ -573,3 +573,23 @@ func TestMenuExitNodeSubmenu(t *testing.T) {
 		t.Fatal("exit node switching should be disabled while transitional")
 	}
 }
+
+func TestMenuOnboarding(t *testing.T) {
+	in := signedIn()
+	in.Onboarding = true
+	in.SwitchingAccountID = "u1"
+	in.ServerDown = true
+	in.ServerInfo = &menuServerInfo{Build: "oss"}
+	state := buildMenuState(in)
+	got := strings.Join(labels(state.Items), "|")
+	want := "Open Pangolin Setup…|---|Preferences…|More|---|Quit Pangolin|---|Community Edition. Consider supporting."
+	if got != want {
+		t.Fatalf("got %q\nwant %q", got, want)
+	}
+	if state.Loading {
+		t.Fatal("setup never shows the loading spinner")
+	}
+	if findID(state.Items, menuIDOpenSetup) == nil {
+		t.Fatal("expected Open Pangolin Setup…")
+	}
+}

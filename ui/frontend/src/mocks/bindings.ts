@@ -198,6 +198,16 @@ export const LoginService = {
   Start: mockLoginStart, Back: () => ok(log("back")), Close: (id: number) => ok(log("close", id)),
   CopyCode: () => ok(log("copy")), OpenBrowser: () => ok(log("browser")),
 };
+// Setup: `?onboarding=welcome|privacy|done` picks the first unfinished page.
+const onboardingStage = params.get("onboarding") ?? "welcome";
+export const OnboardingService = {
+  State: () => ok({
+    seenWelcome: onboardingStage !== "welcome", acknowledgedPrivacy: onboardingStage === "done",
+    hasAccounts: params.get("accounts") !== "none", opened: 1,
+  }),
+  MarkWelcomeSeen: () => ok(log("welcome seen")), MarkPrivacyAcknowledged: () => ok(log("privacy acknowledged")),
+  Close: () => ok(log("close setup")),
+};
 export const AccountsService = {
   State: () => ok(accounts), Switch: (id: string) => ok(log("switch", id)), Remove: (id: string) => ok(log("remove", id)),
 };

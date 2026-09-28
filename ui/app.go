@@ -55,6 +55,7 @@ func Run(d Deps) error {
 	apiClient = d.API
 	tunnelManager = tunnel.NewManager(d.Auth, d.Config, d.Accounts, d.Secrets, managers.NewIPCAdapter())
 	tunnelManager.SetGatewayResolver(resolveSavedExitNode)
+	skipOnboardingForUsedInstall()
 
 	assets, err := fs.Sub(frontendDist, "frontend/dist")
 	if err != nil {
@@ -73,6 +74,7 @@ func Run(d Deps) error {
 			application.NewService(&LogsService{}),
 			application.NewService(&LoginService{}),
 			application.NewService(&AccountsService{}),
+			application.NewService(&OnboardingService{}),
 			application.NewService(&AppService{}),
 			application.NewService(&notifierService{}),
 		},
@@ -113,7 +115,10 @@ func onStarted() {
 	go checkStartupUpdate()
 	go watchAuthState()
 
-	if managers.IPCClientAlwaysOn() {
+	if onboardingNeeded() {
+		// Nothing connects until setup is finished.
+		go autoOpenOnboarding()
+	} else if managers.IPCClientAlwaysOn() {
 		go resumeAlwaysOn(authManager)
 	} else if configManager != nil && configManager.GetAutoConnectAtLogin() {
 		go autoConnect(authManager)

@@ -57,6 +57,7 @@ const (
 	menuIDAddAccount     = "account.add"
 	menuIDLogout         = "account.logout"
 	menuIDManageAccounts = "account.manage"
+	menuIDOpenSetup      = "setup"
 	menuPrefixAccount    = "account:"
 	menuPrefixOrg        = "org:"
 	menuIDExitNodeNone   = "exitnode.none"
@@ -137,6 +138,8 @@ type menuServerInfo struct {
 
 // menuInputs is a plain snapshot of everything the tray menu depends on.
 type menuInputs struct {
+	// Onboarding is true until setup (welcome and privacy) is finished.
+	Onboarding           bool
 	Initializing         bool
 	Authenticated        bool
 	LoggedOut            bool
@@ -254,28 +257,33 @@ func buildMenuState(in menuInputs) MenuState {
 		items = append(items, item(menuIDUpdate, "Pangolin Update Available…", true), separator())
 	}
 
-	showAuth := in.Authenticated && (!in.LoggedOut || in.SessionExpired) && !in.Initializing
-	if showAuth && in.ActiveAccountID != "" {
-		items = append(items, tunnelSection(in)...)
-		items = append(items, separator())
-	}
-
-	if in.Authenticated && in.ServerDown && !in.Initializing {
-		items = append(items, label("The server appears to be down.", menuIconWarning), separator())
-	} else if in.ErrorMessage != "" && in.Authenticated && !in.SessionExpired && !in.Initializing {
-		items = append(items, label(in.ErrorMessage, menuIconWarning), separator())
-	}
-
-	if len(in.Accounts) == 0 {
-		items = append(items, item(menuIDLogin, "Log In…", true))
+	if in.Onboarding {
+		// Until setup is finished it is the only thing offered, as on macOS.
+		items = append(items, item(menuIDOpenSetup, "Open Pangolin Setup…", true))
 	} else {
-		items = append(items, header("Account"), accountSubmenu(in))
-	}
-	if showAuth {
-		items = append(items, header("Organization"), orgSubmenu(in))
-	}
-	if showAuth && !in.SessionExpired && len(in.ExitNodes) > 0 {
-		items = append(items, header("Exit Node"), exitNodeSubmenu(in))
+		showAuth := in.Authenticated && (!in.LoggedOut || in.SessionExpired) && !in.Initializing
+		if showAuth && in.ActiveAccountID != "" {
+			items = append(items, tunnelSection(in)...)
+			items = append(items, separator())
+		}
+
+		if in.Authenticated && in.ServerDown && !in.Initializing {
+			items = append(items, label("The server appears to be down.", menuIconWarning), separator())
+		} else if in.ErrorMessage != "" && in.Authenticated && !in.SessionExpired && !in.Initializing {
+			items = append(items, label(in.ErrorMessage, menuIconWarning), separator())
+		}
+
+		if len(in.Accounts) == 0 {
+			items = append(items, item(menuIDLogin, "Log In…", true))
+		} else {
+			items = append(items, header("Account"), accountSubmenu(in))
+		}
+		if showAuth {
+			items = append(items, header("Organization"), orgSubmenu(in))
+		}
+		if showAuth && !in.SessionExpired && len(in.ExitNodes) > 0 {
+			items = append(items, header("Exit Node"), exitNodeSubmenu(in))
+		}
 	}
 
 	items = append(items, separator())
@@ -290,7 +298,7 @@ func buildMenuState(in menuInputs) MenuState {
 
 	return MenuState{
 		Items:   collapseSeparators(items),
-		Loading: in.Initializing || in.switching(),
+		Loading: !in.Onboarding && (in.Initializing || in.switching()),
 	}
 }
 
