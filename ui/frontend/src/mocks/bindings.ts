@@ -50,7 +50,8 @@ const menu: MenuState = {
 
 const settings: Settings = {
   openAtLogin: true, autoConnect: false, dnsOverride: true, dnsTunnel: false,
-  primaryDns: "", secondaryDns: "", mtu: "1280", disabled: params.has("disabled"),
+  primaryDns: "", secondaryDns: "", mtu: "1280", exitNodeTakesPrecedence: false,
+  disabled: params.has("disabled"),
 };
 
 const status: StatusView = {

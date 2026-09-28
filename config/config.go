@@ -44,6 +44,7 @@ type Config struct {
 	SessionCookieName            *string  `json:"sessionCookieName,omitempty"`
 	OpenStatusTabOnConnect       *bool    `json:"openStatusTabOnConnect,omitempty"`
 	PreferLocalRoutes            *bool    `json:"preferLocalRoutes,omitempty"`
+	ExitNodeTakesPrecedence      *bool    `json:"exitNodeTakesPrecedence,omitempty"`
 	AutoConnectAtLogin           *bool    `json:"autoConnectAtLogin,omitempty"`
 	OpenUIAtLogin                *bool    `json:"openUIAtLogin,omitempty"`
 	AutoUpdateChecksEnabled      *bool    `json:"autoUpdateChecksEnabled,omitempty"`
@@ -252,6 +253,29 @@ func (cm *ConfigManager) GetPreferLocalRoutes() bool {
 		return *cm.config.PreferLocalRoutes
 	}
 	return false
+}
+
+// GetExitNodeTakesPrecedence returns whether routes/aliases for individual
+// resources should be suppressed in favor of the active exit node, or false
+// if not set.
+func (cm *ConfigManager) GetExitNodeTakesPrecedence() bool {
+	cm.mu.RLock()
+	defer cm.mu.RUnlock()
+
+	if cm.config != nil && cm.config.ExitNodeTakesPrecedence != nil {
+		return *cm.config.ExitNodeTakesPrecedence
+	}
+	return false
+}
+
+// SetExitNodeTakesPrecedence sets the exit-node-takes-precedence setting and saves to config
+func (cm *ConfigManager) SetExitNodeTakesPrecedence(value bool) bool {
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+
+	cfg := cm.getConfigCopy()
+	cfg.ExitNodeTakesPrecedence = &value
+	return cm.save(cfg)
 }
 
 // GetAutoConnectAtLogin reports whether the tray should connect whenever
@@ -673,6 +697,10 @@ func mergeConfig(base, override *Config) *Config {
 		v := *override.PreferLocalRoutes
 		merged.PreferLocalRoutes = &v
 	}
+	if override.ExitNodeTakesPrecedence != nil {
+		v := *override.ExitNodeTakesPrecedence
+		merged.ExitNodeTakesPrecedence = &v
+	}
 	if override.AutoConnectAtLogin != nil {
 		v := *override.AutoConnectAtLogin
 		merged.AutoConnectAtLogin = &v
@@ -758,6 +786,10 @@ func copyConfig(src *Config) *Config {
 	if src.PreferLocalRoutes != nil {
 		preferLocalRoutes := *src.PreferLocalRoutes
 		cfg.PreferLocalRoutes = &preferLocalRoutes
+	}
+	if src.ExitNodeTakesPrecedence != nil {
+		exitNodeTakesPrecedence := *src.ExitNodeTakesPrecedence
+		cfg.ExitNodeTakesPrecedence = &exitNodeTakesPrecedence
 	}
 	if src.AutoConnectAtLogin != nil {
 		autoConnectAtLogin := *src.AutoConnectAtLogin

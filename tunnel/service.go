@@ -104,22 +104,23 @@ func (s State) DisplayText() string {
 type Config struct {
 	Name string `json:"name"` // for Windows service name
 
-	Endpoint            string   `json:"endpoint"`
-	ID                  string   `json:"id"`
-	Secret              string   `json:"secret"`
-	MTU                 int      `json:"mtu"`
-	DNS                 string   `json:"dns"`
-	Holepunch           bool     `json:"holepunch"`
-	PingIntervalSeconds int      `json:"pingIntervalSeconds"`
-	PingTimeoutSeconds  int      `json:"pingTimeoutSeconds"`
-	UserToken           string   `json:"userToken"`
-	OrgID               string   `json:"orgId"`
-	InterfaceName       string   `json:"interfaceName"`
-	UpstreamDNS         []string `json:"upstreamDns"`
-	MatchDomains        []string `json:"matchDomains"`
-	OverrideDNS         bool     `json:"overrideDns"`
-	TunnelDNS           bool     `json:"tunnelDns"`
-	PreferLocalRoutes   bool     `json:"preferLocalRoutes"`
+	Endpoint                string   `json:"endpoint"`
+	ID                      string   `json:"id"`
+	Secret                  string   `json:"secret"`
+	MTU                     int      `json:"mtu"`
+	DNS                     string   `json:"dns"`
+	Holepunch               bool     `json:"holepunch"`
+	PingIntervalSeconds     int      `json:"pingIntervalSeconds"`
+	PingTimeoutSeconds      int      `json:"pingTimeoutSeconds"`
+	UserToken               string   `json:"userToken"`
+	OrgID                   string   `json:"orgId"`
+	InterfaceName           string   `json:"interfaceName"`
+	UpstreamDNS             []string `json:"upstreamDns"`
+	MatchDomains            []string `json:"matchDomains"`
+	OverrideDNS             bool     `json:"overrideDns"`
+	TunnelDNS               bool     `json:"tunnelDns"`
+	PreferLocalRoutes       bool     `json:"preferLocalRoutes"`
+	ExitNodeTakesPrecedence bool     `json:"exitNodeTakesPrecedence"`
 
 	// GatewaySiteResourceId/GatewaySiteIds, when set, establish the exit node
 	// (gateway) as the tunnel comes up. The resource ID is what olm uses to

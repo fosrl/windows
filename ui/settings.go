@@ -18,13 +18,14 @@ const (
 
 // Settings is the Preferences tab form.
 type Settings struct {
-	OpenAtLogin  bool   `json:"openAtLogin"`
-	AutoConnect  bool   `json:"autoConnect"`
-	DNSOverride  bool   `json:"dnsOverride"`
-	DNSTunnel    bool   `json:"dnsTunnel"`
-	PrimaryDNS   string `json:"primaryDns"`
-	SecondaryDNS string `json:"secondaryDns"`
-	MTU          string `json:"mtu"`
+	OpenAtLogin             bool   `json:"openAtLogin"`
+	AutoConnect             bool   `json:"autoConnect"`
+	DNSOverride             bool   `json:"dnsOverride"`
+	DNSTunnel               bool   `json:"dnsTunnel"`
+	PrimaryDNS              string `json:"primaryDns"`
+	SecondaryDNS            string `json:"secondaryDns"`
+	MTU                     string `json:"mtu"`
+	ExitNodeTakesPrecedence bool   `json:"exitNodeTakesPrecedence"`
 	// Disabled is set when an administrator has turned off user settings.
 	Disabled bool `json:"disabled"`
 }
@@ -41,14 +42,15 @@ func currentSettings() Settings {
 	}
 	cm := configManager
 	return Settings{
-		OpenAtLogin:  cm.GetOpenUIAtLogin() || cm.GetAutoConnectAtLogin(),
-		AutoConnect:  cm.GetAutoConnectAtLogin(),
-		DNSOverride:  cm.GetDNSOverride(),
-		DNSTunnel:    cm.GetDNSTunnel(),
-		PrimaryDNS:   cm.GetPrimaryDNS(),
-		SecondaryDNS: cm.GetSecondaryDNS(),
-		MTU:          strconv.Itoa(cm.GetMTU()),
-		Disabled:     cm.GetUserSettingsDisabled(),
+		OpenAtLogin:             cm.GetOpenUIAtLogin() || cm.GetAutoConnectAtLogin(),
+		AutoConnect:             cm.GetAutoConnectAtLogin(),
+		DNSOverride:             cm.GetDNSOverride(),
+		DNSTunnel:               cm.GetDNSTunnel(),
+		PrimaryDNS:              cm.GetPrimaryDNS(),
+		SecondaryDNS:            cm.GetSecondaryDNS(),
+		MTU:                     strconv.Itoa(cm.GetMTU()),
+		ExitNodeTakesPrecedence: cm.GetExitNodeTakesPrecedence(),
+		Disabled:                cm.GetUserSettingsDisabled(),
 	}
 }
 
@@ -100,11 +102,13 @@ func applySettings(form Settings) SettingsResult {
 	dnsOverride := form.DNSOverride
 	dnsTunnel := form.DNSTunnel
 	autoConnect := form.AutoConnect
+	exitNodeTakesPrecedence := form.ExitNodeTakesPrecedence
 	cfg.DNSOverride = &dnsOverride
 	cfg.DNSTunnel = &dnsTunnel
 	cfg.AutoConnectAtLogin = &autoConnect
 	cfg.OpenUIAtLogin = &openAtLogin
 	cfg.MTU = &mtu
+	cfg.ExitNodeTakesPrecedence = &exitNodeTakesPrecedence
 	if primaryDNS != "" {
 		cfg.PrimaryDNS = &primaryDNS
 	} else {

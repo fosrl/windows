@@ -235,6 +235,7 @@ func (tm *Manager) buildConfig() (Config, error) {
 	dnsOverride := tm.configManager.GetDNSOverride()
 	dnsTunnel := tm.configManager.GetDNSTunnel()
 	preferLocalRoutes := tm.configManager.GetPreferLocalRoutes()
+	exitNodeTakesPrecedence := tm.configManager.GetExitNodeTakesPrecedence()
 
 	// Build UpstreamDNS array with :53 appended to each. If no DNS servers are
 	// configured, this stays empty, telling olm to use the system DNS.
@@ -257,13 +258,14 @@ func (tm *Manager) buildConfig() (Config, error) {
 		PingTimeoutSeconds:  5,
 		Endpoint:            activeAccount.Hostname,
 		//  DNS:                 "1.1.1.1", // this gets pulled dynamically from the host system now
-		OrgID:             currentOrg.Id,
-		InterfaceName:     "Pangolin",
-		UpstreamDNS:       upstreamDNS, // Each value has :53 appended
-		MatchDomains:      tm.configManager.GetMatchDomains(),
-		OverrideDNS:       dnsOverride,
-		TunnelDNS:         dnsTunnel,
-		PreferLocalRoutes: preferLocalRoutes,
+		OrgID:                   currentOrg.Id,
+		InterfaceName:           "Pangolin",
+		UpstreamDNS:             upstreamDNS, // Each value has :53 appended
+		MatchDomains:            tm.configManager.GetMatchDomains(),
+		OverrideDNS:             dnsOverride,
+		TunnelDNS:               dnsTunnel,
+		PreferLocalRoutes:       preferLocalRoutes,
+		ExitNodeTakesPrecedence: exitNodeTakesPrecedence,
 	}
 
 	tm.mu.RLock()

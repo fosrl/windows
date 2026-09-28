@@ -79,6 +79,7 @@ export interface Settings {
     "primaryDns": string;
     "secondaryDns": string;
     "mtu": string;
+    "exitNodeTakesPrecedence": boolean;
 
     /**
      * Disabled is set when an administrator has turned off user settings.
