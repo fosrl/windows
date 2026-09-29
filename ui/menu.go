@@ -127,6 +127,8 @@ type menuOrg struct {
 type menuExitNode struct {
 	ID   int
 	Name string
+	// SiteNames are the sites the exit node routes traffic through.
+	SiteNames []string
 }
 
 type menuServerInfo struct {
@@ -549,6 +551,17 @@ func exitNodeSubmenu(in menuInputs) MenuItem {
 	title := "None"
 	for _, n := range in.ExitNodes {
 		it := checkItem(menuPrefixExitNode+strconv.Itoa(n.ID), n.Name, enabled, n.ID == in.ActiveExitNodeID)
+		// Clicking selects the exit node; hovering lists its sites.
+		if len(n.SiteNames) > 0 {
+			count := "1 Site"
+			if len(n.SiteNames) != 1 {
+				count = fmt.Sprintf("%d Sites", len(n.SiteNames))
+			}
+			it.Items = append(it.Items, header(count))
+			for _, name := range n.SiteNames {
+				it.Items = append(it.Items, label(name, ""))
+			}
+		}
 		sub = append(sub, it)
 		if it.Checked {
 			title = n.Name

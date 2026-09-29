@@ -83,7 +83,7 @@ return {
       hdr("Exit Node"),
       row({
         id: "exitnodes", kind: "submenu", label: "None",
-        items: [hdr("Route All Traffic Through", true), check("exitnode.none", "None", true), check("exitnode:7", "Office")],
+        items: [hdr("Route All Traffic Through", true), check("exitnode.none", "None", true), { ...check("exitnode:7", "Office"), items: [hdr("2 Sites"), lbl("office-east"), lbl("office-west")] }],
       }),
     ]),
     sep,

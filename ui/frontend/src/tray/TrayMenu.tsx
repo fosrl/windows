@@ -30,8 +30,10 @@ const reducedMotion = () => window.matchMedia?.("(prefers-reduced-motion: reduce
 
 type OpenSubmenu = { id: string; anchor: HTMLElement };
 
+// Status and item rows open a submenu only when they have items. An item row
+// still invokes on click and opens its submenu on hover.
 const opensSubmenu = (item: MenuItem) =>
-  item.kind === "submenu" || (item.kind === "status" && !!item.items?.length);
+  item.kind === "submenu" || ((item.kind === "status" || item.kind === "item") && !!item.items?.length);
 
 /** Resolves once the viewport is at least `height` tall, or after a short wait. */
 function waitForViewport(height: number) {
@@ -562,7 +564,9 @@ function Row({
       aria-checked={item.checkable ? item.checked : undefined}
       aria-disabled={!item.enabled || undefined}
       onMouseEnter={(e) => (isSubmenu ? onOpenSubmenu?.(item, e.currentTarget, false) : onHoverRow())}
-      onClick={(e) => (isSubmenu ? onOpenSubmenu?.(item, e.currentTarget, true) : onInvoke(item))}
+      onClick={(e) =>
+        isSubmenu && item.kind !== "item" ? onOpenSubmenu?.(item, e.currentTarget, true) : onInvoke(item)
+      }
       className={cx(
         "flex min-h-[26px] items-center gap-[5px] whitespace-nowrap",
         rowPadding,
