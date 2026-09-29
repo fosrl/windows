@@ -37,7 +37,7 @@ export function Button({
       {...props}
       className={cx(
         "inline-flex shrink-0 items-center justify-center gap-1 rounded-[6px] leading-none whitespace-nowrap",
-        "shadow-[0_0.5px_1px_rgb(0_0_0/0.12)] transition-colors disabled:opacity-45",
+        "transition-colors disabled:opacity-45",
         size === "small"
           ? "h-[22px] px-2.5 text-[12px]"
           : size === "large"
@@ -81,7 +81,7 @@ export function Switch({
     >
       <span
         className={cx(
-          "absolute top-[2px] size-[16px] rounded-full bg-white shadow-[0_1px_2px_rgb(0_0_0/0.3)] transition-[left] duration-150",
+          "absolute top-[2px] size-[16px] rounded-full bg-white transition-[left] duration-150",
           checked ? "left-[18px]" : "left-[2px]",
         )}
       />
@@ -98,7 +98,7 @@ export function TextField({ className, ...props }: InputHTMLAttributes<HTMLInput
       {...props}
       className={cx(
         "h-[26px] min-w-0 rounded-[6px] border border-mac-control-border bg-mac-control px-2 text-[13px]",
-        "shadow-[inset_0_0.5px_1px_rgb(0_0_0/0.06)] select-text placeholder:text-mac-tertiary",
+        "select-text placeholder:text-mac-tertiary",
         "focus:outline-[3px] focus:outline-offset-0 focus:outline-mac-accent/45 disabled:opacity-50",
         className,
       )}
@@ -114,7 +114,6 @@ export function Picker({ className, children, ...props }: SelectHTMLAttributes<H
         {...props}
         className={cx(
           "h-[22px] appearance-none rounded-[6px] border border-mac-control-border bg-mac-control py-0 pr-7 pl-2.5 text-[13px]",
-          "shadow-[0_0.5px_1px_rgb(0_0_0/0.12)]",
           className,
         )}
       >
@@ -437,7 +436,7 @@ export function Radio({
           "peer-focus-visible:outline-3 peer-focus-visible:outline-[color-mix(in_srgb,var(--color-mac-accent)_45%,transparent)]",
           checked
             ? "border-mac-accent bg-mac-accent"
-            : "border-mac-control-border bg-mac-control shadow-[inset_0_0.5px_1px_rgb(0_0_0/0.08)]",
+            : "border-mac-control-border bg-mac-control",
         )}
       >
         {checked && <span className="size-[6px] rounded-full bg-white" />}
