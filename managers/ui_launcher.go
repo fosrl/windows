@@ -13,12 +13,21 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-const uiLaunchPipePath = `\\.\pipe\pangolin-manager-ui-launch`
+const (
+	uiLaunchPipePath = `\\.\pipe\pangolin-manager-ui-launch`
+	uiActionPipePath = `\\.\pipe\pangolin-manager-ui-action`
+)
 
-// RequestUILaunch connects to the manager service via named pipe and requests
-// a UI launch for the current session. Returns true if the UI was successfully
-// launched (or already running), false otherwise.
-func RequestUILaunch() bool {
+// UIAction is something another process asks the running UI to do.
+type UIAction uint32
+
+const (
+	// UIActionOpenUpdate opens the update window, e.g. from the update toast's Open button.
+	UIActionOpenUpdate UIAction = iota + 1
+)
+
+// currentSessionID returns the Windows session of this process, or 0 if unknown.
+func currentSessionID() uint32 {
 	pid := uint32(os.Getpid())
 	var sessionID uint32
 	if err := windows.ProcessIdToSessionId(pid, &sessionID); err != nil {
@@ -28,6 +37,41 @@ func RequestUILaunch() bool {
 	} else {
 		logger.Debug("UI launch: ProcessIdToSessionId(%d) returned session %d", pid, sessionID)
 	}
+	return sessionID
+}
+
+// RequestUIAction asks the manager service to have the UI in this session
+// perform action. Returns false if the manager could not be reached or no UI
+// is running in this session.
+func RequestUIAction(action UIAction) bool {
+	sessionID := currentSessionID()
+	if sessionID == 0 {
+		return false
+	}
+	conn, err := winio.DialPipe(uiActionPipePath, nil)
+	if err != nil {
+		logger.Error("Failed to connect to manager service UI action pipe: %v", err)
+		return false
+	}
+	defer conn.Close()
+	if err := binary.Write(conn, binary.LittleEndian, [2]uint32{sessionID, uint32(action)}); err != nil {
+		logger.Error("Failed to send UI action to manager service: %v", err)
+		return false
+	}
+	// Response: 0 = delivered, 1 = no UI running in the session
+	var response uint32
+	if err := binary.Read(conn, binary.LittleEndian, &response); err != nil {
+		logger.Error("Failed to read UI action response from manager service: %v", err)
+		return false
+	}
+	return response == 0
+}
+
+// RequestUILaunch connects to the manager service via named pipe and requests
+// a UI launch for the current session. Returns true if the UI was successfully
+// launched (or already running), false otherwise.
+func RequestUILaunch() bool {
+	sessionID := currentSessionID()
 	if sessionID == 0 {
 		logger.Error("Failed to get current session ID (got 0)")
 		return false

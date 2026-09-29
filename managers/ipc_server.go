@@ -34,6 +34,8 @@ var (
 	quitManagersChan    = make(chan struct{}, 1)
 	activeTunnels       = make(map[string]bool) // Track active tunnel names
 	activeTunnelsLock   sync.RWMutex
+	alwaysOnUsers       = make(map[string]bool)
+	alwaysOnUsersLock   sync.Mutex
 
 	postureRefresherOnce sync.Once
 	secretStore          = secretstore.NewStore()
@@ -44,6 +46,34 @@ type ManagerService struct {
 	eventLock        sync.Mutex
 	elevatedToken    windows.Token
 	clientWindowsSID string
+}
+
+func setUserAlwaysOn(sid string, enabled bool) {
+	if sid == "" {
+		return
+	}
+	alwaysOnUsersLock.Lock()
+	defer alwaysOnUsersLock.Unlock()
+	if enabled {
+		alwaysOnUsers[sid] = true
+	} else {
+		delete(alwaysOnUsers, sid)
+	}
+}
+
+func userAlwaysOn(sid string) bool {
+	alwaysOnUsersLock.Lock()
+	defer alwaysOnUsersLock.Unlock()
+	return alwaysOnUsers[sid]
+}
+
+func (s *ManagerService) SetAlwaysOn(enabled bool) {
+	setUserAlwaysOn(s.clientWindowsSID, enabled)
+	logger.Info("Always-On for %s: %v", s.clientWindowsSID, enabled)
+}
+
+func (s *ManagerService) AlwaysOnEnabled() bool {
+	return userAlwaysOn(s.clientWindowsSID)
 }
 
 func (s *ManagerService) Quit(stopTunnelsOnQuit bool) (alreadyQuit bool, err error) {
@@ -87,6 +117,10 @@ func (s *ManagerService) UpdateState() UpdateState {
 	return updateState
 }
 
+func (s *ManagerService) UpdateVersion() string {
+	return foundVersion
+}
+
 func (s *ManagerService) CheckForUpdates() (UpdateState, error) {
 	update, err := updater.CheckForUpdate()
 	if err != nil {
@@ -94,6 +128,7 @@ func (s *ManagerService) CheckForUpdates() (UpdateState, error) {
 	}
 	if update != nil {
 		updateState = UpdateStateFoundUpdate
+		foundVersion = update.Version()
 		IPCServerNotifyUpdateFound(updateState)
 	} else if updateState != UpdateStateFoundUpdate {
 		updateState = UpdateStateUnknown
@@ -305,6 +340,18 @@ func (s *ManagerService) ServeConn(reader io.Reader, writer io.Writer) {
 			if err != nil {
 				return
 			}
+		case SetAlwaysOnMethodType:
+			var enabled bool
+			err := decoder.Decode(&enabled)
+			if err != nil {
+				return
+			}
+			s.SetAlwaysOn(enabled)
+		case AlwaysOnEnabledMethodType:
+			err = encoder.Encode(s.AlwaysOnEnabled())
+			if err != nil {
+				return
+			}
 		case CheckForUpdatesMethodType:
 			state, retErr := s.CheckForUpdates()
 			err = encoder.Encode(state)
@@ -312,6 +359,11 @@ func (s *ManagerService) ServeConn(reader io.Reader, writer io.Writer) {
 				return
 			}
 			err = encoder.Encode(errToString(retErr))
+			if err != nil {
+				return
+			}
+		case UpdateVersionMethodType:
+			err = encoder.Encode(s.UpdateVersion())
 			if err != nil {
 				return
 			}
@@ -496,6 +548,12 @@ func IPCServerNotifyUpdateFound(state UpdateState) {
 
 func IPCServerNotifyUpdateProgress(dp updater.DownloadProgress) {
 	notifyAll(UpdateProgressNotificationType, false, dp.Activity, dp.BytesDownloaded, dp.BytesTotal, errToString(dp.Error), dp.Complete)
+}
+
+// IPCServerNotifyUIAction asks the UI in sessionID to perform action. Every UI
+// receives it and only the one in that session acts on it.
+func IPCServerNotifyUIAction(sessionID uint32, action UIAction) {
+	notifyAll(UIActionNotificationType, false, sessionID, action)
 }
 
 func IPCServerNotifyManagerStopping() {

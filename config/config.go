@@ -41,11 +41,18 @@ type Config struct {
 	DefaultServerURL             *string  `json:"defaultServerURL,omitempty"`
 	UserSettingsDisabled         *bool    `json:"userSettingsDisabled,omitempty"`
 	AuthPath                     *string  `json:"authPath,omitempty"`
+	SessionCookieName            *string  `json:"sessionCookieName,omitempty"`
 	OpenStatusTabOnConnect       *bool    `json:"openStatusTabOnConnect,omitempty"`
 	PreferLocalRoutes            *bool    `json:"preferLocalRoutes,omitempty"`
+	ExitNodeTakesPrecedence      *bool    `json:"exitNodeTakesPrecedence,omitempty"`
+	AutoConnectAtLogin           *bool    `json:"autoConnectAtLogin,omitempty"`
+	OpenUIAtLogin                *bool    `json:"openUIAtLogin,omitempty"`
 	AutoUpdateChecksEnabled      *bool    `json:"autoUpdateChecksEnabled,omitempty"`
 	CheckForUpdatesButtonEnabled *bool    `json:"checkForUpdatesButtonEnabled,omitempty"`
 	UpdateCheckIntervalSeconds   *int     `json:"updateCheckIntervalSeconds,omitempty"`
+	// Onboarding progress, like the macOS client's OnboardingStateManager.
+	OnboardingSeenWelcome         *bool `json:"onboardingSeenWelcome,omitempty"`
+	OnboardingAcknowledgedPrivacy *bool `json:"onboardingAcknowledgedPrivacy,omitempty"`
 }
 
 // SystemConfig represents machine-wide configuration stored under
@@ -245,6 +252,106 @@ func (cm *ConfigManager) GetPreferLocalRoutes() bool {
 	return false
 }
 
+// GetExitNodeTakesPrecedence returns whether routes/aliases for individual
+// resources should be suppressed in favor of the active exit node, or false
+// if not set.
+func (cm *ConfigManager) GetExitNodeTakesPrecedence() bool {
+	cm.mu.RLock()
+	defer cm.mu.RUnlock()
+
+	if cm.config != nil && cm.config.ExitNodeTakesPrecedence != nil {
+		return *cm.config.ExitNodeTakesPrecedence
+	}
+	return false
+}
+
+// SetExitNodeTakesPrecedence sets the exit-node-takes-precedence setting and saves to config
+func (cm *ConfigManager) SetExitNodeTakesPrecedence(value bool) bool {
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+
+	cfg := cm.getConfigCopy()
+	cfg.ExitNodeTakesPrecedence = &value
+	return cm.save(cfg)
+}
+
+// OnboardingNeverStarted reports whether setup has never been shown on this
+// computer: neither onboarding flag has been written.
+func (cm *ConfigManager) OnboardingNeverStarted() bool {
+	cm.mu.RLock()
+	defer cm.mu.RUnlock()
+	return cm.config == nil || (cm.config.OnboardingSeenWelcome == nil && cm.config.OnboardingAcknowledgedPrivacy == nil)
+}
+
+// MarkOnboardingStarted records that setup has been shown, without marking any
+// step done, so a later launch can tell a new install from one mid-setup.
+func (cm *ConfigManager) MarkOnboardingStarted() bool {
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+	if cm.config != nil && cm.config.OnboardingSeenWelcome != nil {
+		return true
+	}
+	cfg := cm.getConfigCopy()
+	notYet := false
+	cfg.OnboardingSeenWelcome = &notYet
+	return cm.save(cfg)
+}
+
+// UserConfigExists reports whether the per-user config file exists, which
+// means the app was set up or used on this computer before.
+func (cm *ConfigManager) UserConfigExists() bool {
+	_, err := os.Stat(cm.configPath)
+	return err == nil
+}
+
+// GetOnboardingSeenWelcome reports whether the setup welcome page was completed.
+func (cm *ConfigManager) GetOnboardingSeenWelcome() bool {
+	cm.mu.RLock()
+	defer cm.mu.RUnlock()
+	return cm.config != nil && cm.config.OnboardingSeenWelcome != nil && *cm.config.OnboardingSeenWelcome
+}
+
+// SetOnboardingSeenWelcome records that the setup welcome page was completed.
+func (cm *ConfigManager) SetOnboardingSeenWelcome(value bool) bool {
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+	cfg := cm.getConfigCopy()
+	cfg.OnboardingSeenWelcome = &value
+	return cm.save(cfg)
+}
+
+// GetOnboardingAcknowledgedPrivacy reports whether the setup privacy page was confirmed.
+func (cm *ConfigManager) GetOnboardingAcknowledgedPrivacy() bool {
+	cm.mu.RLock()
+	defer cm.mu.RUnlock()
+	return cm.config != nil && cm.config.OnboardingAcknowledgedPrivacy != nil && *cm.config.OnboardingAcknowledgedPrivacy
+}
+
+// SetOnboardingAcknowledgedPrivacy records that the setup privacy page was confirmed.
+func (cm *ConfigManager) SetOnboardingAcknowledgedPrivacy(value bool) bool {
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+	cfg := cm.getConfigCopy()
+	cfg.OnboardingAcknowledgedPrivacy = &value
+	return cm.save(cfg)
+}
+
+// GetAutoConnectAtLogin reports whether the tray should connect whenever
+// the app starts. Omitted defaults to false.
+func (cm *ConfigManager) GetAutoConnectAtLogin() bool {
+	cm.mu.RLock()
+	defer cm.mu.RUnlock()
+	return autoConnectAtLogin(cm.config)
+}
+
+// GetOpenUIAtLogin reports whether the manager should open the UI when the
+// user signs in. Omitted defaults to false. Connect at start also opens the UI.
+func (cm *ConfigManager) GetOpenUIAtLogin() bool {
+	cm.mu.RLock()
+	defer cm.mu.RUnlock()
+	return openUIAtLogin(cm.config)
+}
+
 // SetPreferLocalRoutes sets the prefer-local-routes setting and saves to config
 func (cm *ConfigManager) SetPreferLocalRoutes(value bool) bool {
 	cm.mu.Lock()
@@ -321,6 +428,19 @@ func (cm *ConfigManager) GetAuthPath() string {
 
 	if cm.config != nil && cm.config.AuthPath != nil {
 		return strings.TrimSpace(*cm.config.AuthPath)
+	}
+	return ""
+}
+
+// GetSessionCookieName returns the override for the cookie name the session
+// token is sent and read under, or empty string if not set (the API client's
+// built-in default is used).
+func (cm *ConfigManager) GetSessionCookieName() string {
+	cm.mu.RLock()
+	defer cm.mu.RUnlock()
+
+	if cm.config != nil && cm.config.SessionCookieName != nil {
+		return strings.TrimSpace(*cm.config.SessionCookieName)
 	}
 	return ""
 }
@@ -415,6 +535,35 @@ func (cm *ConfigManager) SetMTU(value int) bool {
 	return cm.save(cfg)
 }
 
+// LaunchUIAtLoginEnabled reports whether the merged machine and per-user
+// config should open the UI at sign-in. Connect at start implies this.
+// localAppData is that user's LOCALAPPDATA directory. The manager service
+// must pass it explicitly, because its own process environment is the system profile.
+func LaunchUIAtLoginEnabled(localAppData string) bool {
+	merged := configFromSystemConfig(LoadSystemConfig())
+	if localAppData != "" {
+		userCfg, ok := loadConfigFile(filepath.Join(localAppData, AppName, ConfigFileName))
+		if ok {
+			merged = mergeConfig(merged, userCfg)
+		}
+	}
+	return openUIAtLogin(merged) || autoConnectAtLogin(merged)
+}
+
+func autoConnectAtLogin(cfg *Config) bool {
+	if cfg != nil && cfg.AutoConnectAtLogin != nil {
+		return *cfg.AutoConnectAtLogin
+	}
+	return false
+}
+
+func openUIAtLogin(cfg *Config) bool {
+	if cfg != nil && cfg.OpenUIAtLogin != nil {
+		return *cfg.OpenUIAtLogin
+	}
+	return false
+}
+
 func LoadSystemConfig() *SystemConfig {
 	configPath := filepath.Join(GetProgramDataDir(), ConfigFileName)
 
@@ -485,11 +634,16 @@ func (cm *ConfigManager) getConfigCopy() *Config {
 
 // loadUserConfig loads the per-user config from disk.
 func (cm *ConfigManager) loadUserConfig() (*Config, bool) {
-	if _, err := os.Stat(cm.configPath); os.IsNotExist(err) {
+	return loadConfigFile(cm.configPath)
+}
+
+// loadConfigFile loads a config JSON file. A missing file is not an error.
+func loadConfigFile(path string) (*Config, bool) {
+	if _, err := os.Stat(path); os.IsNotExist(err) {
 		return nil, false
 	}
 
-	data, err := os.ReadFile(cm.configPath)
+	data, err := os.ReadFile(path)
 	if err != nil {
 		logger.Error("Error loading config: %v", err)
 		return nil, false
@@ -554,6 +708,10 @@ func mergeConfig(base, override *Config) *Config {
 		v := *override.AuthPath
 		merged.AuthPath = &v
 	}
+	if override.SessionCookieName != nil {
+		v := *override.SessionCookieName
+		merged.SessionCookieName = &v
+	}
 	if override.OpenStatusTabOnConnect != nil {
 		v := *override.OpenStatusTabOnConnect
 		merged.OpenStatusTabOnConnect = &v
@@ -561,6 +719,18 @@ func mergeConfig(base, override *Config) *Config {
 	if override.PreferLocalRoutes != nil {
 		v := *override.PreferLocalRoutes
 		merged.PreferLocalRoutes = &v
+	}
+	if override.ExitNodeTakesPrecedence != nil {
+		v := *override.ExitNodeTakesPrecedence
+		merged.ExitNodeTakesPrecedence = &v
+	}
+	if override.AutoConnectAtLogin != nil {
+		v := *override.AutoConnectAtLogin
+		merged.AutoConnectAtLogin = &v
+	}
+	if override.OpenUIAtLogin != nil {
+		v := *override.OpenUIAtLogin
+		merged.OpenUIAtLogin = &v
 	}
 	if override.AutoUpdateChecksEnabled != nil {
 		v := *override.AutoUpdateChecksEnabled
@@ -574,7 +744,14 @@ func mergeConfig(base, override *Config) *Config {
 		v := *override.UpdateCheckIntervalSeconds
 		merged.UpdateCheckIntervalSeconds = &v
 	}
-
+	if override.OnboardingSeenWelcome != nil {
+		v := *override.OnboardingSeenWelcome
+		merged.OnboardingSeenWelcome = &v
+	}
+	if override.OnboardingAcknowledgedPrivacy != nil {
+		v := *override.OnboardingAcknowledgedPrivacy
+		merged.OnboardingAcknowledgedPrivacy = &v
+	}
 	return merged
 }
 
@@ -620,6 +797,10 @@ func copyConfig(src *Config) *Config {
 		authPath := *src.AuthPath
 		cfg.AuthPath = &authPath
 	}
+	if src.SessionCookieName != nil {
+		sessionCookieName := *src.SessionCookieName
+		cfg.SessionCookieName = &sessionCookieName
+	}
 	if src.OpenStatusTabOnConnect != nil {
 		openStatusTabOnConnect := *src.OpenStatusTabOnConnect
 		cfg.OpenStatusTabOnConnect = &openStatusTabOnConnect
@@ -627,6 +808,18 @@ func copyConfig(src *Config) *Config {
 	if src.PreferLocalRoutes != nil {
 		preferLocalRoutes := *src.PreferLocalRoutes
 		cfg.PreferLocalRoutes = &preferLocalRoutes
+	}
+	if src.ExitNodeTakesPrecedence != nil {
+		exitNodeTakesPrecedence := *src.ExitNodeTakesPrecedence
+		cfg.ExitNodeTakesPrecedence = &exitNodeTakesPrecedence
+	}
+	if src.AutoConnectAtLogin != nil {
+		autoConnectAtLogin := *src.AutoConnectAtLogin
+		cfg.AutoConnectAtLogin = &autoConnectAtLogin
+	}
+	if src.OpenUIAtLogin != nil {
+		openUIAtLogin := *src.OpenUIAtLogin
+		cfg.OpenUIAtLogin = &openUIAtLogin
 	}
 	if src.AutoUpdateChecksEnabled != nil {
 		autoUpdateChecksEnabled := *src.AutoUpdateChecksEnabled
@@ -639,6 +832,14 @@ func copyConfig(src *Config) *Config {
 	if src.UpdateCheckIntervalSeconds != nil {
 		updateCheckIntervalSeconds := *src.UpdateCheckIntervalSeconds
 		cfg.UpdateCheckIntervalSeconds = &updateCheckIntervalSeconds
+	}
+	if src.OnboardingSeenWelcome != nil {
+		onboardingSeenWelcome := *src.OnboardingSeenWelcome
+		cfg.OnboardingSeenWelcome = &onboardingSeenWelcome
+	}
+	if src.OnboardingAcknowledgedPrivacy != nil {
+		onboardingAcknowledgedPrivacy := *src.OnboardingAcknowledgedPrivacy
+		cfg.OnboardingAcknowledgedPrivacy = &onboardingAcknowledgedPrivacy
 	}
 	return cfg
 }

@@ -184,6 +184,7 @@ func (am *AuthManager) LoginWithDeviceAuth(ctx context.Context, hostnameOverride
 	if hostnameOverride != nil && *hostnameOverride != "" {
 		// Create temporary client with override hostname
 		loginClient = api.NewAPIClient(*hostnameOverride, "")
+		loginClient.SetSessionCookieName(am.configManager.GetSessionCookieName())
 	} else {
 		// Use main API client
 		loginClient = am.apiClient
@@ -221,7 +222,8 @@ func (am *AuthManager) LoginWithDeviceAuth(ctx context.Context, hostnameOverride
 	verified := false
 	var sessionToken *string
 
-	ticker := time.NewTicker(3 * time.Second)
+	// Poll every second, like the macOS client, so approval shows up promptly.
+	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
 
 	for !verified && time.Now().Before(expiresAt) {
@@ -423,11 +425,36 @@ func (am *AuthManager) handleSuccessfulAuth(user *api.User, hostname string, tok
 
 // MarkSessionExpired sets the session-expired state so the UI shows re-auth and disables connect.
 // Called from the API layer (on 401/403) and tunnel layer (on session-expired error codes).
+// The last selected org stays visible from the locally cached account org id.
 func (am *AuthManager) MarkSessionExpired() {
 	am.mu.Lock()
 	defer am.mu.Unlock()
 	am.sessionExpired = true
 	am.errorMessage = nil
+	if account, err := am.accountManager.ActiveAccount(); err == nil {
+		am.restoreCachedOrganizationLocked(account)
+	}
+}
+
+// restoreCachedOrganizationLocked sets currentOrg from the locally cached account org ID
+// when the server is unreachable or the session is expired. Keeps a known display name
+// when the id already matches. Caller must hold am.mu.
+func (am *AuthManager) restoreCachedOrganizationLocked(account *config.Account) {
+	if account == nil || account.OrgID == "" {
+		return
+	}
+	if am.currentOrg == nil || am.currentOrg.Id != account.OrgID {
+		am.currentOrg = &api.Org{Id: account.OrgID, Name: account.OrgID}
+	}
+	if am.currentOrg == nil || am.currentOrg.Id != account.OrgID {
+		return
+	}
+	for _, org := range am.organizations {
+		if org.Id == account.OrgID {
+			return
+		}
+	}
+	am.organizations = append(am.organizations, *am.currentOrg)
 }
 
 // RefreshOrganizations refreshes the list of organizations
@@ -474,6 +501,14 @@ func (am *AuthManager) RefreshOrganizations() error {
 			am.currentOrg = nil
 			if activeAccount, _ := am.accountManager.ActiveAccount(); activeAccount != nil {
 				_ = am.accountManager.SetUserOrganization(activeAccount.UserID, "")
+			}
+		}
+	} else if activeAccount, _ := am.accountManager.ActiveAccount(); activeAccount != nil && activeAccount.OrgID != "" {
+		// Restore selection from the cached account org after an offline startup
+		for _, org := range newOrgs {
+			if org.Id == activeAccount.OrgID {
+				am.currentOrg = &org
+				break
 			}
 		}
 	}
@@ -644,6 +679,13 @@ func (am *AuthManager) CheckOrgAccess(orgId string) (bool, error) {
 
 // SelectOrganization selects an organization
 func (am *AuthManager) SelectOrganization(org *api.Org) error {
+	am.mu.RLock()
+	user := am.currentUser
+	am.mu.RUnlock()
+	if user == nil {
+		return errors.New("not signed in")
+	}
+
 	// First check org access
 	hasAccess, err := am.CheckOrgAccess(org.Id)
 	if err != nil || !hasAccess {
@@ -656,9 +698,7 @@ func (am *AuthManager) SelectOrganization(org *api.Org) error {
 	am.mu.Unlock()
 
 	// Save selected org to accounts store
-	am.mu.RLock()
-	userID := am.currentUser.UserId
-	am.mu.RUnlock()
+	userID := user.UserId
 
 	if err := am.accountManager.SetUserOrganization(userID, org.Id); err != nil {
 		logger.Warn("failed to persist selected account to store: %v", err)
@@ -760,7 +800,8 @@ func (am *AuthManager) SwitchAccount(userID string) error {
 	am.mu.RUnlock()
 
 	if serverDown {
-		// Server is down, but account is switched - show error but don't revert
+		// Server is down, but account is switched - show error but don't revert.
+		// CheckHealthAndSetState already restored the cached org for display.
 		logger.Warn("Server appears to be down after account switch")
 		return nil
 	}
@@ -775,6 +816,7 @@ func (am *AuthManager) SwitchAccount(userID string) error {
 			am.mu.Lock()
 			msg := err.Error()
 			am.errorMessage = &msg
+			am.restoreCachedOrganizationLocked(&accountToSwitchTo)
 			am.mu.Unlock()
 		}
 		logger.Error("Failed to fetch user after account switch: %v", err)
@@ -811,15 +853,9 @@ func (am *AuthManager) Logout() error {
 
 	userID := am.accountManager.ActiveUserID
 
-	// Get all accounts before removing the current one
-	// We need to find the next available account to switch to
-	var nextAccountID string
-	for accountID := range am.accountManager.Accounts {
-		if accountID != userID {
-			nextAccountID = accountID
-			break
-		}
-	}
+	// Find the account to switch to afterwards: the first remaining one by
+	// name, as the macOS client does.
+	nextAccountID := am.nextAccountAfter(userID)
 
 	// Clear local data
 	am.apiClient.UpdateSessionToken("")
@@ -856,6 +892,51 @@ func (am *AuthManager) Logout() error {
 	return nil
 }
 
+// nextAccountAfter returns the first account other than userID, ordered by
+// display name, or "" when there is none.
+func (am *AuthManager) nextAccountAfter(userID string) string {
+	var next *config.Account
+	for id, account := range am.accountManager.Accounts {
+		if id == userID {
+			continue
+		}
+		account := account
+		if next == nil || strings.ToLower(AccountDisplayName(&account)) < strings.ToLower(AccountDisplayName(next)) {
+			next = &account
+		}
+	}
+	if next == nil {
+		return ""
+	}
+	return next.UserID
+}
+
+// HasSession reports whether a session token is stored for the account.
+func (am *AuthManager) HasSession(userID string) bool {
+	_, ok := am.secretManager.GetSessionToken(userID)
+	return ok
+}
+
+// DeleteAccount signs out of an account and removes it. The active account
+// goes through Logout, which switches to the next account. Any other account
+// is removed locally and signed out on its server in the background.
+func (am *AuthManager) DeleteAccount(userID string) error {
+	if userID == am.accountManager.ActiveUserID {
+		return am.Logout()
+	}
+	account, ok := am.accountManager.Accounts[userID]
+	if !ok {
+		return nil
+	}
+	if token, ok := am.secretManager.GetSessionToken(userID); ok && account.Hostname != "" {
+		client := api.NewAPIClient(account.Hostname, token)
+		client.SetSessionCookieName(am.configManager.GetSessionCookieName())
+		go func() { _ = client.Logout() }()
+	}
+	_ = am.secretManager.DeleteSessionToken(userID)
+	return am.accountManager.RemoveAccount(userID)
+}
+
 // CheckHealthAndSetState performs a health check and updates the server down state
 func (am *AuthManager) CheckHealthAndSetState() error {
 	healthy, err := am.apiClient.CheckHealth()
@@ -865,6 +946,9 @@ func (am *AuthManager) CheckHealthAndSetState() error {
 		am.isServerDown = true
 		msg := "The server appears to be down."
 		am.errorMessage = &msg
+		if account, accErr := am.accountManager.ActiveAccount(); accErr == nil {
+			am.restoreCachedOrganizationLocked(account)
+		}
 		am.mu.Unlock()
 		return err
 	}
@@ -874,6 +958,9 @@ func (am *AuthManager) CheckHealthAndSetState() error {
 		am.isServerDown = true
 		msg := "The server appears to be down."
 		am.errorMessage = &msg
+		if account, accErr := am.accountManager.ActiveAccount(); accErr == nil {
+			am.restoreCachedOrganizationLocked(account)
+		}
 	} else {
 		am.isServerDown = false
 		am.errorMessage = nil

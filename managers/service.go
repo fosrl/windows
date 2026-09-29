@@ -10,8 +10,10 @@ import (
 	"path/filepath"
 	"runtime"
 	"strconv"
+	"strings"
 	"sync"
 	"syscall"
+	"time"
 	"unsafe"
 
 	"github.com/Microsoft/go-winio"
@@ -168,91 +170,102 @@ func (service *managerService) Execute(args []string, r <-chan svc.ChangeRequest
 		defer runToken.Close()
 		userToken = 0
 
-		// Start UI process once; do not auto-restart when it exits (user can run exe again to get UI)
-		procsLock.Lock()
-		if alive := aliveSessions[session]; !alive {
-			procsLock.Unlock()
-			return
-		}
-		procsLock.Unlock()
-
-		if stoppingManager {
-			return
-		}
-
-		ourReader, theirWriter, err := os.Pipe()
-		if err != nil {
-			logger.Error("Unable to create pipe: %v", err)
-			return
-		}
-		theirReader, ourWriter, err := os.Pipe()
-		if err != nil {
-			logger.Error("Unable to create pipe: %v", err)
-			return
-		}
-		theirEvents, ourEvents, err := os.Pipe()
-		if err != nil {
-			logger.Error("Unable to create pipe: %v", err)
-			return
-		}
+		// Keep the UI process running while Always-On is enabled for this user.
+		// A normal exit stays down so the user can start the app again themselves.
 		clientWindowsSID := user.User.Sid.String()
-		IPCServerListen(ourReader, ourWriter, ourEvents, elevatedToken, clientWindowsSID)
-		// TODO: Add log mapping handle when ringlogger is implemented
-		// theirLogMapping, err := ringlogger.Global.ExportInheritableMappingHandle()
-		// if err != nil {
-		// 	logger.Error("Unable to export inheritable mapping handle for logging: %v", err)
-		// 	return
-		// }
+		for {
+			procsLock.Lock()
+			alive := aliveSessions[session]
+			procsLock.Unlock()
+			if !alive {
+				setUserAlwaysOn(clientWindowsSID, false)
+				return
+			}
+			if stoppingManager {
+				return
+			}
 
-		logger.Info("Starting UI process for user '%s@%s' for session %d", username, domain, session)
-		procsLock.Lock()
-		var proc *uiProcess
-		if alive := aliveSessions[session]; alive {
-			proc, err = launchUIProcess(path, []string{
-				path,
-				"/ui",
-				strconv.FormatUint(uint64(theirReader.Fd()), 10),
-				strconv.FormatUint(uint64(theirWriter.Fd()), 10),
-				strconv.FormatUint(uint64(theirEvents.Fd()), 10),
-				// strconv.FormatUint(uint64(theirLogMapping), 10), // TODO: Add when ringlogger is implemented
-			}, userProfileDirectory, []windows.Handle{
-				windows.Handle(theirReader.Fd()),
-				windows.Handle(theirWriter.Fd()),
-				windows.Handle(theirEvents.Fd()),
-				// theirLogMapping, // TODO: Add when ringlogger is implemented
-			}, runToken)
-		} else {
-			err = errors.New("Session has logged out")
-		}
-		procsLock.Unlock()
-		theirReader.Close()
-		theirWriter.Close()
-		theirEvents.Close()
-		// windows.CloseHandle(theirLogMapping) // TODO: Add when ringlogger is implemented
-		if err != nil {
+			ourReader, theirWriter, err := os.Pipe()
+			if err != nil {
+				logger.Error("Unable to create pipe: %v", err)
+				return
+			}
+			theirReader, ourWriter, err := os.Pipe()
+			if err != nil {
+				logger.Error("Unable to create pipe: %v", err)
+				return
+			}
+			theirEvents, ourEvents, err := os.Pipe()
+			if err != nil {
+				logger.Error("Unable to create pipe: %v", err)
+				return
+			}
+			IPCServerListen(ourReader, ourWriter, ourEvents, elevatedToken, clientWindowsSID)
+
+			logger.Info("Starting UI process for user '%s@%s' for session %d", username, domain, session)
+			procsLock.Lock()
+			var proc *uiProcess
+			if alive := aliveSessions[session]; alive {
+				proc, err = launchUIProcess(path, []string{
+					path,
+					"/ui",
+					strconv.FormatUint(uint64(theirReader.Fd()), 10),
+					strconv.FormatUint(uint64(theirWriter.Fd()), 10),
+					strconv.FormatUint(uint64(theirEvents.Fd()), 10),
+				}, userProfileDirectory, []windows.Handle{
+					windows.Handle(theirReader.Fd()),
+					windows.Handle(theirWriter.Fd()),
+					windows.Handle(theirEvents.Fd()),
+				}, runToken)
+			} else {
+				err = errors.New("Session has logged out")
+			}
+			procsLock.Unlock()
+			theirReader.Close()
+			theirWriter.Close()
+			theirEvents.Close()
+			if err != nil {
+				ourReader.Close()
+				ourWriter.Close()
+				ourEvents.Close()
+				logger.Error("Unable to start manager UI process for user '%s@%s' for session %d: %v", username, domain, session, err)
+				procsLock.Lock()
+				stillAlive := aliveSessions[session]
+				procsLock.Unlock()
+				if stoppingManager || !stillAlive || !userAlwaysOn(clientWindowsSID) {
+					return
+				}
+				time.Sleep(time.Second)
+				continue
+			}
+
+			procsLock.Lock()
+			procs[session] = proc
+			procsLock.Unlock()
+
+			if exitCode, waitErr := proc.Wait(); waitErr == nil {
+				logger.Info("Exited UI process for user '%s@%s' for session %d with status %x", username, domain, session, exitCode)
+			} else {
+				logger.Error("Unable to wait for UI process for user '%s@%s' for session %d: %v", username, domain, session, waitErr)
+			}
+
+			procsLock.Lock()
+			delete(procs, session)
+			stillAlive := aliveSessions[session]
+			procsLock.Unlock()
 			ourReader.Close()
 			ourWriter.Close()
 			ourEvents.Close()
-			logger.Error("Unable to start manager UI process for user '%s@%s' for session %d: %v", username, domain, session, err)
-			return
+
+			if stoppingManager || !stillAlive || !userAlwaysOn(clientWindowsSID) {
+				if !stillAlive {
+					setUserAlwaysOn(clientWindowsSID, false)
+				}
+				return
+			}
+			logger.Info("Always-On: restarting UI process for user '%s@%s' for session %d", username, domain, session)
+			time.Sleep(time.Second)
 		}
-
-		procsLock.Lock()
-		procs[session] = proc
-		procsLock.Unlock()
-
-		if exitCode, waitErr := proc.Wait(); waitErr == nil {
-			logger.Info("Exited UI process for user '%s@%s' for session %d with status %x", username, domain, session, exitCode)
-		} else {
-			logger.Error("Unable to wait for UI process for user '%s@%s' for session %d: %v", username, domain, session, waitErr)
-		}
-
-		procsLock.Lock()
-		delete(procs, session)
-		procsLock.Unlock()
-		ourReader.Close()
-		ourWriter.Close()
-		ourEvents.Close()
 	}
 	procsGroup := sync.WaitGroup{}
 	goStartProcess := func(session uint32) {
@@ -268,9 +281,10 @@ func (service *managerService) Execute(args []string, r <-chan svc.ChangeRequest
 	// TODO: Add driver cleanup when driver package is implemented
 	// go driver.UninstallLegacyWintun()
 
-	// Do not auto-start UI processes at boot; they would often start before the user's
-	// shell is ready and show no tray, and then the exe would think a UI is already running.
-	// UI is started only when the user runs the exe (RequestUILaunch) or on session logon.
+	// Do not auto-start UI processes at service start. Starting before the user's
+	// shell is ready shows no tray, and then the exe thinks a UI is already running.
+	// UI starts when the user runs the exe, after an update, or at session logon
+	// when that user has open-at-login or connect-at-start enabled.
 
 	// Listen for UI launch requests from standard users (named pipe).
 	requestUILaunchChan := make(chan uint32)
@@ -285,6 +299,14 @@ func (service *managerService) Execute(args []string, r <-chan svc.ChangeRequest
 	} else {
 		pipeListener = listener
 		go runUILaunchPipeListener(listener, requestUILaunchChan, procs, aliveSessions, &procsLock)
+	}
+
+	var uiActionPipeListener net.Listener
+	if l, err := winio.ListenPipe(uiActionPipePath, pipeConfig); err != nil {
+		logger.Error("Failed to create UI action pipe listener: %v", err)
+	} else {
+		uiActionPipeListener = l
+		go runUIActionPipeListener(l, procs, &procsLock)
 	}
 
 	cliSecretsListener, cliSecretsErr := winio.ListenPipe(cliSecretsPipePath, pipeConfig)
@@ -359,12 +381,29 @@ loop:
 					}
 					procsLock.Unlock()
 				case windows.WTS_SESSION_LOGON:
+					sessionID := sessionNotification.SessionID
 					procsLock.Lock()
-					if alive := aliveSessions[sessionNotification.SessionID]; !alive {
-						aliveSessions[sessionNotification.SessionID] = true
-						// Do not start UI here; only start when user runs the exe (RequestUILaunch)
+					alreadyAlive := aliveSessions[sessionID]
+					if !alreadyAlive {
+						aliveSessions[sessionID] = true
 					}
 					procsLock.Unlock()
+					if alreadyAlive {
+						continue
+					}
+					go func() {
+						if !launchUIAtLoginForSession(sessionID) {
+							return
+						}
+						waitForSessionExplorer(sessionID, 60*time.Second)
+						procsLock.Lock()
+						if !stoppingManager {
+							if _, ok := procs[sessionID]; !ok && aliveSessions[sessionID] {
+								goStartProcess(sessionID)
+							}
+						}
+						procsLock.Unlock()
+					}()
 				default:
 					// Ignore other session change events
 					continue
@@ -387,6 +426,9 @@ loop:
 	if pipeListener != nil {
 		_ = pipeListener.Close()
 	}
+	if uiActionPipeListener != nil {
+		_ = uiActionPipeListener.Close()
+	}
 	if cliSecretsPipeListener != nil {
 		_ = cliSecretsPipeListener.Close()
 	}
@@ -408,6 +450,37 @@ func runUILaunchPipeListener(listener net.Listener, requestCh chan<- uint32, pro
 			return
 		}
 		go handleUILaunchConn(conn, requestCh, procs, aliveSessions, procsLock)
+	}
+}
+
+// runUIActionPipeListener forwards UI action requests (e.g. from a toast click,
+// which Windows delivers to a new non-elevated process) to the session's UI.
+func runUIActionPipeListener(listener net.Listener, procs map[uint32]*uiProcess, procsLock *sync.Mutex) {
+	for {
+		conn, err := listener.Accept()
+		if err != nil {
+			return
+		}
+		go func() {
+			defer conn.Close()
+			var req [2]uint32 // session ID, action
+			if err := binary.Read(conn, binary.LittleEndian, &req); err != nil {
+				logger.Error("UI action pipe: failed to read request: %v", err)
+				return
+			}
+			procsLock.Lock()
+			_, running := procs[req[0]]
+			procsLock.Unlock()
+			var response uint32 = 1
+			if running {
+				logger.Info("UI action %d requested for session %d", req[1], req[0])
+				IPCServerNotifyUIAction(req[0], UIAction(req[1]))
+				response = 0
+			}
+			if err := binary.Write(conn, binary.LittleEndian, response); err != nil {
+				logger.Error("UI action pipe: failed to write response: %v", err)
+			}
+		}()
 	}
 }
 
@@ -484,6 +557,95 @@ func enableSeTcbPrivilege() error {
 	}
 	logger.Debug("UI launch (service): SeTcbPrivilege enabled successfully")
 	return nil
+}
+
+// launchUIAtLoginForSession reports whether the user logged into sessionID
+// should have the UI opened at sign-in. The manager runs as LocalSystem, so
+// the setting is read from that user's LOCALAPPDATA rather than the process environment.
+func launchUIAtLoginForSession(sessionID uint32) bool {
+	logger.Debug("Open at login: querying token for session %d", sessionID)
+	var token windows.Token
+	if err := windows.WTSQueryUserToken(sessionID, &token); err != nil {
+		logger.Error("Open at login: WTSQueryUserToken(session %d) failed: %v", sessionID, err)
+		return false
+	}
+	defer token.Close()
+
+	localAppData, err := localAppDataFromToken(token)
+	if err != nil {
+		logger.Error("Open at login: failed to read LOCALAPPDATA for session %d: %v", sessionID, err)
+		return false
+	}
+	if localAppData == "" {
+		logger.Error("Open at login: LOCALAPPDATA is empty for session %d", sessionID)
+		return false
+	}
+	enabled := config.LaunchUIAtLoginEnabled(localAppData)
+	logger.Info("Open UI at login for session %d: %v", sessionID, enabled)
+	return enabled
+}
+
+func localAppDataFromToken(token windows.Token) (string, error) {
+	var block *uint16
+	if err := windows.CreateEnvironmentBlock(&block, token, false); err != nil {
+		return "", err
+	}
+	defer windows.DestroyEnvironmentBlock(block)
+
+	const key = "LOCALAPPDATA="
+	p := unsafe.Pointer(block)
+	for {
+		entry := windows.UTF16PtrToString((*uint16)(p))
+		if entry == "" {
+			return "", nil
+		}
+		if len(entry) >= len(key) && strings.EqualFold(entry[:len(key)], key) {
+			return entry[len(key):], nil
+		}
+		// StringToUTF16 includes the terminating NUL. Each unit is two bytes.
+		p = unsafe.Add(p, len(windows.StringToUTF16(entry))*2)
+	}
+}
+
+// waitForSessionExplorer polls until explorer.exe is running in the session.
+// Launching the tray before the shell is ready leaves a UI process with no icon.
+func waitForSessionExplorer(sessionID uint32, timeout time.Duration) {
+	deadline := time.Now().Add(timeout)
+	for {
+		if sessionHasExplorer(sessionID) {
+			logger.Debug("Auto-connect: explorer.exe is running in session %d", sessionID)
+			return
+		}
+		if time.Now().After(deadline) {
+			logger.Info("Auto-connect: explorer.exe not seen in session %d after %v, launching UI anyway", sessionID, timeout)
+			return
+		}
+		time.Sleep(time.Second)
+	}
+}
+
+func sessionHasExplorer(sessionID uint32) bool {
+	snapshot, err := windows.CreateToolhelp32Snapshot(windows.TH32CS_SNAPPROCESS, 0)
+	if err != nil {
+		logger.Error("Auto-connect: process snapshot failed: %v", err)
+		return false
+	}
+	defer windows.CloseHandle(snapshot)
+
+	processEntry := windows.ProcessEntry32{Size: uint32(unsafe.Sizeof(windows.ProcessEntry32{}))}
+	for err = windows.Process32First(snapshot, &processEntry); err == nil; err = windows.Process32Next(snapshot, &processEntry) {
+		if !strings.EqualFold(windows.UTF16ToString(processEntry.ExeFile[:]), "explorer.exe") {
+			continue
+		}
+		var processSession uint32
+		if err := windows.ProcessIdToSessionId(processEntry.ProcessID, &processSession); err != nil {
+			continue
+		}
+		if processSession == sessionID {
+			return true
+		}
+	}
+	return false
 }
 
 func Run() error {

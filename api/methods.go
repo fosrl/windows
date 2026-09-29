@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strconv"
 	"time"
 
 	"github.com/fosrl/windows/version"
@@ -345,4 +346,44 @@ func (c *APIClient) CheckHealth() (bool, error) {
 
 	// Other status codes mean server is down or error
 	return false, nil
+}
+
+// ListGatewayResources returns every gateway-mode site resource in the org
+// (with the IDs of the sites backing each one), fetching all pages. Gateway
+// resources are what the client calls exit nodes.
+func (c *APIClient) ListGatewayResources(orgID string) ([]SiteResource, error) {
+	const pageSize = 100
+
+	var gateways []SiteResource
+	for page := 1; ; page++ {
+		params := url.Values{}
+		params.Set("mode", "gateway")
+		params.Set("page", strconv.Itoa(page))
+		params.Set("pageSize", strconv.Itoa(pageSize))
+		path := fmt.Sprintf("/org/%s/site-resources?%s", url.PathEscape(orgID), params.Encode())
+
+		data, resp, err := c.makeRequest("GET", path, nil)
+		if err != nil {
+			return nil, err
+		}
+
+		var response ListSiteResourcesResponse
+		if err := c.parseResponse(data, resp, &response); err != nil {
+			return nil, err
+		}
+
+		// Servers that predate gateway mode ignore the unknown filter value and
+		// return every resource, so filter again here.
+		for _, r := range response.SiteResources {
+			if r.Mode == "gateway" {
+				gateways = append(gateways, r)
+			}
+		}
+
+		if len(response.SiteResources) < pageSize {
+			break
+		}
+	}
+
+	return gateways, nil
 }

@@ -16,6 +16,12 @@ Install the required tools:
   - Linux: Usually pre-installed
   - Windows: Use WSL or download from a coreutils package
 
+- **Node.js 20+ and npm**: For building the webview UI in `ui/frontend`
+  - The UI is a Vite + React + TypeScript app rendered with [Wails v3](https://v3.wails.io/). `make build` builds it and embeds it into the exe.
+
+- **wails3 CLI** (only to regenerate the TypeScript bindings after changing a bound Go service in `ui/`)
+  - `go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0-beta.25`, then `make bindings`
+
 - **WiX Toolset**: For building MSI installers (Windows only)
   - Download from: https://github.com/wixtoolset/wix/releases/
   - The MSI build uses `WixToolset.Util.wixext` for upgrade migration custom actions (included with WiX v4)
@@ -68,7 +74,9 @@ This updates both `version/version.go` and `pangolin.wxs` with the new version.
 make build
 ```
 
-This creates `build/Pangolin.exe`.
+This builds the frontend (`ui/frontend/dist`) and creates `build/Pangolin.exe`.
+
+To preview the UI in a desktop browser without Windows, run `npm run mock` in `ui/frontend` and open `http://localhost:5173/#/tray`, `#/preferences`, `#/login` or `#/progress?kind=update`. Mock mode swaps the Go services for fake data.
 
 ### 3. Build MSI Installers
 

@@ -12,8 +12,13 @@ go.work
 
 # Build output
 build/
-dist/
+/dist/
 bin/
+
+# Frontend build output (embedded into the exe); the placeholder keeps go:embed happy
+ui/frontend/node_modules/
+ui/frontend/dist/*
+!ui/frontend/dist/.gitkeep
 
 # Generated files
 rsrc.syso

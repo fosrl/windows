@@ -1,0 +1,263 @@
+@import "tailwindcss";
+
+/*
+ * Colors follow the look of the old Win32 UI for now: system-ish neutrals,
+ * gray secondary text, and the Windows accent blue for links and focus.
+ */
+@theme {
+  --font-sans: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  --font-mono: Consolas, "Courier New", monospace;
+
+  --color-window: #f9f9f9;
+  --color-surface: #ffffff;
+  --color-text: #1b1b1b;
+  --color-text-secondary: #646464;
+  --color-text-disabled: #a0a0a0;
+  --color-border: #d6d6d6;
+  --color-border-strong: #adadad;
+  --color-control: #fdfdfd;
+  --color-control-hover: #f3f3f3;
+  --color-control-pressed: #ebebeb;
+  --color-accent: #005fb8;
+  --color-accent-hover: #1a6fc0;
+  --color-accent-text: #ffffff;
+  --color-link: #0063b1;
+  --color-row-alt: #f4f4f4;
+  --color-row-selected: #cce4f7;
+  --color-menu: #f9f9f9;
+  --color-menu-hover: #ebebeb;
+  --color-menu-border: #e0e0e0;
+
+  /* macOS-style surfaces for the Preferences, Login, update and CLI windows. */
+  --color-mac-window: #ececec;
+  --color-mac-sidebar: #e3e3e3;
+  --color-mac-group: rgb(0 0 0 / 0.035);
+  --color-mac-group-border: rgb(0 0 0 / 0.07);
+  --color-mac-separator: rgb(0 0 0 / 0.09);
+  --color-mac-label: rgb(0 0 0 / 0.85);
+  --color-mac-secondary: rgb(0 0 0 / 0.5);
+  --color-mac-tertiary: rgb(0 0 0 / 0.26);
+  /* Pangolin orange. */
+  --color-mac-accent: #f36217;
+  --color-mac-accent-hover: #f5752f;
+  --color-mac-fill: rgb(0 0 0 / 0.06);
+  --color-mac-control: #ffffff;
+  --color-mac-control-border: rgb(0 0 0 / 0.14);
+  --color-mac-switch-off: rgb(0 0 0 / 0.1);
+  --color-mac-sheet: #f6f6f6;
+  --color-mac-onboarding: #fdfdfd;
+  --color-mac-row-alt: rgb(0 0 0 / 0.03);
+  --color-mac-selection: rgb(243 98 23 / 0.18);
+  --color-mac-danger: #ff3b30;
+  --color-mac-warning: #ff9500;
+  /* Tray popup, styled after the macOS menu bar panel. */
+  --color-mac-menu: #f4f4f4;
+  --color-mac-menu-border: rgb(0 0 0 / 0.12);
+  --color-mac-menu-hover: rgb(0 0 0 / 0.1);
+  --color-mac-menu-pressed: rgb(0 0 0 / 0.16);
+
+  --color-dot-green: rgb(0 200 0);
+  --color-dot-gray: rgb(150 150 150);
+  --color-dot-yellow: rgb(255 200 0);
+}
+
+@layer base {
+  @media (prefers-color-scheme: dark) {
+    :root:not(.theme-light) {
+      --color-window: #202020;
+      --color-surface: #2b2b2b;
+      --color-text: #f3f3f3;
+      --color-text-secondary: #a8a8a8;
+      --color-text-disabled: #6e6e6e;
+      --color-border: #3d3d3d;
+      --color-border-strong: #5a5a5a;
+      --color-control: #2d2d2d;
+      --color-control-hover: #323232;
+      --color-control-pressed: #272727;
+      --color-accent: #4cc2ff;
+      --color-accent-hover: #6ccbff;
+      --color-accent-text: #000000;
+      --color-link: #60cdff;
+      --color-row-alt: #262626;
+      --color-row-selected: #1f3b57;
+      --color-menu: #2c2c2c;
+      --color-menu-hover: #383838;
+      --color-menu-border: #3f3f3f;
+
+      --color-mac-window: #1e1e1e;
+      --color-mac-sidebar: #2a2a2a;
+      --color-mac-group: rgb(255 255 255 / 0.045);
+      --color-mac-group-border: rgb(255 255 255 / 0.07);
+      --color-mac-separator: rgb(255 255 255 / 0.09);
+      --color-mac-label: rgb(255 255 255 / 0.86);
+      --color-mac-secondary: rgb(255 255 255 / 0.55);
+      --color-mac-tertiary: rgb(255 255 255 / 0.25);
+      --color-mac-accent: #f36217;
+      --color-mac-accent-hover: #f5752f;
+      --color-mac-fill: rgb(255 255 255 / 0.08);
+      --color-mac-control: rgb(255 255 255 / 0.1);
+      --color-mac-control-border: rgb(255 255 255 / 0.12);
+      --color-mac-switch-off: rgb(255 255 255 / 0.16);
+      --color-mac-sheet: #2c2c2e;
+      --color-mac-onboarding: #161618;
+      --color-mac-row-alt: rgb(255 255 255 / 0.03);
+      --color-mac-selection: rgb(243 98 23 / 0.3);
+      --color-mac-danger: #ff453a;
+      --color-mac-warning: #ff9f0a;
+      --color-mac-menu: #2a2a2c;
+      --color-mac-menu-border: rgb(255 255 255 / 0.12);
+      --color-mac-menu-hover: rgb(255 255 255 / 0.1);
+      --color-mac-menu-pressed: rgb(255 255 255 / 0.16);
+    }
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+    margin: 0;
+  }
+
+  body {
+    font-family: var(--font-sans);
+    font-size: 12px;
+    color: var(--color-text);
+    background: var(--color-window);
+    user-select: none;
+    -webkit-font-smoothing: antialiased;
+    overflow: hidden;
+  }
+
+  /* The tray popup window is transparent outside the menu panels. */
+  html.tray,
+  html.tray body {
+    background: transparent;
+  }
+
+  /* Preferences, Login, update and CLI windows use the macOS look. */
+  html.mac body {
+    font-size: 13px;
+    color: var(--color-mac-label);
+    background: var(--color-mac-window);
+  }
+  html.mac.onboarding body {
+    background: var(--color-mac-onboarding);
+  }
+
+  input,
+  textarea,
+  button {
+    font: inherit;
+    color: inherit;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 1px;
+  }
+
+  ::-webkit-scrollbar {
+    width: 12px;
+    height: 12px;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--color-border-strong);
+    border: 4px solid transparent;
+    background-clip: padding-box;
+    border-radius: 6px;
+  }
+  ::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+}
+
+@layer base {
+  /* macOS-style focus ring. */
+  html.mac :focus-visible {
+    outline: 3px solid color-mix(in srgb, var(--color-mac-accent) 45%, transparent);
+    outline-offset: 0;
+  }
+
+  /* Thin overlay-style scrollbars, like macOS. */
+  html.mac ::-webkit-scrollbar {
+    width: 11px;
+    height: 11px;
+  }
+  html.mac ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  html.mac ::-webkit-scrollbar-thumb {
+    background: var(--color-mac-tertiary);
+    border: 3px solid transparent;
+    background-clip: padding-box;
+    border-radius: 6px;
+  }
+
+  @keyframes mac-spin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+  /* Tray popup transitions. */
+  @keyframes tray-fade-in {
+    from {
+      opacity: 0;
+      filter: blur(3px);
+    }
+  }
+  @keyframes tray-submenu-in {
+    from {
+      opacity: 0;
+      transform: translateX(var(--tray-submenu-from, 0));
+    }
+  }
+  .tray-fade-in {
+    animation: tray-fade-in 180ms ease-out;
+  }
+  .tray-submenu-in-left,
+  .tray-submenu-in-right {
+    animation: tray-submenu-in 140ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+  .tray-submenu-in-left {
+    --tray-submenu-from: 4px;
+  }
+  .tray-submenu-in-right {
+    --tray-submenu-from: -4px;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .tray-fade-in,
+    .tray-submenu-in-left,
+    .tray-submenu-in-right {
+      animation: none;
+    }
+  }
+  /* Step changes in a sheet, like the macOS `.menuBlur` transition. */
+  @keyframes mac-step-in {
+    from {
+      opacity: 0;
+      filter: blur(8px);
+    }
+  }
+  .mac-step-in {
+    animation: mac-step-in 300ms cubic-bezier(0.32, 0.72, 0, 1);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .mac-step-in {
+      animation: none;
+    }
+  }
+  @keyframes mac-sheet-in {
+    from {
+      opacity: 0;
+      transform: translateY(-12px);
+    }
+  }
+  @keyframes mac-marquee {
+    from {
+      left: -35%;
+    }
+    to {
+      left: 100%;
+    }
+  }
+}

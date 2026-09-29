@@ -10,6 +10,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -29,11 +30,22 @@ type IPCClient interface {
 	RegisterStateChangeCallback(cb func(State)) func() // Returns unregister function
 }
 
+// StopReason records why the tunnel last became Stopped.
+type StopReason int
+
+const (
+	StopReasonNone StopReason = iota
+	StopReasonUser
+	StopReasonError
+	StopReasonLost
+)
+
 // Manager manages tunnel connection state and operations
 // It provides a simplified API for the UI layer, abstracting away IPC details
 type Manager struct {
 	mu             sync.RWMutex
 	currentState   State
+	stopReason     StopReason
 	isConnected    bool
 	stateCallback  func(State)
 	errorCallback  func(*OLMStatusError)
@@ -43,6 +55,9 @@ type Manager struct {
 	configManager  *config.ConfigManager
 	accountManager *config.AccountManager
 	secretManager  *secrets.SecretManager
+	// gatewayResolver looks up the exit node (gateway) to establish when the
+	// tunnel connects; nil or a 0 resource ID means connect without one.
+	gatewayResolver func(orgID string) (siteResourceID int, siteIDs []int)
 	// Status polling fields
 	pollCtx       context.Context
 	pollCancel    context.CancelFunc
@@ -93,6 +108,14 @@ func NewManager(
 	}()
 
 	return tm
+}
+
+// SetGatewayResolver sets the function used at connect time to resolve the
+// saved exit node into the resource and site IDs olm needs.
+func (tm *Manager) SetGatewayResolver(fn func(orgID string) (siteResourceID int, siteIDs []int)) {
+	tm.mu.Lock()
+	defer tm.mu.Unlock()
+	tm.gatewayResolver = fn
 }
 
 // Close cleans up resources used by the Manager
@@ -158,6 +181,27 @@ func (tm *Manager) setLocalState(state State) {
 	}
 }
 
+func (tm *Manager) noteStop(reason StopReason) {
+	tm.mu.Lock()
+	tm.stopReason = reason
+	tm.mu.Unlock()
+}
+
+// TakeStopReason returns the reason for the most recent stop and clears it,
+// so a later stop notification is not attributed to the same event.
+func (tm *Manager) TakeStopReason() StopReason {
+	tm.mu.Lock()
+	defer tm.mu.Unlock()
+	reason := tm.stopReason
+	tm.stopReason = StopReasonNone
+	return reason
+}
+
+func (tm *Manager) stopAfterConnectFailure() {
+	tm.noteStop(StopReasonError)
+	tm.setLocalState(StateStopped)
+}
+
 // buildConfig builds the tunnel configuration from auth manager, config manager, and secret manager
 func (tm *Manager) buildConfig() (Config, error) {
 	activeAccount, err := tm.accountManager.ActiveAccount()
@@ -191,6 +235,7 @@ func (tm *Manager) buildConfig() (Config, error) {
 	dnsOverride := tm.configManager.GetDNSOverride()
 	dnsTunnel := tm.configManager.GetDNSTunnel()
 	preferLocalRoutes := tm.configManager.GetPreferLocalRoutes()
+	exitNodeTakesPrecedence := tm.configManager.GetExitNodeTakesPrecedence()
 
 	// Build UpstreamDNS array with :53 appended to each. If no DNS servers are
 	// configured, this stays empty, telling olm to use the system DNS.
@@ -213,13 +258,21 @@ func (tm *Manager) buildConfig() (Config, error) {
 		PingTimeoutSeconds:  5,
 		Endpoint:            activeAccount.Hostname,
 		//  DNS:                 "1.1.1.1", // this gets pulled dynamically from the host system now
-		OrgID:             currentOrg.Id,
-		InterfaceName:     "Pangolin",
-		UpstreamDNS:       upstreamDNS, // Each value has :53 appended
-		MatchDomains:      tm.configManager.GetMatchDomains(),
-		OverrideDNS:       dnsOverride,
-		TunnelDNS:         dnsTunnel,
-		PreferLocalRoutes: preferLocalRoutes,
+		OrgID:                   currentOrg.Id,
+		InterfaceName:           "Pangolin",
+		UpstreamDNS:             upstreamDNS, // Each value has :53 appended
+		MatchDomains:            tm.configManager.GetMatchDomains(),
+		OverrideDNS:             dnsOverride,
+		TunnelDNS:               dnsTunnel,
+		PreferLocalRoutes:       preferLocalRoutes,
+		ExitNodeTakesPrecedence: exitNodeTakesPrecedence,
+	}
+
+	tm.mu.RLock()
+	resolveGateway := tm.gatewayResolver
+	tm.mu.RUnlock()
+	if resolveGateway != nil {
+		config.GatewaySiteResourceId, config.GatewaySiteIds = resolveGateway(currentOrg.Id)
 	}
 
 	return config, nil
@@ -283,6 +336,7 @@ func (tm *Manager) Connect() error {
 		)
 	}
 
+	tm.noteStop(StopReasonNone)
 	tm.setLocalState(StateStarting)
 
 	// Ensure OLM credentials exist before connecting
@@ -290,7 +344,7 @@ func (tm *Manager) Connect() error {
 	if currentUser != nil && currentUser.UserId != "" {
 		if err := tm.authManager.EnsureOlmCredentials(currentUser.UserId); err != nil {
 			logger.Error("Failed to ensure OLM credentials: %v", err)
-			tm.setLocalState(StateStopped)
+			tm.stopAfterConnectFailure()
 			return formatConnectionError(
 				"OLM Credentials Error",
 				fmt.Sprintf("Failed to set up device credentials: %v", err),
@@ -301,7 +355,7 @@ func (tm *Manager) Connect() error {
 		activeAccount, err := tm.accountManager.ActiveAccount()
 		if err != nil {
 			logger.Error("Failed to get active account: %v", err)
-			tm.setLocalState(StateStopped)
+			tm.stopAfterConnectFailure()
 			return formatConnectionError(
 				"Authentication Error",
 				"No user ID available. Please log in again.",
@@ -311,7 +365,7 @@ func (tm *Manager) Connect() error {
 
 		if err := tm.authManager.EnsureOlmCredentials(activeAccount.UserID); err != nil {
 			logger.Error("Failed to ensure OLM credentials: %v", err)
-			tm.setLocalState(StateStopped)
+			tm.stopAfterConnectFailure()
 			return formatConnectionError(
 				"OLM Credentials Error",
 				fmt.Sprintf("Failed to set up device credentials: %v", err),
@@ -324,7 +378,7 @@ func (tm *Manager) Connect() error {
 	config, err := tm.buildConfig()
 	if err != nil {
 		logger.Error("Failed to build tunnel config: %v", err)
-		tm.setLocalState(StateStopped)
+		tm.stopAfterConnectFailure()
 		// Format config build errors
 		if err.Error() == "session token not found" {
 			return formatConnectionError(
@@ -342,7 +396,7 @@ func (tm *Manager) Connect() error {
 
 	logger.Info("Connecting tunnel with config: Name=%s, Endpoint=%s", config.Name, config.Endpoint)
 	if tm.ipcClient == nil {
-		tm.setLocalState(StateStopped)
+		tm.stopAfterConnectFailure()
 		return formatConnectionError(
 			"Connection Error",
 			"IPC client not initialized. Please restart the application.",
@@ -352,7 +406,7 @@ func (tm *Manager) Connect() error {
 	err = tm.ipcClient.StartTunnel(config)
 	if err != nil {
 		logger.Error("Failed to start tunnel: %v", err)
-		tm.setLocalState(StateStopped)
+		tm.stopAfterConnectFailure()
 		return formatConnectionError(
 			"Connection Failed",
 			fmt.Sprintf("Failed to start the tunnel: %v", err),
@@ -366,8 +420,12 @@ func (tm *Manager) Connect() error {
 	return nil
 }
 
-// Disconnect stops the tunnel
+// Disconnect stops the tunnel because the user asked to.
 func (tm *Manager) Disconnect() error {
+	return tm.disconnect(StopReasonUser)
+}
+
+func (tm *Manager) disconnect(reason StopReason) error {
 	tm.mu.RLock()
 	currentState := tm.currentState
 	tm.mu.RUnlock()
@@ -382,6 +440,7 @@ func (tm *Manager) Disconnect() error {
 		return nil
 	}
 
+	tm.noteStop(reason)
 	logger.Info("Disconnecting tunnel")
 	if tm.ipcClient == nil {
 		tm.StopStatusPolling()
@@ -431,6 +490,12 @@ type OLMStatusResponse struct {
 	NetworkSettings map[string]interface{} `json:"networkSettings,omitempty"`
 	Error           *OLMStatusError        `json:"error,omitempty"`
 	ExitNode        *OLMExitNodeStatus     `json:"exitNode,omitempty"`
+
+	// Gateway (exit node) selection: whether all traffic is routed through
+	// one, the site resource it was selected from, and the sites in use.
+	GatewayActive         bool  `json:"gatewayActive,omitempty"`
+	GatewaySiteResourceID int   `json:"gatewaySiteResourceId,omitempty"`
+	GatewaySiteIDs        []int `json:"gatewaySiteIds,omitempty"`
 }
 
 // OLMPeerStatus represents the status of a peer connection
@@ -458,6 +523,12 @@ type OLMExitNodeStatus struct {
 // SwitchOrgRequest represents the request body for switching organizations
 type SwitchOrgRequest struct {
 	OrgID string `json:"org_id"`
+}
+
+// SelectGatewayRequest represents the request body for selecting an exit node
+type SelectGatewayRequest struct {
+	SiteResourceID int   `json:"siteResourceId"`
+	SiteIDs        []int `json:"siteIds"`
 }
 
 // getOLMPipePath returns the Windows named pipe path for OLM
@@ -575,6 +646,65 @@ func (tm *Manager) SwitchOLMOrg(orgID string) error {
 	return nil
 }
 
+// postOLM sends a POST to an OLM API endpoint over the named pipe and returns
+// an error unless the response status is one of the expected ones. The error
+// carries OLM's message body, which explains why a request was rejected.
+func postOLM(path string, body any, expected ...int) error {
+	client, err := createOLMHTTPClient()
+	if err != nil {
+		return fmt.Errorf("failed to create OLM HTTP client: %w", err)
+	}
+
+	var reader io.Reader
+	if body != nil {
+		jsonData, err := json.Marshal(body)
+		if err != nil {
+			return fmt.Errorf("failed to marshal request: %w", err)
+		}
+		reader = bytes.NewBuffer(jsonData)
+	}
+
+	req, err := http.NewRequest("POST", "http://localhost"+path, reader)
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to connect to OLM: %w", err)
+	}
+	defer resp.Body.Close()
+
+	for _, code := range expected {
+		if resp.StatusCode == code {
+			return nil
+		}
+	}
+	msg, _ := io.ReadAll(resp.Body)
+	return fmt.Errorf("%s", strings.TrimSpace(string(msg)))
+}
+
+// SelectGateway routes all tunnel traffic through the given sites (the exit
+// node). siteResourceID is the gateway site resource they belong to. Every
+// site must already be a connected peer, so the tunnel has to be running.
+func (tm *Manager) SelectGateway(siteResourceID int, siteIDs []int) error {
+	if tm.State() != StateRunning {
+		return fmt.Errorf("tunnel is not running")
+	}
+	logger.Info("Selecting exit node: site resource %d, sites %v", siteResourceID, siteIDs)
+	return postOLM("/gateway/select", SelectGatewayRequest{SiteResourceID: siteResourceID, SiteIDs: siteIDs}, http.StatusAccepted)
+}
+
+// DisableGateway stops routing all tunnel traffic through an exit node.
+func (tm *Manager) DisableGateway() error {
+	if tm.State() != StateRunning {
+		return fmt.Errorf("tunnel is not running")
+	}
+	logger.Info("Disabling exit node")
+	return postOLM("/gateway/disable", nil, http.StatusOK)
+}
+
 // How many consecutive 1s poll failures (or lost-connection reports) while
 // StateRunning before we treat the tunnel as dead and disconnect.
 const statusUnreachableThreshold = 3
@@ -625,7 +755,7 @@ func (tm *Manager) StartStatusPolling() {
 						consecutiveFailures++
 						if consecutiveFailures >= statusUnreachableThreshold {
 							logger.Info("OLM unreachable after %d consecutive poll failures, disconnecting", consecutiveFailures)
-							if discErr := tm.Disconnect(); discErr != nil {
+							if discErr := tm.disconnect(StopReasonLost); discErr != nil {
 								logger.Error("Failed to disconnect tunnel after poll failures: %v", discErr)
 							}
 							consecutiveFailures = 0
@@ -650,7 +780,7 @@ func (tm *Manager) StartStatusPolling() {
 							tm.authManager.MarkSessionExpired()
 						}
 						// Stop the tunnel immediately
-						if err := tm.Disconnect(); err != nil {
+						if err := tm.disconnect(StopReasonError); err != nil {
 							logger.Error("Failed to disconnect tunnel after error: %v", err)
 						}
 						// Notify UI of the error
@@ -667,7 +797,7 @@ func (tm *Manager) StartStatusPolling() {
 				// If terminated, disconnect the tunnel
 				if status.Terminated {
 					logger.Info("OLM status indicates terminated, disconnecting tunnel")
-					if err := tm.Disconnect(); err != nil {
+					if err := tm.disconnect(StopReasonError); err != nil {
 						logger.Error("Failed to disconnect tunnel after termination: %v", err)
 					}
 					continue
@@ -693,7 +823,7 @@ func (tm *Manager) StartStatusPolling() {
 						consecutiveLost++
 						if consecutiveLost >= statusUnreachableThreshold {
 							logger.Info("OLM reports not connected/registered after %d polls, disconnecting", consecutiveLost)
-							if discErr := tm.Disconnect(); discErr != nil {
+							if discErr := tm.disconnect(StopReasonLost); discErr != nil {
 								logger.Error("Failed to disconnect tunnel after lost connection: %v", discErr)
 							}
 							consecutiveLost = 0

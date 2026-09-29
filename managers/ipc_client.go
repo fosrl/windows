@@ -25,6 +25,7 @@ const (
 	UpdateFoundNotificationType
 	UpdateProgressNotificationType
 	TunnelStateChangeNotificationType
+	UIActionNotificationType
 )
 
 type MethodType int
@@ -43,6 +44,9 @@ const (
 	DeleteUserSecretsMethodType
 	GetDevicePostureMethodType
 	CheckForUpdatesMethodType
+	SetAlwaysOnMethodType
+	AlwaysOnEnabledMethodType
+	UpdateVersionMethodType
 )
 
 var (
@@ -74,6 +78,12 @@ type TunnelStateChangeCallback struct {
 }
 
 var tunnelStateChangeCallbacks = make(map[*TunnelStateChangeCallback]bool)
+
+type UIActionCallback struct {
+	cb func(action UIAction)
+}
+
+var uiActionCallbacks = make(map[*UIActionCallback]bool)
 
 func InitializeIPCClient(reader, writer, events *os.File) {
 	rpcDecoder = gob.NewDecoder(reader)
@@ -140,6 +150,18 @@ func InitializeIPCClient(reader, writer, events *os.File) {
 				for cb := range tunnelStateChangeCallbacks {
 					cb.cb(state)
 				}
+			case UIActionNotificationType:
+				var sessionID uint32
+				var action UIAction
+				if decoder.Decode(&sessionID) != nil || decoder.Decode(&action) != nil {
+					continue
+				}
+				if sessionID != currentSessionID() {
+					continue
+				}
+				for cb := range uiActionCallbacks {
+					cb.cb(action)
+				}
 			}
 		}
 	}()
@@ -189,6 +211,19 @@ func IPCClientUpdateState() (updateState UpdateState, err error) {
 	if err != nil {
 		return
 	}
+	return
+}
+
+// IPCClientUpdateVersion returns the version of the update the manager found, or "" if none.
+func IPCClientUpdateVersion() (version string, err error) {
+	rpcMutex.Lock()
+	defer rpcMutex.Unlock()
+
+	err = rpcEncoder.Encode(UpdateVersionMethodType)
+	if err != nil {
+		return
+	}
+	err = rpcDecoder.Decode(&version)
 	return
 }
 
@@ -324,6 +359,16 @@ func (cb *TunnelStateChangeCallback) Unregister() {
 	delete(tunnelStateChangeCallbacks, cb)
 }
 
+func IPCClientRegisterUIAction(cb func(action UIAction)) *UIActionCallback {
+	s := &UIActionCallback{cb}
+	uiActionCallbacks[s] = true
+	return s
+}
+
+func (cb *UIActionCallback) Unregister() {
+	delete(uiActionCallbacks, cb)
+}
+
 // IPCClientReady reports whether the UI has an active RPC connection to the manager service.
 func IPCClientReady() bool {
 	rpcMutex.Lock()
@@ -424,4 +469,36 @@ func IPCClientGetDevicePosture() (fingerprint.DevicePostureSnapshot, error) {
 		logger.Debug("IPC client: GetDevicePosture() failed: %v", err)
 	}
 	return snapshot, err
+}
+
+func IPCClientSetAlwaysOn(enabled bool) error {
+	rpcMutex.Lock()
+	defer rpcMutex.Unlock()
+
+	if rpcEncoder == nil {
+		return errors.New("manager IPC is not connected")
+	}
+	if err := rpcEncoder.Encode(SetAlwaysOnMethodType); err != nil {
+		return err
+	}
+	return rpcEncoder.Encode(enabled)
+}
+
+func IPCClientAlwaysOn() bool {
+	rpcMutex.Lock()
+	defer rpcMutex.Unlock()
+
+	if rpcEncoder == nil {
+		return false
+	}
+	if err := rpcEncoder.Encode(AlwaysOnEnabledMethodType); err != nil {
+		logger.Error("Always-On: failed to query manager: %v", err)
+		return false
+	}
+	var enabled bool
+	if err := rpcDecoder.Decode(&enabled); err != nil {
+		logger.Error("Always-On: failed to read manager response: %v", err)
+		return false
+	}
+	return enabled
 }

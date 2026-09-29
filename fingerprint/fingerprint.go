@@ -26,26 +26,77 @@ import (
 )
 
 const powerShellTimeout = 60 * time.Second
+const powerShellRetryTimeout = 20 * time.Second
+const systemQueryMaxAttempts = 2
+const systemQueryRetryBackoff = 750 * time.Millisecond
 
 // One PowerShell process gathers all WMI-dependent fingerprint and posture data.
+// $serial is captured synchronously first so a slow/hanging BitLocker, TPM,
+// firewall, or antivirus query can never prevent it from being emitted: the
+// four checks below run concurrently on in-process runspaces (no extra
+// powershell.exe processes) bounded by a single shared deadline, so a hang in
+// any one of them degrades that check to its default value instead of taking
+// down the whole script and losing the serial number.
 const windowsSystemQueryScript = `
 $ErrorActionPreference = 'SilentlyContinue'
 
 $serial = (Get-CimInstance Win32_ComputerSystemProduct | Select-Object -ExpandProperty IdentifyingNumber)
 
-$bitlockerStatus = Get-BitLockerVolume -MountPoint 'C:' | Select-Object -ExpandProperty VolumeStatus
-$diskEncrypted = ($bitlockerStatus -eq 'FullyEncrypted' -or $bitlockerStatus -eq 'EncryptionInProgress')
+function Start-Async {
+    param([scriptblock]$ScriptBlock)
+    $ps = [powershell]::Create()
+    [void]$ps.AddScript($ScriptBlock.ToString())
+    [PSCustomObject]@{ PS = $ps; Handle = $ps.BeginInvoke() }
+}
 
-$firewallEnabled = @((Get-NetFirewallProfile | Where-Object { $_.Enabled -eq $true })).Count -gt 0
+$tasks = @{
+    diskEncrypted = Start-Async {
+        $ErrorActionPreference = 'SilentlyContinue'
+        $status = Get-BitLockerVolume -MountPoint 'C:' | Select-Object -ExpandProperty VolumeStatus
+        ($status -eq 'FullyEncrypted' -or $status -eq 'EncryptionInProgress')
+    }
+    firewallEnabled = Start-Async {
+        $ErrorActionPreference = 'SilentlyContinue'
+        @((Get-NetFirewallProfile | Where-Object { $_.Enabled -eq $true })).Count -gt 0
+    }
+    tpmAvailable = Start-Async {
+        $ErrorActionPreference = 'SilentlyContinue'
+        $tpm = Get-Tpm
+        if ($null -ne $tpm) { [bool]$tpm.TpmPresent } else { $false }
+    }
+    antivirusProductStates = Start-Async {
+        $ErrorActionPreference = 'SilentlyContinue'
+        @(Get-CimInstance -Namespace 'root/SecurityCenter2' -ClassName AntiVirusProduct |
+            ForEach-Object { [uint32]$_.productState })
+    }
+}
 
+$deadline = (Get-Date).AddSeconds(20)
+$diskEncrypted = $false
+$firewallEnabled = $false
 $tpmAvailable = $false
-$tpm = Get-Tpm
-if ($null -ne $tpm) { $tpmAvailable = [bool]$tpm.TpmPresent }
+$antivirusProductStates = @()
 
-$antivirusProductStates = @(
-  Get-CimInstance -Namespace 'root/SecurityCenter2' -ClassName AntiVirusProduct |
-    ForEach-Object { [uint32]$_.productState }
-)
+foreach ($key in $tasks.Keys) {
+    $task = $tasks[$key]
+    $remainingMs = [Math]::Max(0, [int](($deadline - (Get-Date)).TotalMilliseconds))
+    if ($task.Handle.AsyncWaitHandle.WaitOne($remainingMs)) {
+        try {
+            $result = $task.PS.EndInvoke($task.Handle)
+            switch ($key) {
+                'diskEncrypted' { $diskEncrypted = [bool]$result }
+                'firewallEnabled' { $firewallEnabled = [bool]$result }
+                'tpmAvailable' { $tpmAvailable = [bool]$result }
+                'antivirusProductStates' { $antivirusProductStates = @($result) }
+            }
+        } catch {}
+        $task.PS.Dispose()
+    }
+    # If the task didn't complete in time, its runspace is left running and is
+    # abandoned rather than blocked on here; the short-lived host process
+    # exits (or is killed by the caller's timeout) shortly after this script
+    # returns, which reclaims it.
+}
 
 [PSCustomObject]@{
   serialNumber = $serial
@@ -169,13 +220,42 @@ func postureChecksFromSystemQuery(query windowsSystemQueryResult, ok bool) *Post
 	}
 }
 
+// gatherWindowsSystemQueries runs the single-process PowerShell system query,
+// retrying the whole invocation once if it fails outright (e.g. a transient
+// exec/parse error) rather than giving up on the first hiccup. The retry uses
+// a shorter timeout than the initial attempt so a truly wedged PowerShell
+// host can't multiply the worst-case blocking time (StartTunnel blocks on
+// this synchronously on a cache miss).
 func gatherWindowsSystemQueries() (windowsSystemQueryResult, bool) {
+	var lastErr error
+	for attempt := 1; attempt <= systemQueryMaxAttempts; attempt++ {
+		timeout := powerShellTimeout
+		if attempt > 1 {
+			timeout = powerShellRetryTimeout
+		}
+
+		result, err := runSystemQueryOnce(timeout)
+		if err == nil {
+			return result, true
+		}
+
+		lastErr = err
+		if attempt < systemQueryMaxAttempts {
+			logger.Debug("Fingerprint: system query attempt %d/%d failed, retrying: %v", attempt, systemQueryMaxAttempts, err)
+			time.Sleep(systemQueryRetryBackoff)
+		}
+	}
+
+	logger.Debug("Fingerprint: system query failed after %d attempts: %v", systemQueryMaxAttempts, lastErr)
+	return windowsSystemQueryResult{}, false
+}
+
+func runSystemQueryOnce(timeout time.Duration) (windowsSystemQueryResult, error) {
 	logger.Debug("Fingerprint: gathering WMI posture and serial via single PowerShell invocation")
 
-	out, err := runPowerShellScript(windowsSystemQueryScript)
+	out, err := runPowerShellScript(windowsSystemQueryScript, timeout)
 	if err != nil {
-		logger.Debug("Fingerprint: system query script failed: %v", err)
-		return windowsSystemQueryResult{}, false
+		return windowsSystemQueryResult{}, fmt.Errorf("system query script failed: %w", err)
 	}
 
 	rawOutput := strings.TrimSpace(string(out))
@@ -183,8 +263,7 @@ func gatherWindowsSystemQueries() (windowsSystemQueryResult, bool) {
 
 	var result windowsSystemQueryResult
 	if err := json.Unmarshal([]byte(rawOutput), &result); err != nil {
-		logger.Debug("Fingerprint: failed to parse system query JSON: %v", err)
-		return windowsSystemQueryResult{}, false
+		return windowsSystemQueryResult{}, fmt.Errorf("failed to parse system query JSON: %w", err)
 	}
 
 	logger.Debug("Fingerprint: system query parsed (hasSerial=%v, diskEncrypted=%v, firewall=%v, tpm=%v, avStates=%d)",
@@ -194,11 +273,11 @@ func gatherWindowsSystemQueries() (windowsSystemQueryResult, bool) {
 		result.TpmAvailable,
 		len(result.AntivirusProductStates),
 	)
-	return result, true
+	return result, nil
 }
 
-func runPowerShellScript(script string) ([]byte, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), powerShellTimeout)
+func runPowerShellScript(script string, timeout time.Duration) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
 	cmd := exec.CommandContext(
@@ -278,18 +357,33 @@ func getSerialFromRegistry() string {
 	return strings.TrimSpace(serial)
 }
 
+// resolveSerialNumber picks the serial number that feeds computePlatformFingerprint.
+// A serial that was successfully resolved is cached to disk; if every source
+// fails on a given run (e.g. a transient WMI/registry hiccup), the last
+// known-good cached serial is reused instead of returning "". That matters
+// because computePlatformFingerprint omits the serial component entirely when
+// it's empty, which changes the hash's structure - not just its value - and
+// would otherwise make a purely transient failure look like a new device.
 func resolveSerialNumber(sysQueryOK bool, wmiSerial string) string {
 	wmiSerial = strings.TrimSpace(wmiSerial)
 	if sysQueryOK && isUsefulSerial(wmiSerial) {
+		saveCachedSerial(wmiSerial)
 		return wmiSerial
 	}
 
 	if regSerial := getSerialFromRegistry(); isUsefulSerial(regSerial) {
+		saveCachedSerial(regSerial)
 		return regSerial
 	}
 
 	if sysQueryOK && wmiSerial != "" {
+		saveCachedSerial(wmiSerial)
 		return wmiSerial
+	}
+
+	if cached := loadCachedSerial(); cached != "" {
+		logger.Debug("Fingerprint: all serial sources failed this run, falling back to cached serial")
+		return cached
 	}
 
 	return ""
