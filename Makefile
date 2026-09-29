@@ -39,10 +39,12 @@ bindings:
 test:
 	go test ./ui/
 
-# Compile the manifest and icons using rsrc
+# Compile the manifest and icon into a .syso. Wails loads the app icon for
+# message boxes and toast notifications from icon group resource ID 3, which
+# is where its own syso generator puts it (akavel/rsrc used ID 2).
 rsrc:
-	@echo "Compiling manifest..."
-	@go run github.com/akavel/rsrc@latest -manifest $(MANIFEST) -ico icons/icon-orange.ico -o $(RSRC_SYSO)
+	@echo "Compiling manifest and icon..."
+	@go run github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0-beta.25 generate syso -manifest $(MANIFEST) -icon icons/icon-orange.ico -arch $(GOARCH) -out $(RSRC_SYSO)
 	@echo "Resources compiled: $(RSRC_SYSO)"
 
 # Clean build artifacts
@@ -60,6 +62,6 @@ help:
 	@echo "  make frontend    - Build the webview frontend"
 	@echo "  make bindings    - Regenerate TypeScript bindings for the Go services"
 	@echo "  make test        - Run UI unit tests"
-	@echo "  make rsrc        - Compile the manifest file"
+	@echo "  make rsrc        - Compile the manifest and icon"
 	@echo "  make clean       - Remove build/ directory"
 	@echo "  make help        - Show this help message"

@@ -450,6 +450,27 @@ func windowBackground() application.RGBA {
 	return application.NewRGB(0xec, 0xec, 0xec)
 }
 
+// windowTitleBarTheme paints the title bar in the window background colour so
+// it blends into the page instead of showing as a separate strip. Wails picks
+// the active or inactive colours once, when the window is created, so both use
+// the same ones. Windows only honours caption colours on Windows 11.
+func windowTitleBarTheme() application.ThemeSettings {
+	light := &application.WindowTheme{
+		TitleBarColour:  application.NewRGBPtr(0xec, 0xec, 0xec),
+		TitleTextColour: application.NewRGBPtr(0x1d, 0x1d, 0x1f),
+	}
+	dark := &application.WindowTheme{
+		TitleBarColour:  application.NewRGBPtr(0x1e, 0x1e, 0x1e),
+		TitleTextColour: application.NewRGBPtr(0xe5, 0xe5, 0xe7),
+	}
+	return application.ThemeSettings{
+		LightModeActive:   light,
+		LightModeInactive: light,
+		DarkModeActive:    dark,
+		DarkModeInactive:  dark,
+	}
+}
+
 type frameInsets struct{ left, top, right, bottom int }
 
 // trayFrameInsets measures, in DIPs, how far the tray window's client area is
@@ -529,6 +550,9 @@ func showPreferencesWindow(tab int, login *LoginRequest) {
 			MinHeight:        400,
 			Hidden:           true,
 			BackgroundColour: windowBackground(),
+			Windows: application.WindowsWindow{
+				CustomTheme: windowTitleBarTheme(),
+			},
 		})
 		// Closing only hides the window. Hooks run on the main thread, so the
 		// work that takes locks happens on a goroutine.
