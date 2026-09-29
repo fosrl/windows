@@ -148,15 +148,20 @@ export function TrayMenu() {
     if (immediate) fn();
     else hoverTimer.current = window.setTimeout(fn, submenuHoverDelay);
   };
-  const openSubmenu = (level: number, item: MenuItem, el: HTMLElement, immediate: boolean) =>
+  // Moving onto any other row closes the submenu open beside it right away.
+  const closeSubmenus = (level: number) => {
+    window.clearTimeout(hoverTimer.current);
+    setPath((p) => (p.length > level ? p.slice(0, level) : p));
+  };
+  const openSubmenu = (level: number, item: MenuItem, el: HTMLElement, immediate: boolean) => {
+    // Hovering a different submenu row drops the old one now; only the new one waits.
+    if (path[level] && path[level].id !== item.id) closeSubmenus(level);
     schedule(() => {
       setPath((p) =>
         p[level]?.id === item.id && p[level].anchor === el ? p : [...p.slice(0, level), { id: item.id, anchor: el }],
       );
     }, immediate);
-  // Moving onto any other row closes the submenu open beside it.
-  const closeSubmenus = (level: number) =>
-    schedule(() => setPath((p) => (p.length > level ? p.slice(0, level) : p)), false);
+  };
   const cancelPending = () => window.clearTimeout(hoverTimer.current);
 
   const invoke = useCallback((item: MenuItem) => {
