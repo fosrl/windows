@@ -3,9 +3,10 @@ module github.com/fosrl/windows
 go 1.26.0
 
 require (
+	git.sr.ht/~jackmordaunt/go-toast/v2 v2.0.3
 	github.com/Microsoft/go-winio v0.6.2
-	github.com/fosrl/newt v1.16.0
-	github.com/fosrl/olm v1.9.0
+	github.com/fosrl/newt v1.18.0
+	github.com/fosrl/olm v1.10.0
 	github.com/pkg/browser v0.0.0-20240102092130-5ac0b6a4141c
 	github.com/wailsapp/wails/v3 v3.0.0-beta.25
 	github.com/zalando/go-keyring v0.2.6
@@ -15,7 +16,6 @@ require (
 
 require (
 	al.essio.dev/pkg/shellescape v1.6.0 // indirect
-	git.sr.ht/~jackmordaunt/go-toast/v2 v2.0.3 // indirect
 	github.com/adrg/xdg v0.5.3 // indirect
 	github.com/coder/websocket v1.8.15 // indirect
 	github.com/danieljoos/wincred v1.2.3 // indirect
@@ -47,6 +47,5 @@ require (
 )
 
 // Uncomment when developing dependencies.
-replace github.com/fosrl/olm => ../olm
-
-replace github.com/fosrl/newt => ../newt
+//replace github.com/fosrl/olm => ../olm
+//replace github.com/fosrl/newt => ../newt
