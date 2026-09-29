@@ -1,7 +1,6 @@
 package ui
 
 import (
-	"fmt"
 	"sort"
 	"time"
 )
@@ -41,7 +40,7 @@ type StatusView struct {
 	Version   string `json:"version"`
 	Agent     string `json:"agent"`
 	OrgID     string `json:"orgId"`
-	// Gateway summarizes the exit node: "Off", or "Active".
+	// Gateway summarizes the exit node: "Off", or "Active (<exit node name>)".
 	Gateway string       `json:"gateway"`
 	Sites   []StatusSite `json:"sites"`
 	JSON    string       `json:"json"`
@@ -58,14 +57,14 @@ type peerInput struct {
 	IsGateway bool
 }
 
-// gatewayLabel summarizes the exit node the same way the CLI status does:
-// "Off", or "Active" with the gateway site resource's ID.
-func gatewayLabel(active bool, siteResourceID int) string {
+// gatewayLabel summarizes the exit node: "Off", or "Active" followed by the
+// exit node's name in parentheses when it is known.
+func gatewayLabel(active bool, name string) string {
 	if !active {
 		return "Off"
 	}
-	if siteResourceID != 0 {
-		return fmt.Sprintf("Active", siteResourceID)
+	if name != "" {
+		return "Active (" + name + ")"
 	}
 	return "Active"
 }

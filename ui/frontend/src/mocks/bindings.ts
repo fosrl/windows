@@ -2,6 +2,7 @@
 import type {
   AccountsView,
   AppInfo,
+  CLIInfo,
   LogsSnapshot,
   LoginView,
   MenuState,
@@ -9,6 +10,7 @@ import type {
   Settings,
   StatusView,
   TrayLayout,
+  UpdateInfo,
 } from "../bindings/github.com/fosrl/windows/ui/models";
 
 export type * from "../bindings/github.com/fosrl/windows/ui/models";
@@ -214,5 +216,54 @@ export const AccountsService = {
 export const AppService = {
   Info: () => ok<AppInfo>({ version: "0.9.0", year: 2026 }),
   OpenURL: (u: string) => ok(log("open", u)),
-  ProgressText: () => ok("Downloading update (12.4 / 38.0 MB)…"),
+};
+
+// Update window: `?update=checking|upToDate|disabled|checkFailed|available|downloading|error|complete`
+// picks the phase; Check finds an update and Install runs through a fake download.
+let update: UpdateInfo = {
+  phase: params.get("update") ?? "available", version: "1.4.2", currentVersion: "0.9.0",
+  activity: "Downloading update", error: "The download could not be verified.",
+  bytesDownloaded: 12_400_000, bytesTotal: 38_000_000,
+};
+const setUpdate = (u: Partial<UpdateInfo>) => {
+  update = { ...update, ...u };
+  Events.Emit("update:state", update);
+};
+export const UpdateService = {
+  State: () => ok(update),
+  Close: () => ok(log("close update")),
+  Check: () => {
+    setUpdate({ phase: "checking" });
+    setTimeout(() => setUpdate({ phase: "available" }), 800);
+    return ok(undefined);
+  },
+  Install: () => {
+    setUpdate({ phase: "downloading", activity: "Preparing to download the update…", bytesDownloaded: 0, bytesTotal: 0 });
+    let done = 0;
+    const timer = setInterval(() => {
+      done += 2_500_000;
+      if (done >= 38_000_000) {
+        clearInterval(timer);
+        setUpdate({ phase: "complete" });
+      } else setUpdate({ activity: "Downloading update", bytesDownloaded: done, bytesTotal: 38_000_000 });
+    }, 250);
+    return ok(undefined);
+  },
+};
+
+// CLI install window: `?cli=confirm|installing|done|error` picks the phase;
+// Install runs through a fake install.
+let cli: CLIInfo = { phase: params.get("cli") ?? "confirm", error: "Failed to download the installer: 404 Not Found" };
+export const CLIService = {
+  State: () => ok(cli),
+  Close: () => ok(log("close cli")),
+  Install: () => {
+    cli = { phase: "installing", error: "" };
+    Events.Emit("cli:state", cli);
+    setTimeout(() => {
+      cli = { phase: "done", error: "" };
+      Events.Emit("cli:state", cli);
+    }, 1500);
+    return ok(undefined);
+  },
 };

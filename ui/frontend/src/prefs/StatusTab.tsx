@@ -102,7 +102,7 @@ export function StatusTab() {
                 <Value>{view.orgId}</Value>
               </Row>
             )}
-            {view.orgId && (
+            {view.orgId && view.gateway !== "Off" && (
               <Row title="Exit Node">
                 <Value>{view.gateway}</Value>
               </Row>

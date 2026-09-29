@@ -102,4 +102,3 @@ func (AppService) OpenURL(url string) {
 		openURL(url)
 	}
 }
-func (AppService) ProgressText(kind string) string { return progressText(kind) }

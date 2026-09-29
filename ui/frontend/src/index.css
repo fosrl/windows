@@ -28,7 +28,7 @@
   --color-menu-hover: #ebebeb;
   --color-menu-border: #e0e0e0;
 
-  /* macOS-style surfaces for the Preferences, Login and Progress windows. */
+  /* macOS-style surfaces for the Preferences, Login, update and CLI windows. */
   --color-mac-window: #ececec;
   --color-mac-sidebar: #e3e3e3;
   --color-mac-group: rgb(0 0 0 / 0.035);
@@ -134,7 +134,7 @@
     background: transparent;
   }
 
-  /* Preferences, Login and Progress use the macOS look. */
+  /* Preferences, Login, update and CLI windows use the macOS look. */
   html.mac body {
     font-size: 13px;
     color: var(--color-mac-label);

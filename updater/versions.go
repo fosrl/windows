@@ -102,6 +102,7 @@ func findCandidate(candidates fileList) (*UpdateFound, error) {
 				logger.Debug("Updater: ✓ Update candidate found: %s (hash: %x, location: %s)", name, entry.hash, entry.downloadLocation)
 				return &UpdateFound{
 					name:             name,
+					version:          candidateVersion,
 					hash:             entry.hash,
 					downloadLocation: entry.downloadLocation,
 				}, nil

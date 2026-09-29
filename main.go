@@ -76,6 +76,12 @@ func main() {
 	// Log version on startup
 	logger.Info("Pangolin version %s starting", version.Number)
 
+	// COM starts a new process to deliver a toast click (see ui.HandleToastActivation).
+	if ui.IsToastActivation(os.Args) {
+		ui.HandleToastActivation()
+		return
+	}
+
 	// Check if we're being run as the manager service
 	if len(os.Args) >= 2 && os.Args[1] == "/managerservice" {
 		// Run as Windows service

@@ -32,6 +32,23 @@ func (notifierService) ServiceStartup(ctx context.Context, options application.S
 		logger.Error("Notifications are unavailable: %v", err)
 		return nil
 	}
+	if err := notifier.RegisterNotificationCategory(notifications.NotificationCategory{
+		ID:      updateNotificationCategory,
+		Actions: []notifications.NotificationAction{{ID: updateNotificationOpen, Title: "Open"}},
+	}); err != nil {
+		logger.Error("Failed to register update notification actions: %v", err)
+	}
+	notifier.OnNotificationResponse(func(result notifications.NotificationResult) {
+		if result.Error != nil {
+			logger.Error("Notification response error: %v", result.Error)
+			return
+		}
+		r := result.Response
+		if r.CategoryID == updateNotificationCategory &&
+			(r.ActionIdentifier == updateNotificationOpen || r.ActionIdentifier == notifications.DefaultActionIdentifier) {
+			go showUpdateWindow()
+		}
+	})
 	notifierReady.Store(true)
 	return nil
 }
@@ -161,6 +178,33 @@ func notify(title, message string) {
 		Body:  message,
 	}); err != nil {
 		logger.Error("Failed to show notification %q: %v", title, err)
+	}
+}
+
+const (
+	updateNotificationCategory = "pangolin-update"
+	updateNotificationOpen     = "open"
+)
+
+// notifyUpdateAvailable shows a toast with an Open button that opens the update
+// window. Without toasts, the window opens directly.
+func notifyUpdateAvailable(version string) {
+	if !notifierReady.Load() {
+		showUpdateWindow()
+		return
+	}
+	body := "A new version of Pangolin is ready to install."
+	if version != "" {
+		body = fmt.Sprintf("Pangolin %s is ready to install.", version)
+	}
+	if err := notifier.SendNotificationWithActions(notifications.NotificationOptions{
+		ID:         "pangolin-update",
+		Title:      "Update Available",
+		Body:       body,
+		CategoryID: updateNotificationCategory,
+	}); err != nil {
+		logger.Error("Failed to show update notification: %v", err)
+		showUpdateWindow()
 	}
 }
 

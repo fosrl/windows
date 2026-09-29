@@ -23,7 +23,10 @@ const (
 	UpdateStateUpdatesDisabledUnofficialBuild
 )
 
-var updateState = UpdateStateUnknown
+var (
+	updateState  = UpdateStateUnknown
+	foundVersion string // version of the found update, when updateState is UpdateStateFoundUpdate
+)
 
 func jitterSleep(min, max time.Duration) {
 	time.Sleep(min + time.Millisecond*time.Duration(fastrandn(uint32((max-min+1)/time.Millisecond))))
@@ -46,6 +49,7 @@ func checkForUpdates() {
 		if err == nil && update != nil && !didNotify {
 			logger.Info("An update is available")
 			updateState = UpdateStateFoundUpdate
+			foundVersion = update.Version()
 			IPCServerNotifyUpdateFound(updateState)
 			didNotify = true
 		} else if err != nil && !didNotify {

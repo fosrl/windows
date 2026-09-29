@@ -44,6 +44,14 @@ export interface AppInfo {
 }
 
 /**
+ * CLIInfo is what the CLI install window shows.
+ */
+export interface CLIInfo {
+    "phase": string;
+    "error": string;
+}
+
+/**
  * LogEntry is a log line as sent to the Logs tab. Seq increases with every
  * line read, so the frontend can drop appends it already has.
  */
@@ -295,4 +303,17 @@ export interface TrayLayout {
     "anchor": string;
     "panelWidth": number;
     "padding": number;
+}
+
+/**
+ * UpdateInfo is what the update window shows.
+ */
+export interface UpdateInfo {
+    "phase": string;
+    "version": string;
+    "currentVersion": string;
+    "activity": string;
+    "error": string;
+    "bytesDownloaded": number;
+    "bytesTotal": number;
 }

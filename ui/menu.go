@@ -404,10 +404,19 @@ func siteDot(color string) string {
 func siteDetail(s StatusSite, now time.Time) []MenuItem {
 	status := detail("Status", s.Status)
 	status.Dot = siteDot(s.Color)
+	// Like the Status tab, the Pangolin Server row (no connection) has no exit node value.
+	exitNode := ""
+	if s.Connection != "" {
+		exitNode = "No"
+		if s.Gateway {
+			exitNode = "Yes"
+		}
+	}
 	return []MenuItem{
 		header(s.Name),
 		status,
 		detail("Connection", s.Connection),
+		detail("Exit Node", exitNode),
 		detail("Endpoint", s.Endpoint),
 		detail("Last Seen", relativeTime(s.LastSeen, now)),
 	}

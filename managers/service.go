@@ -301,6 +301,14 @@ func (service *managerService) Execute(args []string, r <-chan svc.ChangeRequest
 		go runUILaunchPipeListener(listener, requestUILaunchChan, procs, aliveSessions, &procsLock)
 	}
 
+	var uiActionPipeListener net.Listener
+	if l, err := winio.ListenPipe(uiActionPipePath, pipeConfig); err != nil {
+		logger.Error("Failed to create UI action pipe listener: %v", err)
+	} else {
+		uiActionPipeListener = l
+		go runUIActionPipeListener(l, procs, &procsLock)
+	}
+
 	cliSecretsListener, cliSecretsErr := winio.ListenPipe(cliSecretsPipePath, pipeConfig)
 	if cliSecretsErr != nil {
 		logger.Error("Failed to create CLI secrets pipe listener: %v", cliSecretsErr)
@@ -418,6 +426,9 @@ loop:
 	if pipeListener != nil {
 		_ = pipeListener.Close()
 	}
+	if uiActionPipeListener != nil {
+		_ = uiActionPipeListener.Close()
+	}
 	if cliSecretsPipeListener != nil {
 		_ = cliSecretsPipeListener.Close()
 	}
@@ -439,6 +450,37 @@ func runUILaunchPipeListener(listener net.Listener, requestCh chan<- uint32, pro
 			return
 		}
 		go handleUILaunchConn(conn, requestCh, procs, aliveSessions, procsLock)
+	}
+}
+
+// runUIActionPipeListener forwards UI action requests (e.g. from a toast click,
+// which Windows delivers to a new non-elevated process) to the session's UI.
+func runUIActionPipeListener(listener net.Listener, procs map[uint32]*uiProcess, procsLock *sync.Mutex) {
+	for {
+		conn, err := listener.Accept()
+		if err != nil {
+			return
+		}
+		go func() {
+			defer conn.Close()
+			var req [2]uint32 // session ID, action
+			if err := binary.Read(conn, binary.LittleEndian, &req); err != nil {
+				logger.Error("UI action pipe: failed to read request: %v", err)
+				return
+			}
+			procsLock.Lock()
+			_, running := procs[req[0]]
+			procsLock.Unlock()
+			var response uint32 = 1
+			if running {
+				logger.Info("UI action %d requested for session %d", req[1], req[0])
+				IPCServerNotifyUIAction(req[0], UIAction(req[1]))
+				response = 0
+			}
+			if err := binary.Write(conn, binary.LittleEndian, response); err != nil {
+				logger.Error("UI action pipe: failed to write response: %v", err)
+			}
+		}()
 	}
 }
 

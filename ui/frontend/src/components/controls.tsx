@@ -297,14 +297,21 @@ export function Spinner({ size = 16 }: { size?: number }) {
   );
 }
 
-/** Indeterminate linear progress bar. */
-export function ProgressBar() {
+/** Linear progress bar: a fill for `value` (0–1), or an indeterminate marquee without one. */
+export function ProgressBar({ value }: { value?: number }) {
   return (
     <div className="relative h-[6px] w-full overflow-hidden rounded-full bg-mac-fill">
-      <div
-        className="absolute inset-y-0 w-[35%] rounded-full bg-mac-accent"
-        style={{ animation: "mac-marquee 1.4s ease-in-out infinite" }}
-      />
+      {value === undefined ? (
+        <div
+          className="absolute inset-y-0 w-[35%] rounded-full bg-mac-accent"
+          style={{ animation: "mac-marquee 1.4s ease-in-out infinite" }}
+        />
+      ) : (
+        <div
+          className="absolute inset-y-0 left-0 rounded-full bg-mac-accent transition-[width] duration-200"
+          style={{ width: `${Math.min(Math.max(value, 0), 1) * 100}%` }}
+        />
+      )}
     </div>
   );
 }

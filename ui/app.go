@@ -76,6 +76,8 @@ func Run(d Deps) error {
 			application.NewService(&AccountsService{}),
 			application.NewService(&OnboardingService{}),
 			application.NewService(&AppService{}),
+			application.NewService(&UpdateService{}),
+			application.NewService(&CLIService{}),
 			application.NewService(&notifierService{}),
 		},
 		Assets: application.AssetOptions{

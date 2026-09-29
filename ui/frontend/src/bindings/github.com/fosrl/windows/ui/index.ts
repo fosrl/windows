@@ -3,27 +3,32 @@
 
 import * as AccountsService from "./accountsservice.js";
 import * as AppService from "./appservice.js";
+import * as CLIService from "./cliservice.js";
 import * as LoginService from "./loginservice.js";
 import * as LogsService from "./logsservice.js";
 import * as MenuService from "./menuservice.js";
 import * as OnboardingService from "./onboardingservice.js";
 import * as PreferencesService from "./preferencesservice.js";
 import * as StatusService from "./statusservice.js";
+import * as UpdateService from "./updateservice.js";
 export {
     AccountsService,
     AppService,
+    CLIService,
     LoginService,
     LogsService,
     MenuService,
     OnboardingService,
     PreferencesService,
-    StatusService
+    StatusService,
+    UpdateService
 };
 
 export type {
     AccountRow,
     AccountsView,
     AppInfo,
+    CLIInfo,
     LogEntry,
     LoginRequest,
     LoginView,
@@ -36,5 +41,6 @@ export type {
     SettingsResult,
     StatusSite,
     StatusView,
-    TrayLayout
+    TrayLayout,
+    UpdateInfo
 } from "./models.js";

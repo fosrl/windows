@@ -66,10 +66,6 @@ var (
 	// prefsVisible mirrors prefsOpen for readers that must not take prefsMu.
 	prefsVisible atomic.Bool
 	prefsLoginID int
-
-	progressMu      sync.Mutex
-	progressWindows = map[string]*application.WebviewWindow{}
-	progressTexts   = map[string]string{}
 )
 
 func setupSystemTray() {
@@ -600,55 +596,30 @@ func preferencesWindowOrNil() application.Window {
 	return prefsWindow
 }
 
-// openProgressWindow shows a small marquee progress window and returns a
-// function that closes it.
-func openProgressWindow(kind, title, text string) func() {
-	progressMu.Lock()
-	defer progressMu.Unlock()
-
-	if w, ok := progressWindows[kind]; ok {
-		w.Close()
-	}
-	progressTexts[kind] = text
+// newDialogWindow creates a small fixed-size window for a single task, such as
+// installing an update, centered and hidden until shown. Closing it calls
+// onClose instead, so the task can keep running and the window be shown again.
+func newDialogWindow(name, title, route string, height int, onClose func()) *application.WebviewWindow {
 	w := app.Window.NewWithOptions(application.WebviewWindowOptions{
-		Name:                "progress-" + kind,
+		Name:                name,
 		Title:               title,
-		URL:                 "/#/progress?kind=" + kind,
-		Width:               420,
-		Height:              150,
+		URL:                 "/#/" + route,
+		Width:               440,
+		Height:              height,
 		DisableResize:       true,
 		MinimiseButtonState: application.ButtonHidden,
 		MaximiseButtonState: application.ButtonHidden,
+		Hidden:              true,
 		BackgroundColour:    windowBackground(),
+		Windows: application.WindowsWindow{
+			CustomTheme: windowTitleBarTheme(),
+		},
 	})
-	progressWindows[kind] = w
+	// Hooks run on the main thread, so the work that takes locks happens on a goroutine.
+	w.RegisterHook(events.Common.WindowClosing, func(e *application.WindowEvent) {
+		e.Cancel()
+		go onClose()
+	})
 	w.Center()
-
-	var once sync.Once
-	return func() {
-		once.Do(func() {
-			progressMu.Lock()
-			defer progressMu.Unlock()
-			if progressWindows[kind] == w {
-				delete(progressWindows, kind)
-			}
-			w.Close()
-		})
-	}
-}
-
-func setProgressText(kind, text string) {
-	progressMu.Lock()
-	progressTexts[kind] = text
-	w := progressWindows[kind]
-	progressMu.Unlock()
-	if w != nil {
-		w.EmitEvent(eventProgressText, text)
-	}
-}
-
-func progressText(kind string) string {
-	progressMu.Lock()
-	defer progressMu.Unlock()
-	return progressTexts[kind]
+	return w
 }

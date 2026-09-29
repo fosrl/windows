@@ -25,6 +25,7 @@ const (
 	UpdateFoundNotificationType
 	UpdateProgressNotificationType
 	TunnelStateChangeNotificationType
+	UIActionNotificationType
 )
 
 type MethodType int
@@ -45,6 +46,7 @@ const (
 	CheckForUpdatesMethodType
 	SetAlwaysOnMethodType
 	AlwaysOnEnabledMethodType
+	UpdateVersionMethodType
 )
 
 var (
@@ -76,6 +78,12 @@ type TunnelStateChangeCallback struct {
 }
 
 var tunnelStateChangeCallbacks = make(map[*TunnelStateChangeCallback]bool)
+
+type UIActionCallback struct {
+	cb func(action UIAction)
+}
+
+var uiActionCallbacks = make(map[*UIActionCallback]bool)
 
 func InitializeIPCClient(reader, writer, events *os.File) {
 	rpcDecoder = gob.NewDecoder(reader)
@@ -142,6 +150,18 @@ func InitializeIPCClient(reader, writer, events *os.File) {
 				for cb := range tunnelStateChangeCallbacks {
 					cb.cb(state)
 				}
+			case UIActionNotificationType:
+				var sessionID uint32
+				var action UIAction
+				if decoder.Decode(&sessionID) != nil || decoder.Decode(&action) != nil {
+					continue
+				}
+				if sessionID != currentSessionID() {
+					continue
+				}
+				for cb := range uiActionCallbacks {
+					cb.cb(action)
+				}
 			}
 		}
 	}()
@@ -191,6 +211,19 @@ func IPCClientUpdateState() (updateState UpdateState, err error) {
 	if err != nil {
 		return
 	}
+	return
+}
+
+// IPCClientUpdateVersion returns the version of the update the manager found, or "" if none.
+func IPCClientUpdateVersion() (version string, err error) {
+	rpcMutex.Lock()
+	defer rpcMutex.Unlock()
+
+	err = rpcEncoder.Encode(UpdateVersionMethodType)
+	if err != nil {
+		return
+	}
+	err = rpcDecoder.Decode(&version)
 	return
 }
 
@@ -324,6 +357,16 @@ func IPCClientRegisterTunnelStateChange(cb func(state TunnelState)) *TunnelState
 
 func (cb *TunnelStateChangeCallback) Unregister() {
 	delete(tunnelStateChangeCallbacks, cb)
+}
+
+func IPCClientRegisterUIAction(cb func(action UIAction)) *UIActionCallback {
+	s := &UIActionCallback{cb}
+	uiActionCallbacks[s] = true
+	return s
+}
+
+func (cb *UIActionCallback) Unregister() {
+	delete(uiActionCallbacks, cb)
 }
 
 // IPCClientReady reports whether the UI has an active RPC connection to the manager service.

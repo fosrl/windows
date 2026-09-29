@@ -3,12 +3,12 @@ import { createRoot } from "react-dom/client";
 import "./index.css";
 import { TrayMenu } from "./tray/TrayMenu";
 import { PreferencesWindow } from "./prefs/PreferencesWindow";
-import { ProgressWindow } from "./progress/ProgressWindow";
 import { OnboardingWindow } from "./onboarding/OnboardingWindow";
+import { UpdateWindow } from "./update/UpdateWindow";
+import { CLIWindow } from "./cli/CLIWindow";
 
 // Each native window loads the same page with a different hash route.
-const [route, query = ""] = window.location.hash.replace(/^#\/?/, "").split("?");
-const params = new URLSearchParams(query);
+const [route] = window.location.hash.replace(/^#\/?/, "").split("?");
 
 function App() {
   switch (route) {
@@ -18,8 +18,10 @@ function App() {
       return <PreferencesWindow />;
     case "onboarding":
       return <OnboardingWindow />;
-    case "progress":
-      return <ProgressWindow kind={params.get("kind") ?? ""} />;
+    case "cli":
+      return <CLIWindow />;
+    case "update":
+      return <UpdateWindow />;
     default:
       return null;
   }

@@ -5,7 +5,6 @@ package ui
 import (
 	"fmt"
 	"strings"
-	"sync"
 
 	"github.com/fosrl/newt/logger"
 	"github.com/fosrl/windows/managers"
@@ -40,7 +39,7 @@ func invokeMenuItem(id string) {
 
 	switch {
 	case id == menuIDUpdate:
-		triggerUpdate()
+		showUpdateWindow()
 	case id == menuIDReAuth:
 		// Log in again to the active account, from Preferences > Accounts.
 		var hostname string
@@ -77,7 +76,7 @@ func invokeMenuItem(id string) {
 	case id == menuIDCheckUpdates:
 		checkForUpdates()
 	case id == menuIDInstallCLI:
-		triggerCLIInstall()
+		showCLIWindow()
 	case strings.HasPrefix(id, menuPrefixAccount):
 		switchAccount(strings.TrimPrefix(id, menuPrefixAccount))
 	case strings.HasPrefix(id, menuPrefixOrg):
@@ -245,89 +244,4 @@ func quit() {
 	setAlwaysOn(false)
 	_ = managers.IPCClientStopAllTunnels() // ignore errors (e.g. no manager connection)
 	app.Quit()
-}
-
-func checkForUpdates() {
-	updateState, err := managers.IPCClientCheckForUpdates()
-	if err != nil {
-		logger.Error("Update check failed: %v", err)
-		showError(nil, "Update Check Failed", fmt.Sprintf("Failed to check for updates: %v", err))
-		return
-	}
-	switch updateState {
-	case managers.UpdateStateFoundUpdate:
-		logger.Info("Update available")
-		triggerUpdate()
-	case managers.UpdateStateUpdatesDisabledUnofficialBuild:
-		showInfo(nil, "Updates Disabled", "Updates are disabled for unofficial builds.")
-	default:
-		logger.Info("No update available")
-		showInfo(nil, "No Update Available", "You are running the latest version.")
-	}
-}
-
-const (
-	progressKindUpdate = "update"
-	progressKindCLI    = "cli"
-)
-
-var (
-	appUpdateProgressMu    sync.Mutex
-	appUpdateProgressClose func()
-)
-
-// triggerUpdate asks the user for confirmation and then starts the update via the manager.
-func triggerUpdate() {
-	if !confirm(nil, "Pangolin Update Available",
-		"A new Pangolin version is available.\n\nWould you like to download and install it now?", true) {
-		logger.Info("User declined update")
-		return
-	}
-
-	// Show progress before IPC so early updater events are reflected in the same window.
-	closeAppUpdateProgressUI()
-	closeFn := openProgressWindow(progressKindUpdate, "Updating Pangolin", "Preparing to download the update…")
-	appUpdateProgressMu.Lock()
-	appUpdateProgressClose = closeFn
-	appUpdateProgressMu.Unlock()
-
-	logger.Info("Starting update download via manager...")
-	if err := managers.IPCClientUpdate(); err != nil {
-		logger.Error("Failed to trigger update: %v", err)
-		closeAppUpdateProgressUI()
-		showError(nil, "Update Failed", fmt.Sprintf("Failed to start update: %v", err))
-	}
-}
-
-func closeAppUpdateProgressUI() {
-	appUpdateProgressMu.Lock()
-	closeFn := appUpdateProgressClose
-	appUpdateProgressClose = nil
-	appUpdateProgressMu.Unlock()
-	if closeFn != nil {
-		closeFn()
-	}
-}
-
-func triggerCLIInstall() {
-	if !confirm(nil, "Install Pangolin CLI",
-		"This will download and run the Pangolin CLI installer.\n\nWould you like to continue?", true) {
-		logger.Info("User declined CLI installation")
-		return
-	}
-
-	logger.Info("Starting Pangolin CLI installer via manager...")
-	setCLIInstallInProgress(true)
-	closeProgress := openProgressWindow(progressKindCLI, "Installing Pangolin CLI", "Downloading the installer, then running setup.")
-
-	err := managers.IPCClientInstallCLI()
-	closeProgress()
-	setCLIInstallInProgress(false)
-	if err != nil {
-		logger.Error("Failed to install Pangolin CLI: %v", err)
-		showError(nil, "CLI Install Failed", fmt.Sprintf("Failed to install Pangolin CLI: %v", err))
-		return
-	}
-	showInfo(nil, "CLI Installed", "Pangolin CLI was installed successfully and added to your PATH. You can now use the 'pangolin' command in your terminal.")
-	refreshCLIInstallState()
 }

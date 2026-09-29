@@ -117,6 +117,10 @@ func (s *ManagerService) UpdateState() UpdateState {
 	return updateState
 }
 
+func (s *ManagerService) UpdateVersion() string {
+	return foundVersion
+}
+
 func (s *ManagerService) CheckForUpdates() (UpdateState, error) {
 	update, err := updater.CheckForUpdate()
 	if err != nil {
@@ -124,6 +128,7 @@ func (s *ManagerService) CheckForUpdates() (UpdateState, error) {
 	}
 	if update != nil {
 		updateState = UpdateStateFoundUpdate
+		foundVersion = update.Version()
 		IPCServerNotifyUpdateFound(updateState)
 	} else if updateState != UpdateStateFoundUpdate {
 		updateState = UpdateStateUnknown
@@ -357,6 +362,11 @@ func (s *ManagerService) ServeConn(reader io.Reader, writer io.Writer) {
 			if err != nil {
 				return
 			}
+		case UpdateVersionMethodType:
+			err = encoder.Encode(s.UpdateVersion())
+			if err != nil {
+				return
+			}
 		case UpdateMethodType:
 			s.Update()
 		case StartTunnelMethodType:
@@ -538,6 +548,12 @@ func IPCServerNotifyUpdateFound(state UpdateState) {
 
 func IPCServerNotifyUpdateProgress(dp updater.DownloadProgress) {
 	notifyAll(UpdateProgressNotificationType, false, dp.Activity, dp.BytesDownloaded, dp.BytesTotal, errToString(dp.Error), dp.Complete)
+}
+
+// IPCServerNotifyUIAction asks the UI in sessionID to perform action. Every UI
+// receives it and only the one in that session acts on it.
+func IPCServerNotifyUIAction(sessionID uint32, action UIAction) {
+	notifyAll(UIActionNotificationType, false, sessionID, action)
 }
 
 func IPCServerNotifyManagerStopping() {

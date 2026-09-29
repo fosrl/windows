@@ -10,11 +10,17 @@ import (
 	"math"
 )
 
-// composeOverlayIcon draws the transitional badge onto every frame of an .ico
-// file and returns a new .ico with all frames stored as PNG. Keeping each size
+// Badge fill colors for transitional tray icons.
+var (
+	badgeYellow = color.RGBA{R: 255, G: 200, A: 255}
+	badgeGray   = color.RGBA{R: 142, G: 142, B: 147, A: 255}
+)
+
+// composeOverlayIcon draws a transitional badge in the given color onto every
+// frame of an .ico file and returns a new .ico with all frames stored as PNG. Keeping each size
 // lets Windows pick the hand-tuned 16/32px frame instead of scaling down the
 // 256px one, which looks jagged in the tray.
-func composeOverlayIcon(ico []byte) ([]byte, error) {
+func composeOverlayIcon(ico []byte, fill color.RGBA) ([]byte, error) {
 	if len(ico) < 6 {
 		return nil, errors.New("icon too short")
 	}
@@ -34,7 +40,7 @@ func composeOverlayIcon(ico []byte) ([]byte, error) {
 		if err != nil {
 			continue
 		}
-		drawBadge(img)
+		drawBadge(img, fill)
 		frames = append(frames, img)
 	}
 	if len(frames) == 0 {
@@ -43,17 +49,16 @@ func composeOverlayIcon(ico []byte) ([]byte, error) {
 	return encodeICO(frames)
 }
 
-// drawBadge draws an antialiased yellow circle with a white outline in the
+// drawBadge draws an antialiased circle of the fill color with a white outline in the
 // bottom-right corner of img. The old overlay covered 65% of the icon; a badge
 // of that size would hide the logo at 16px, so it is about half that.
-func drawBadge(img *image.RGBA) {
+func drawBadge(img *image.RGBA, fill color.RGBA) {
 	b := img.Bounds()
 	size := float64(b.Dx())
 	r := size * 0.25
 	outline := math.Max(size*0.06, 1)
 	cx := float64(b.Max.X) - r - size/32
 	cy := float64(b.Max.Y) - r - size/32
-	fill := color.RGBA{R: 255, G: 200, A: 255}
 	edge := color.RGBA{R: 255, G: 255, B: 255, A: 255}
 
 	// Supersample each pixel to get smooth edges at small sizes.

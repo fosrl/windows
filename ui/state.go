@@ -26,7 +26,8 @@ const (
 	eventLogsAppend    = "logs:append"
 	eventLoginState    = "login:state"
 	eventAccountsState = "accounts:state"
-	eventProgressText  = "progress:text"
+	eventCLIState      = "cli:state"
+	eventUpdateState   = "update:state"
 )
 
 var (
@@ -56,8 +57,6 @@ var (
 
 	alwaysOn      bool
 	alwaysOnMutex sync.Mutex
-
-	startupDialogOnce sync.Once
 )
 
 func setHasUpdate(v bool) {
