@@ -182,13 +182,12 @@ type ServerInfo struct {
 // SiteResource is the (partial) shape of an entry returned by
 // GET /org/:orgId/site-resources. Only the fields the exit node menu needs are modeled.
 type SiteResource struct {
-	SiteResourceID int      `json:"siteResourceId"`
-	NiceID         string   `json:"niceId"`
-	Name           string   `json:"name"`
-	Mode           string   `json:"mode"`
-	Enabled        bool     `json:"enabled"`
-	SiteIDs        []int    `json:"siteIds"`
-	SiteNames      []string `json:"siteNames"`
+	SiteResourceID int    `json:"siteResourceId"`
+	NiceID         string `json:"niceId"`
+	Name           string `json:"name"`
+	Mode           string `json:"mode"`
+	Enabled        bool   `json:"enabled"`
+	SiteIDs        []int  `json:"siteIds"`
 }
 
 // ListSiteResourcesResponse is the inner `data` of GET /org/:orgId/site-resources.
