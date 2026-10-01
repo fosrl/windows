@@ -64,7 +64,7 @@ func currentExitNodes(orgID string, running bool) (nodes []menuExitNode, activeI
 	}
 	useOLM := running && hasOLMGatewayStatus
 	for _, g := range exitNodeList {
-		nodes = append(nodes, menuExitNode{ID: g.SiteResourceID, Name: g.Name, SiteNames: g.SiteNames})
+		nodes = append(nodes, menuExitNode{ID: g.SiteResourceID, Name: g.Name})
 		if !useOLM && savedResourceID != 0 && g.SiteResourceID == savedResourceID {
 			activeID = g.SiteResourceID
 		}
