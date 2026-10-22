@@ -29,6 +29,7 @@ func (s *tunnelService) buildTunnel(config Config) error {
 		SocketPath: OLMNamedPipePath,
 		Version:    version.Number,
 		Agent:      "Pangolin Windows",
+		OlmVersion: version.OlmVersionOverride,
 		OnConnected: func() {
 			logger.Info("Tunnel: OLM connected")
 		},
