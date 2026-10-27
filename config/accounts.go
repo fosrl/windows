@@ -33,13 +33,15 @@ type Account struct {
 	Name     string `json:"name"`
 	Hostname string `json:"hostname"`
 
-	// The exit node (a gateway-mode site resource) selected from the tray
-	// menu, re-applied on the next connect. It can differ per account, so
-	// it's stored here rather than on the root config, and it belongs to the
-	// account's currently selected org (OrgID above). Only the resource ID
-	// is stored (not the niceId, which can be renamed); its sites are looked
-	// up from the server on every connect so they can't go stale.
+	OrgSettings map[string]OrgSettings `json:"orgSettings,omitempty"`
+}
+
+type OrgSettings struct {
 	ExitNodeResourceID int `json:"exitNodeResourceId,omitempty"`
+}
+
+func (s OrgSettings) IsEmpty() bool {
+	return s.ExitNodeResourceID == 0
 }
 
 func NewAccountManager() *AccountManager {
@@ -106,6 +108,9 @@ func (m *AccountManager) AddAccount(account Account) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
+	if existing, ok := m.Accounts[account.UserID]; ok && len(existing.OrgSettings) > 0 {
+		account.OrgSettings = existing.OrgSettings
+	}
 	m.Accounts[account.UserID] = account
 	return m.saveLocked()
 }
@@ -165,22 +170,18 @@ func (m *AccountManager) SetUserOrganization(userID string, orgID string) error 
 	return m.saveLocked()
 }
 
-// GetExitNode returns the resource ID of userID's selected exit node, or 0 if
-// none is selected or the account doesn't exist.
-func (m *AccountManager) GetExitNode(userID string) int {
+// GetOrgSettings returns the settings for orgID under userID, or empty defaults
+// if none are stored or the account doesn't exist.
+func (m *AccountManager) GetOrgSettings(userID, orgID string) OrgSettings {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	account, ok := m.Accounts[userID]
-	if !ok {
-		return 0
-	}
-	return account.ExitNodeResourceID
+	return m.Accounts[userID].OrgSettings[orgID]
 }
 
-// SetExitNode records the selected exit node (a gateway resource) for userID;
-// resourceID 0 clears it.
-func (m *AccountManager) SetExitNode(userID string, resourceID int) error {
+// UpdateOrgSettings updates the settings for orgID under userID. Empty settings
+// remove that org's entry.
+func (m *AccountManager) UpdateOrgSettings(userID, orgID string, update func(*OrgSettings)) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -189,9 +190,37 @@ func (m *AccountManager) SetExitNode(userID string, resourceID int) error {
 		return errors.New("account does not exist")
 	}
 
-	account.ExitNodeResourceID = resourceID
+	settings := make(map[string]OrgSettings, len(account.OrgSettings)+1)
+	for id, s := range account.OrgSettings {
+		settings[id] = s
+	}
+	org := settings[orgID]
+	update(&org)
+	if org.IsEmpty() {
+		delete(settings, orgID)
+	} else {
+		settings[orgID] = org
+	}
+	if len(settings) == 0 {
+		settings = nil
+	}
+	account.OrgSettings = settings
 	m.Accounts[userID] = account
 	return m.saveLocked()
+}
+
+// GetExitNode returns the resource ID of the exit node selected for orgID under
+// userID, or 0 if none is selected or the account doesn't exist.
+func (m *AccountManager) GetExitNode(userID, orgID string) int {
+	return m.GetOrgSettings(userID, orgID).ExitNodeResourceID
+}
+
+// SetExitNode records the selected exit node (a gateway resource) for orgID
+// under userID; resourceID 0 clears it.
+func (m *AccountManager) SetExitNode(userID, orgID string, resourceID int) error {
+	return m.UpdateOrgSettings(userID, orgID, func(s *OrgSettings) {
+		s.ExitNodeResourceID = resourceID
+	})
 }
 
 func (m *AccountManager) UpdateAccountUserInfo(userID, username, name string) error {

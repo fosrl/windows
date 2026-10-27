@@ -8,6 +8,8 @@ RSRC_SYSO=rsrc.syso
 FRONTEND_DIR=ui/frontend
 GOOS=windows
 GOARCH=amd64
+OLM_VERSION := $(shell go list -m -f '{{.Version}}' github.com/fosrl/olm | sed 's/^v//')
+OLM_LDFLAGS = -X github.com/fosrl/windows/version.OlmVersionOverride=$(OLM_VERSION)
 
 # Default target
 all: clean rsrc build
@@ -17,13 +19,13 @@ all: clean rsrc build
 build: rsrc frontend
 	@echo "Building Windows executable (GUI mode)..."
 	@mkdir -p $(BUILD_DIR)
-	GOOS=$(GOOS) GOARCH=$(GOARCH) go build -tags production -ldflags="-s -w -H windowsgui" -o $(BUILD_DIR)/$(BINARY_NAME).exe
+	GOOS=$(GOOS) GOARCH=$(GOARCH) go build -tags production -ldflags="-s -w -H windowsgui $(OLM_LDFLAGS)" -o $(BUILD_DIR)/$(BINARY_NAME).exe
 	@echo "Build complete: $(BUILD_DIR)/$(BINARY_NAME).exe"
 
 # Same as build, but keeps Wails devtools (right-click > Inspect) and debug logging
 build-debug: rsrc frontend
 	@mkdir -p $(BUILD_DIR)
-	GOOS=$(GOOS) GOARCH=$(GOARCH) go build -ldflags="-H windowsgui" -o $(BUILD_DIR)/$(BINARY_NAME).exe
+	GOOS=$(GOOS) GOARCH=$(GOARCH) go build -ldflags="-H windowsgui $(OLM_LDFLAGS)" -o $(BUILD_DIR)/$(BINARY_NAME).exe
 	@echo "Debug build complete: $(BUILD_DIR)/$(BINARY_NAME).exe"
 
 # Build the webview frontend into ui/frontend/dist (embedded into the exe)
