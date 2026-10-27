@@ -184,6 +184,7 @@ func switchAccount(userID string) {
 		return
 	}
 	publish()
+	refreshExitNodes()
 }
 
 func selectOrganization(orgID string) {
@@ -215,13 +216,15 @@ func selectOrganization(orgID string) {
 			break
 		}
 		publish()
-		refreshExitNodes()
 		if tunnelManager != nil && tunnelManager.IsConnected() {
 			if err := tunnelManager.SwitchOLMOrg(org.Id); err != nil {
 				logger.Error("Failed to switch tunnel organization: %v", err)
 				showError(nil, "Tunnel Organization Switch Failed", fmt.Sprintf("Failed to switch tunnel organization: %v", err))
+				refreshExitNodes()
+				break
 			}
 		}
+		syncExitNodeAfterOrgSwitch(org.Id)
 		break
 	}
 	if !found {

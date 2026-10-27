@@ -14,7 +14,7 @@ import (
 
 // Exit nodes are the org's gateway-mode site resources. Selecting one routes
 // all tunnel traffic through its sites. The list comes from the server and is
-// cached for the tray menu; the selection itself is saved on the active
+// cached for the tray menu; the selection itself is saved per org on the active
 // account (by resource ID) so it is re-applied on the next connect, and
 // applied live through olm when the tunnel is already up.
 
@@ -59,7 +59,7 @@ func currentExitNodes(orgID string, running bool) (nodes []menuExitNode, activeI
 	savedResourceID := 0
 	if accountManager != nil {
 		if active, err := accountManager.ActiveAccount(); err == nil {
-			savedResourceID = accountManager.GetExitNode(active.UserID)
+			savedResourceID = accountManager.GetExitNode(active.UserID, orgID)
 		}
 	}
 	useOLM := running && hasOLMGatewayStatus
@@ -201,7 +201,7 @@ func selectExitNode(idStr string) {
 	}
 
 	active, err := accountManager.ActiveAccount()
-	if err != nil || accountManager.SetExitNode(active.UserID, gateway.SiteResourceID) != nil {
+	if err != nil || accountManager.SetExitNode(active.UserID, org.Id, gateway.SiteResourceID) != nil {
 		logger.Warn("Exit node applied but could not be saved for the next connect")
 	}
 	logger.Info("Exit node set to %s", gateway.Name)
@@ -209,7 +209,7 @@ func selectExitNode(idStr string) {
 }
 
 // disableExitNode stops routing traffic through an exit node and forgets the
-// saved selection.
+// saved selection for the current org.
 func disableExitNode() {
 	if accountManager == nil || tunnelManager == nil {
 		return
@@ -226,7 +226,13 @@ func disableExitNode() {
 	}
 
 	if active, err := accountManager.ActiveAccount(); err == nil {
-		_ = accountManager.SetExitNode(active.UserID, 0)
+		orgID := active.OrgID
+		if authManager != nil {
+			if org := authManager.CurrentOrg(); org != nil {
+				orgID = org.Id
+			}
+		}
+		_ = accountManager.SetExitNode(active.UserID, orgID, 0)
 	}
 	logger.Info("Exit node disabled")
 	publish()
@@ -234,7 +240,8 @@ func disableExitNode() {
 
 // resolveSavedExitNode turns the saved exit node into the resource and site IDs
 // to establish when connecting, or 0/nil to connect without one. Only the
-// resource ID is saved, so a deleted, disabled or site-less resource is skipped.
+// resource ID is saved (per account and org), so a deleted, disabled or
+// site-less resource is skipped.
 func resolveSavedExitNode(orgID string) (int, []int) {
 	if accountManager == nil || apiClient == nil {
 		return 0, nil
@@ -243,7 +250,7 @@ func resolveSavedExitNode(orgID string) (int, []int) {
 	if err != nil {
 		return 0, nil
 	}
-	resourceID := accountManager.GetExitNode(active.UserID)
+	resourceID := accountManager.GetExitNode(active.UserID, orgID)
 	if resourceID == 0 {
 		return 0, nil
 	}
@@ -265,4 +272,23 @@ func resolveSavedExitNode(orgID string) (int, []int) {
 	}
 	logger.Warn("Saved exit node no longer exists; not using it")
 	return 0, nil
+}
+
+func syncExitNodeAfterOrgSwitch(orgID string) {
+	go func() {
+		if tunnelManager != nil && tunnelManager.State() == tunnel.StateRunning {
+			if resourceID, siteIDs := resolveSavedExitNode(orgID); resourceID != 0 {
+				if err := tunnelManager.SelectGateway(resourceID, siteIDs); err != nil {
+					logger.Error("Failed to apply saved exit node after org switch: %v", err)
+				} else {
+					setOLMGatewayStatus(true, resourceID)
+				}
+			} else if err := tunnelManager.DisableGateway(); err != nil {
+				logger.Error("Failed to clear exit node after org switch: %v", err)
+			} else {
+				setOLMGatewayStatus(false, 0)
+			}
+		}
+		refreshExitNodes()
+	}()
 }
