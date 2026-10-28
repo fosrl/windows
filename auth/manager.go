@@ -713,16 +713,19 @@ func (am *AuthManager) EnsureOlmCredentials(userId string) error {
 		olmIdString, found := am.secretManager.GetOlmId(userId)
 		if found {
 			olm, err := am.apiClient.GetUserOlm(userId, olmIdString, nil)
-			if err == nil && olm != nil {
-				if olm.OlmId == olmIdString {
-					logger.Info("Auth: OLM credentials verified (userId=%s)", userId)
-					return nil
-				}
+			switch {
+			case err == nil && olm != nil && olm.OlmId == olmIdString:
+				logger.Info("Auth: OLM credentials verified (userId=%s)", userId)
+				return nil
+			case err == nil && olm != nil:
 				logger.Error("Auth: OLM ID mismatch (userId=%s, server=%s, stored=%s)", userId, olm.OlmId, olmIdString)
 				am.secretManager.DeleteOlmCredentials(userId)
-			} else {
-				logger.Error("Auth: failed to verify OLM credentials (userId=%s): %v", userId, err)
+			case isNotFoundError(err):
+				logger.Warn("Auth: stored OLM no longer exists on server, discarding (userId=%s, olmId=%s)", userId, olmIdString)
 				am.secretManager.DeleteOlmCredentials(userId)
+			default:
+				logger.Warn("Auth: could not verify OLM credentials, keeping stored credentials (userId=%s): %v", userId, err)
+				return nil
 			}
 		}
 	}
@@ -747,6 +750,11 @@ func (am *AuthManager) EnsureOlmCredentials(userId string) error {
 		logger.Info("Auth: recovered OLM credentials (userId=%s)", userId)
 		return nil
 	}
+	if !isNotFoundError(err) {
+		logger.Error("Auth: failed to recover OLM from fingerprint (userId=%s): %v", userId, err)
+		return fmt.Errorf("failed to recover OLM: %w", err)
+	}
+	logger.Info("Auth: no OLM matches this device fingerprint, creating a new one (userId=%s)", userId)
 
 	deviceName := config.GetFriendlyDeviceName()
 	olmResponse, err := am.apiClient.CreateOlm(userId, deviceName)
@@ -762,6 +770,11 @@ func (am *AuthManager) EnsureOlmCredentials(userId string) error {
 
 	logger.Info("Auth: created OLM credentials (userId=%s, olmId=%s)", userId, olmResponse.OlmId)
 	return nil
+}
+
+func isNotFoundError(err error) bool {
+	var apiErr *api.APIError
+	return errors.As(err, &apiErr) && apiErr.Type == api.ErrorTypeHTTPError && apiErr.Status == 404
 }
 
 func (am *AuthManager) SwitchAccount(userID string) error {
