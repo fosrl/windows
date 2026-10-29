@@ -28,8 +28,11 @@ func registerIPCCallbacks() {
 	managers.IPCClientRegisterUpdateProgress(handleUpdateProgress)
 
 	managers.IPCClientRegisterUIAction(func(action managers.UIAction) {
-		if action == managers.UIActionOpenUpdate {
+		switch action {
+		case managers.UIActionOpenUpdate:
 			go showUpdateWindow()
+		case managers.UIActionShow:
+			go showPreferencesWindow(prefsTabStatus, nil)
 		}
 	})
 
