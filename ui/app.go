@@ -24,6 +24,7 @@ import (
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/events"
 	"github.com/wailsapp/wails/v3/pkg/services/notifications"
+	"github.com/wailsapp/wails/v3/pkg/w32"
 )
 
 //go:embed all:frontend/dist
@@ -33,6 +34,8 @@ var frontendDist embed.FS
 var ErrWebView2Missing = errors.New("the Microsoft Edge WebView2 Runtime is not installed")
 
 var app *application.App
+
+var procChangeWindowMessageFilter = user32.NewProc("ChangeWindowMessageFilter")
 
 // Deps are the managers the UI works with.
 type Deps struct {
@@ -62,6 +65,8 @@ func Run(d Deps) error {
 		return fmt.Errorf("frontend assets: %w", err)
 	}
 
+	allowTaskbarCreated()
+
 	notifier = notifications.New()
 	app = application.New(application.Options{
 		Name:        config.AppName,
@@ -86,6 +91,9 @@ func Run(d Deps) error {
 		},
 		Logger:   slog.New(newtLogHandler{}),
 		LogLevel: slog.LevelWarn,
+		ErrorHandler: func(err error) {
+			logger.Error("wails: %v", err)
+		},
 		PanicHandler: func(p *application.PanicDetails) {
 			logger.Error("UI panic: %v\n%s", p.Error, p.StackTrace)
 		},
@@ -126,6 +134,14 @@ func onStarted() {
 		go autoConnect(authManager)
 	}
 	publish()
+}
+
+func allowTaskbarCreated() {
+	const msgfltAdd = 1
+	msg := w32.RegisterWindowMessage(w32.MustStringToUTF16Ptr("TaskbarCreated"))
+	if r, _, err := procChangeWindowMessageFilter.Call(uintptr(msg), msgfltAdd); r == 0 {
+		logger.Error("Failed to allow TaskbarCreated message: %v", err)
+	}
 }
 
 // webviewUserDataPath keeps WebView2's profile in the user's local app data;

@@ -281,10 +281,33 @@ func (service *managerService) Execute(args []string, r <-chan svc.ChangeRequest
 	// TODO: Add driver cleanup when driver package is implemented
 	// go driver.UninstallLegacyWintun()
 
-	// Do not auto-start UI processes at service start. Starting before the user's
-	// shell is ready shows no tray, and then the exe thinks a UI is already running.
 	// UI starts when the user runs the exe, after an update, or at session logon
-	// when that user has open-at-login or connect-at-start enabled.
+	// when that user has open-at-login or connect-at-start enabled. Launches at
+	// logon wait for the user's shell so the tray icon can be added.
+	onSessionLogon := func(sessionID uint32) {
+		procsLock.Lock()
+		alreadyAlive := aliveSessions[sessionID]
+		if !alreadyAlive {
+			aliveSessions[sessionID] = true
+		}
+		procsLock.Unlock()
+		if alreadyAlive {
+			return
+		}
+		go func() {
+			if !launchUIAtLoginForSession(sessionID) {
+				return
+			}
+			waitForSessionExplorer(sessionID, 60*time.Second)
+			procsLock.Lock()
+			if !stoppingManager {
+				if _, ok := procs[sessionID]; !ok && aliveSessions[sessionID] {
+					goStartProcess(sessionID)
+				}
+			}
+			procsLock.Unlock()
+		}()
+	}
 
 	// Listen for UI launch requests from standard users (named pipe).
 	requestUILaunchChan := make(chan uint32)
@@ -320,7 +343,7 @@ func (service *managerService) Execute(args []string, r <-chan svc.ChangeRequest
 	changes <- svc.Status{State: svc.Running, Accepts: svc.AcceptStop | svc.AcceptSessionChange}
 
 	// If restart-ui-after-update flag exists (written before MSI run), launch UI for active session then remove flag.
-	go func() {
+	restartUIAfterUpdate := func() {
 		flagPath := filepath.Join(config.GetProgramDataDir(), "restart-ui-after-update.flag")
 		if _, statErr := os.Stat(flagPath); statErr != nil {
 			return
@@ -339,6 +362,13 @@ func (service *managerService) Execute(args []string, r <-chan svc.ChangeRequest
 			logger.Error("Failed to remove restart-ui flag: %v", err)
 		} else {
 			logger.Info("Launched UI for session %d after update and removed restart-ui flag", sessionID)
+		}
+	}
+	go func() {
+		restartUIAfterUpdate()
+		for _, sessionID := range signedInSessions() {
+			logger.Info("Session %d was signed in before the manager started", sessionID)
+			onSessionLogon(sessionID)
 		}
 	}()
 
@@ -381,29 +411,7 @@ loop:
 					}
 					procsLock.Unlock()
 				case windows.WTS_SESSION_LOGON:
-					sessionID := sessionNotification.SessionID
-					procsLock.Lock()
-					alreadyAlive := aliveSessions[sessionID]
-					if !alreadyAlive {
-						aliveSessions[sessionID] = true
-					}
-					procsLock.Unlock()
-					if alreadyAlive {
-						continue
-					}
-					go func() {
-						if !launchUIAtLoginForSession(sessionID) {
-							return
-						}
-						waitForSessionExplorer(sessionID, 60*time.Second)
-						procsLock.Lock()
-						if !stoppingManager {
-							if _, ok := procs[sessionID]; !ok && aliveSessions[sessionID] {
-								goStartProcess(sessionID)
-							}
-						}
-						procsLock.Unlock()
-					}()
+					onSessionLogon(sessionNotification.SessionID)
 				default:
 					// Ignore other session change events
 					continue
@@ -557,6 +565,31 @@ func enableSeTcbPrivilege() error {
 	}
 	logger.Debug("UI launch (service): SeTcbPrivilege enabled successfully")
 	return nil
+}
+
+// signedInSessions returns the active sessions that have a user signed in.
+func signedInSessions() []uint32 {
+	var sessions *windows.WTS_SESSION_INFO
+	var count uint32
+	if err := windows.WTSEnumerateSessions(0, 0, 1, &sessions, &count); err != nil {
+		logger.Error("WTSEnumerateSessions failed: %v", err)
+		return nil
+	}
+	defer windows.WTSFreeMemory(uintptr(unsafe.Pointer(sessions)))
+
+	var ids []uint32
+	for _, session := range unsafe.Slice(sessions, count) {
+		if session.SessionID == 0 || session.State != windows.WTSActive {
+			continue
+		}
+		var token windows.Token
+		if err := windows.WTSQueryUserToken(session.SessionID, &token); err != nil {
+			continue
+		}
+		token.Close()
+		ids = append(ids, session.SessionID)
+	}
+	return ids
 }
 
 // launchUIAtLoginForSession reports whether the user logged into sessionID
