@@ -18,6 +18,16 @@ export function Opened(): $CancellablePromise<$models.PrefsOpened> {
     return $Call.ByID(1409912611);
 }
 
-export function Update(form: $models.Settings): $CancellablePromise<$models.SettingsResult> {
-    return $Call.ByID(2264599907, form);
+/**
+ * ResetOrg makes the current org use the global settings again.
+ */
+export function ResetOrg(): $CancellablePromise<$models.Settings> {
+    return $Call.ByID(2353060993);
+}
+
+/**
+ * Update saves the form; scope says where its tunnel settings go.
+ */
+export function Update(form: $models.Settings, scope: string): $CancellablePromise<$models.SettingsResult> {
+    return $Call.ByID(2264599907, form, scope);
 }

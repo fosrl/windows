@@ -4,12 +4,14 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
 	"strconv"
 	"time"
 
+	"github.com/fosrl/windows/config"
 	"github.com/fosrl/windows/version"
 )
 
@@ -346,6 +348,29 @@ func (c *APIClient) CheckHealth() (bool, error) {
 
 	// Other status codes mean server is down or error
 	return false, nil
+}
+
+// GetMyClientSettings returns the settings the org manages for the current
+// user, or nil if it manages none. Servers that predate client settings answer
+// 404, which means the same thing.
+func (c *APIClient) GetMyClientSettings(orgID string) (*config.ClientSettings, error) {
+	path := fmt.Sprintf("/org/%s/my-client-settings", url.PathEscape(orgID))
+
+	data, resp, err := c.makeRequest("GET", path, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var response MyClientSettingsResponse
+	if err := c.parseResponse(data, resp, &response); err != nil {
+		var apiErr *APIError
+		if errors.As(err, &apiErr) && apiErr.Status == http.StatusNotFound {
+			return nil, nil
+		}
+		return nil, err
+	}
+
+	return response.Settings, nil
 }
 
 // ListGatewayResources returns every gateway-mode site resource in the org

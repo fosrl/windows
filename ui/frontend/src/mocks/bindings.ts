@@ -124,6 +124,7 @@ const settings: Settings = {
   openAtLogin: true, autoConnect: false, dnsOverride: true, dnsTunnel: false,
   primaryDns: "", secondaryDns: "", mtu: "1280", exitNodeTakesPrecedence: false,
   disabled: params.has("disabled"),
+  orgName: "Fossorial", orgMode: params.has("orgMode"), managed: params.has("managed") ? ["dnsTunnel", "mtu"] : [],
 };
 
 const status: StatusView = {
@@ -188,6 +189,10 @@ export const PreferencesService = {
     if (!/^\d+$/.test(f.mtu) || +f.mtu < 576 || +f.mtu > 9000)
       return ok({ settings: { ...settings, mtu: "1280" }, field: "mtu", error: "Enter an integer between 576 and 9000 (e.g., 1280)" });
     return ok({ settings: { ...settings }, field: "", error: "" });
+  },
+  ResetOrg: () => {
+    settings.orgMode = false;
+    return ok({ ...settings });
   },
 };
 export const StatusService = { Current: () => ok(status) };

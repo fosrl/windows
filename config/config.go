@@ -50,6 +50,10 @@ type Config struct {
 	AutoUpdateChecksEnabled      *bool    `json:"autoUpdateChecksEnabled,omitempty"`
 	CheckForUpdatesButtonEnabled *bool    `json:"checkForUpdatesButtonEnabled,omitempty"`
 	UpdateCheckIntervalSeconds   *int     `json:"updateCheckIntervalSeconds,omitempty"`
+
+	// Orgs holds per-org overrides, keyed by org ID. Precedence when connecting
+	// to an org: server settings > its entry here > the global settings above.
+	Orgs map[string]OrgConfig `json:"orgs,omitempty"`
 	// Onboarding progress, like the macOS client's OnboardingStateManager.
 	OnboardingSeenWelcome         *bool `json:"onboardingSeenWelcome,omitempty"`
 	OnboardingAcknowledgedPrivacy *bool `json:"onboardingAcknowledgedPrivacy,omitempty"`
@@ -752,6 +756,12 @@ func mergeConfig(base, override *Config) *Config {
 		v := *override.OnboardingAcknowledgedPrivacy
 		merged.OnboardingAcknowledgedPrivacy = &v
 	}
+	for orgID, org := range override.Orgs {
+		if merged.Orgs == nil {
+			merged.Orgs = map[string]OrgConfig{}
+		}
+		merged.Orgs[orgID] = mergeOrgConfig(merged.Orgs[orgID], org)
+	}
 	return merged
 }
 
@@ -762,6 +772,12 @@ func copyConfig(src *Config) *Config {
 	}
 
 	cfg := &Config{}
+	if src.Orgs != nil {
+		cfg.Orgs = make(map[string]OrgConfig, len(src.Orgs))
+		for orgID, org := range src.Orgs {
+			cfg.Orgs[orgID] = org
+		}
+	}
 	if src.DNSOverride != nil {
 		dnsOverride := *src.DNSOverride
 		cfg.DNSOverride = &dnsOverride

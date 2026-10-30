@@ -9,6 +9,7 @@ import (
 
 	"github.com/fosrl/newt/logger"
 	"github.com/fosrl/windows/api"
+	"github.com/fosrl/windows/config"
 	"github.com/fosrl/windows/tunnel"
 )
 
@@ -34,6 +35,27 @@ var (
 	hasOLMGatewayStatus bool
 )
 
+// effectiveExitNode returns the exit node the org connects with, or 0 for none.
+func effectiveExitNode(orgID string) int {
+	if accountManager == nil {
+		return 0
+	}
+	active, err := accountManager.ActiveAccount()
+	if err != nil {
+		return 0
+	}
+	var org config.OrgConfig
+	if configManager != nil {
+		org = configManager.GetOrgConfig(orgID)
+	}
+	return config.EffectiveExitNode(cachedServerSettings(orgID), accountManager.GetExitNode(active.UserID, orgID), org)
+}
+
+// exitNodeLocked reports whether the org's server forces the exit node.
+func exitNodeLocked(orgID string) bool {
+	return cachedServerSettings(orgID).LockedExitNode() != 0
+}
+
 // usableGateways drops gateway resources that can't be used as an exit node.
 func usableGateways(all []api.SiteResource) []api.SiteResource {
 	var usable []api.SiteResource
@@ -56,12 +78,7 @@ func currentExitNodes(orgID string, running bool) (nodes []menuExitNode, activeI
 		return nil, 0
 	}
 
-	savedResourceID := 0
-	if accountManager != nil {
-		if active, err := accountManager.ActiveAccount(); err == nil {
-			savedResourceID = accountManager.GetExitNode(active.UserID, orgID)
-		}
-	}
+	savedResourceID := effectiveExitNode(orgID)
 	useOLM := running && hasOLMGatewayStatus
 	for _, g := range exitNodeList {
 		nodes = append(nodes, menuExitNode{ID: g.SiteResourceID, Name: g.Name})
@@ -183,6 +200,11 @@ func selectExitNode(idStr string) {
 		return
 	}
 
+	if exitNodeLocked(org.Id) {
+		logger.Warn("Ignoring exit node selection: it is locked by the organization")
+		return
+	}
+
 	gateway, ok := findExitNode(org.Id, id)
 	if !ok {
 		logger.Error("Exit node %d no longer exists", id)
@@ -213,6 +235,12 @@ func selectExitNode(idStr string) {
 func disableExitNode() {
 	if accountManager == nil || tunnelManager == nil {
 		return
+	}
+	if authManager != nil {
+		if org := authManager.CurrentOrg(); org != nil && exitNodeLocked(org.Id) {
+			logger.Warn("Ignoring exit node change: it is locked by the organization")
+			return
+		}
 	}
 
 	if tunnelManager.State() == tunnel.StateRunning {
@@ -246,11 +274,7 @@ func resolveSavedExitNode(orgID string) (int, []int) {
 	if accountManager == nil || apiClient == nil {
 		return 0, nil
 	}
-	active, err := accountManager.ActiveAccount()
-	if err != nil {
-		return 0, nil
-	}
-	resourceID := accountManager.GetExitNode(active.UserID, orgID)
+	resourceID := effectiveExitNode(orgID)
 	if resourceID == 0 {
 		return 0, nil
 	}
@@ -276,6 +300,7 @@ func resolveSavedExitNode(orgID string) (int, []int) {
 
 func syncExitNodeAfterOrgSwitch(orgID string) {
 	go func() {
+		fetchServerSettings(orgID)
 		if tunnelManager != nil && tunnelManager.State() == tunnel.StateRunning {
 			if resourceID, siteIDs := resolveSavedExitNode(orgID); resourceID != 0 {
 				if err := tunnelManager.SelectGateway(resourceID, siteIDs); err != nil {

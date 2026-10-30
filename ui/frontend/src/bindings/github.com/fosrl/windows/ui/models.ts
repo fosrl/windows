@@ -213,7 +213,8 @@ export interface PrefsOpened {
 }
 
 /**
- * Settings is the Preferences tab form.
+ * Settings is the Preferences tab form. The tunnel settings are what the
+ * current org actually uses, so they aren't always the global values.
  */
 export interface Settings {
     "openAtLogin": boolean;
@@ -229,6 +230,21 @@ export interface Settings {
      * Disabled is set when an administrator has turned off user settings.
      */
     "disabled": boolean;
+
+    /**
+     * OrgName is the current org, empty if there is none.
+     */
+    "orgName": string;
+
+    /**
+     * OrgMode is set when the current org has its own settings.
+     */
+    "orgMode": boolean;
+
+    /**
+     * Managed lists the fields above that the org's server sets, by JSON name.
+     */
+    "managed": string[] | null;
 }
 
 /**

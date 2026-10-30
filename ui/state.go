@@ -243,6 +243,7 @@ func collectMenuInputs() menuInputs {
 			in.CurrentOrgName = org.Name
 		}
 		in.ExitNodes, in.ActiveExitNodeID = currentExitNodes(in.CurrentOrgID, rawPhase == phaseRunning)
+		in.ExitNodeLocked = exitNodeLocked(in.CurrentOrgID)
 		if user := authManager.CurrentUser(); user != nil {
 			in.CurrentUserDisplay = auth.UserDisplayName(user)
 		}

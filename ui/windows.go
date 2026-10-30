@@ -565,6 +565,7 @@ func showPreferencesWindow(tab int, login *LoginRequest) {
 		startLogTail()
 	}
 	prefsWindow.EmitEvent("prefs:opened", currentPrefsOpened())
+	go refreshPreferencesServerSettings()
 	prefsWindow.Show()
 	if prefsWindow.IsMinimised() {
 		prefsWindow.Restore()

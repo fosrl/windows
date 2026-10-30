@@ -58,6 +58,7 @@ func Run(d Deps) error {
 	apiClient = d.API
 	tunnelManager = tunnel.NewManager(d.Auth, d.Config, d.Accounts, d.Secrets, managers.NewIPCAdapter())
 	tunnelManager.SetGatewayResolver(resolveSavedExitNode)
+	tunnelManager.SetServerSettingsFetcher(fetchServerSettings)
 	skipOnboardingForUsedInstall()
 
 	assets, err := fs.Sub(frontendDist, "frontend/dist")
