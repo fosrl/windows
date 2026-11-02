@@ -120,7 +120,8 @@ func (c *APIClient) CurrentBaseURL() string {
 	return c.baseURL
 }
 
-// SetOnUnauthorized sets the callback invoked when a request sent with a session token returns 401 or 403.
+// SetOnUnauthorized sets the callback invoked when a request sent with a session
+// token returns 401.
 func (c *APIClient) SetOnUnauthorized(fn func()) {
 	c.onUnauthorized = fn
 }
@@ -227,8 +228,9 @@ func (c *APIClient) makeRequest(method, path string, body []byte) ([]byte, *http
 		return nil, resp, &APIError{Type: ErrorTypeInvalidResponse, Err: err}
 	}
 
-	// Notify when an authenticated request gets 401/403 so session-expired state can be set
-	if (resp.StatusCode == 401 || resp.StatusCode == 403) && c.sessionToken != "" && c.onUnauthorized != nil {
+	// Notify when an authenticated request gets 401 so session-expired state can be set.
+	// 403 means the token is accepted but this action is forbidden — leave the session alone.
+	if resp.StatusCode == 401 && c.sessionToken != "" && c.onUnauthorized != nil {
 		c.onUnauthorized()
 	}
 
