@@ -123,6 +123,7 @@ function mockInvoke(id: string) {
 const settings: Settings = {
   openAtLogin: true, autoConnect: false, dnsOverride: true, dnsTunnel: false,
   primaryDns: "", secondaryDns: "", mtu: "1280", exitNodeTakesPrecedence: false,
+  autoDownloadUpdates: false,
   disabled: params.has("disabled"),
 };
 

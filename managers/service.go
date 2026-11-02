@@ -5,9 +5,9 @@ package managers
 import (
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"net"
 	"os"
-	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
@@ -19,6 +19,7 @@ import (
 	"github.com/Microsoft/go-winio"
 	"github.com/fosrl/newt/logger"
 	"github.com/fosrl/windows/config"
+	"github.com/fosrl/windows/updater"
 	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/svc"
 )
@@ -55,6 +56,8 @@ func (service *managerService) Execute(args []string, r <-chan svc.ChangeRequest
 	aliveSessions := make(map[uint32]bool)
 	procsLock := sync.Mutex{}
 	stoppingManager := false
+	// launchAfterFailedInstall launches the UIs held back by a background update install that failed.
+	var launchAfterFailedInstall func(sessions []uint32)
 	// operatorGroupSid, _ := windows.CreateWellKnownSid(windows.WinBuiltinNetworkConfigurationOperatorsSid) // TODO: Use when LimitedOperatorUI is implemented
 
 	startProcess := func(session uint32) {
@@ -200,7 +203,7 @@ func (service *managerService) Execute(args []string, r <-chan svc.ChangeRequest
 				logger.Error("Unable to create pipe: %v", err)
 				return
 			}
-			IPCServerListen(ourReader, ourWriter, ourEvents, elevatedToken, clientWindowsSID)
+			IPCServerListen(ourReader, ourWriter, ourEvents, elevatedToken, clientWindowsSID, session)
 
 			logger.Info("Starting UI process for user '%s@%s' for session %d", username, domain, session)
 			procsLock.Lock()
@@ -261,6 +264,22 @@ func (service *managerService) Execute(args []string, r <-chan svc.ChangeRequest
 				if !stillAlive {
 					setUserAlwaysOn(clientWindowsSID, false)
 				}
+				// The user quit Pangolin (not a logoff or manager stop): install a
+				// silently downloaded update once no other session's UI is running.
+				if !stoppingManager && stillAlive {
+					procsLock.Lock()
+					uiRunning := len(procs) > 0
+					procsLock.Unlock()
+					if !uiRunning {
+						installStagedUpdate(session, false, launchAfterFailedInstall)
+					}
+				}
+				return
+			}
+			procsLock.Lock()
+			uiRunning := len(procs) > 0
+			procsLock.Unlock()
+			if !uiRunning && installStagedUpdate(session, true, launchAfterFailedInstall) {
 				return
 			}
 			logger.Info("Always-On: restarting UI process for user '%s@%s' for session %d", username, domain, session)
@@ -268,14 +287,31 @@ func (service *managerService) Execute(args []string, r <-chan svc.ChangeRequest
 		}
 	}
 	procsGroup := sync.WaitGroup{}
+	// goStartProcess launches the UI in session; the caller holds procsLock. With
+	// automatic downloads on, a staged update is installed first unless another
+	// session's UI is running, and the upgraded manager launches the UI instead.
 	goStartProcess := func(session uint32) {
+		if len(procs) == 0 && installStagedUpdate(session, true, launchAfterFailedInstall) {
+			return
+		}
 		procsGroup.Add(1)
 		go func() {
 			startProcess(session)
 			procsGroup.Done()
 		}()
 	}
+	launchAfterFailedInstall = func(sessions []uint32) {
+		procsLock.Lock()
+		defer procsLock.Unlock()
+		for _, session := range sessions {
+			if _, ok := procs[session]; !ok && !stoppingManager {
+				aliveSessions[session] = true
+				goStartProcess(session)
+			}
+		}
+	}
 
+	loadStagedUpdate()
 	go checkForUpdates()
 
 	// TODO: Add driver cleanup when driver package is implemented
@@ -342,34 +378,46 @@ func (service *managerService) Execute(args []string, r <-chan svc.ChangeRequest
 
 	changes <- svc.Status{State: svc.Running, Accepts: svc.AcceptStop | svc.AcceptSessionChange}
 
-	// If restart-ui-after-update flag exists (written before MSI run), launch UI for active session then remove flag.
+	// After an update, launch the UI in the sessions it was closed or held back in
+	// (the active console session when none were recorded).
 	restartUIAfterUpdate := func() {
-		flagPath := filepath.Join(config.GetProgramDataDir(), "restart-ui-after-update.flag")
-		if _, statErr := os.Stat(flagPath); statErr != nil {
+		sessions, requested := updater.TakeUIRelaunchAfterUpdate()
+		if !requested {
 			return
 		}
-		sessionID := windows.WTSGetActiveConsoleSessionId()
-		if sessionID == 0 {
-			logger.Info("Restart-ui flag present but no active console session, removing flag")
-			_ = os.Remove(flagPath)
-			return
+		if len(sessions) == 0 {
+			sessionID := windows.WTSGetActiveConsoleSessionId()
+			if sessionID == 0 || sessionID == 0xFFFFFFFF {
+				logger.Info("Restart-ui flag present but no active console session")
+				return
+			}
+			sessions = []uint32{sessionID}
 		}
-		procsLock.Lock()
-		aliveSessions[sessionID] = true
-		procsLock.Unlock()
-		requestUILaunchChan <- sessionID
-		if err := os.Remove(flagPath); err != nil && !os.IsNotExist(err) {
-			logger.Error("Failed to remove restart-ui flag: %v", err)
-		} else {
-			logger.Info("Launched UI for session %d after update and removed restart-ui flag", sessionID)
+		for _, sessionID := range sessions {
+			procsLock.Lock()
+			aliveSessions[sessionID] = true
+			procsLock.Unlock()
+			requestUILaunchChan <- sessionID
+			logger.Info("Launched UI for session %d after update", sessionID)
 		}
 	}
-	go func() {
+	launchAtStart := func() {
 		restartUIAfterUpdate()
 		for _, sessionID := range signedInSessions() {
 			logger.Info("Session %d was signed in before the manager started", sessionID)
 			onSessionLogon(sessionID)
 		}
+	}
+	go func() {
+		// With automatic downloads on, an update staged before the manager last stopped
+		// is installed before any UI starts.
+		if installStagedUpdate(0, false, func(sessions []uint32) {
+			launchAtStart()
+			launchAfterFailedInstall(sessions)
+		}) {
+			return
+		}
+		launchAtStart()
 	}()
 
 	uninstall := false
@@ -410,6 +458,7 @@ loop:
 						proc.Kill()
 					}
 					procsLock.Unlock()
+					go stopSessionTunnels(sessionNotification.SessionID)
 				case windows.WTS_SESSION_LOGON:
 					onSessionLogon(sessionNotification.SessionID)
 				default:
@@ -596,26 +645,32 @@ func signedInSessions() []uint32 {
 // should have the UI opened at sign-in. The manager runs as LocalSystem, so
 // the setting is read from that user's LOCALAPPDATA rather than the process environment.
 func launchUIAtLoginForSession(sessionID uint32) bool {
-	logger.Debug("Open at login: querying token for session %d", sessionID)
-	var token windows.Token
-	if err := windows.WTSQueryUserToken(sessionID, &token); err != nil {
-		logger.Error("Open at login: WTSQueryUserToken(session %d) failed: %v", sessionID, err)
-		return false
-	}
-	defer token.Close()
-
-	localAppData, err := localAppDataFromToken(token)
+	localAppData, err := localAppDataForSession(sessionID)
 	if err != nil {
-		logger.Error("Open at login: failed to read LOCALAPPDATA for session %d: %v", sessionID, err)
-		return false
-	}
-	if localAppData == "" {
-		logger.Error("Open at login: LOCALAPPDATA is empty for session %d", sessionID)
+		logger.Error("Open at login: %v", err)
 		return false
 	}
 	enabled := config.LaunchUIAtLoginEnabled(localAppData)
 	logger.Info("Open UI at login for session %d: %v", sessionID, enabled)
 	return enabled
+}
+
+// localAppDataForSession returns the LOCALAPPDATA directory of the user logged into sessionID.
+func localAppDataForSession(sessionID uint32) (string, error) {
+	var token windows.Token
+	if err := windows.WTSQueryUserToken(sessionID, &token); err != nil {
+		return "", fmt.Errorf("WTSQueryUserToken(session %d) failed: %w", sessionID, err)
+	}
+	defer token.Close()
+
+	localAppData, err := localAppDataFromToken(token)
+	if err != nil {
+		return "", fmt.Errorf("failed to read LOCALAPPDATA for session %d: %w", sessionID, err)
+	}
+	if localAppData == "" {
+		return "", fmt.Errorf("LOCALAPPDATA is empty for session %d", sessionID)
+	}
+	return localAppData, nil
 }
 
 func localAppDataFromToken(token windows.Token) (string, error) {

@@ -25,6 +25,7 @@ const (
 	DefaultMTU                          = 1280
 	DefaultAutoUpdateChecksEnabled      = true
 	DefaultCheckForUpdatesButtonEnabled = true
+	DefaultAutoDownloadUpdatesEnabled   = false
 	DefaultUpdateCheckIntervalSeconds   = 86400
 	MinUpdateCheckIntervalSeconds       = 3600
 )
@@ -50,6 +51,7 @@ type Config struct {
 	AutoUpdateChecksEnabled      *bool    `json:"autoUpdateChecksEnabled,omitempty"`
 	CheckForUpdatesButtonEnabled *bool    `json:"checkForUpdatesButtonEnabled,omitempty"`
 	UpdateCheckIntervalSeconds   *int     `json:"updateCheckIntervalSeconds,omitempty"`
+	AutoDownloadUpdatesEnabled   *bool    `json:"autoDownloadUpdatesEnabled,omitempty"`
 	// Onboarding progress, like the macOS client's OnboardingStateManager.
 	OnboardingSeenWelcome         *bool `json:"onboardingSeenWelcome,omitempty"`
 	OnboardingAcknowledgedPrivacy *bool `json:"onboardingAcknowledgedPrivacy,omitempty"`
@@ -352,6 +354,14 @@ func (cm *ConfigManager) GetOpenUIAtLogin() bool {
 	return openUIAtLogin(cm.config)
 }
 
+// GetAutoDownloadUpdates reports whether updates are downloaded silently and
+// installed the next time Pangolin quits or launches. Omitted defaults to false.
+func (cm *ConfigManager) GetAutoDownloadUpdates() bool {
+	cm.mu.RLock()
+	defer cm.mu.RUnlock()
+	return autoDownloadUpdates(cm.config)
+}
+
 // SetPreferLocalRoutes sets the prefer-local-routes setting and saves to config
 func (cm *ConfigManager) SetPreferLocalRoutes(value bool) bool {
 	cm.mu.Lock()
@@ -540,6 +550,13 @@ func (cm *ConfigManager) SetMTU(value int) bool {
 // localAppData is that user's LOCALAPPDATA directory. The manager service
 // must pass it explicitly, because its own process environment is the system profile.
 func LaunchUIAtLoginEnabled(localAppData string) bool {
+	merged := loadMergedConfig(localAppData)
+	return openUIAtLogin(merged) || autoConnectAtLogin(merged)
+}
+
+// loadMergedConfig loads the machine config overlaid with the per-user config in
+// localAppData, if given.
+func loadMergedConfig(localAppData string) *Config {
 	merged := configFromSystemConfig(LoadSystemConfig())
 	if localAppData != "" {
 		userCfg, ok := loadConfigFile(filepath.Join(localAppData, AppName, ConfigFileName))
@@ -547,7 +564,7 @@ func LaunchUIAtLoginEnabled(localAppData string) bool {
 			merged = mergeConfig(merged, userCfg)
 		}
 	}
-	return openUIAtLogin(merged) || autoConnectAtLogin(merged)
+	return merged
 }
 
 func autoConnectAtLogin(cfg *Config) bool {
@@ -610,6 +627,22 @@ func CheckForUpdatesButtonEnabled() bool {
 		return *cfg.CheckForUpdatesButtonEnabled
 	}
 	return DefaultCheckForUpdatesButtonEnabled
+}
+
+// AutoDownloadUpdatesEnabled reports whether the merged machine and per-user
+// config download updates silently and install them the next time Pangolin quits
+// or launches. localAppData is that user's LOCALAPPDATA directory, or empty for the
+// machine config alone. The manager service must pass it explicitly, because its own
+// process environment is the system profile. Omitted defaults to false.
+func AutoDownloadUpdatesEnabled(localAppData string) bool {
+	return autoDownloadUpdates(loadMergedConfig(localAppData))
+}
+
+func autoDownloadUpdates(cfg *Config) bool {
+	if cfg != nil && cfg.AutoDownloadUpdatesEnabled != nil {
+		return *cfg.AutoDownloadUpdatesEnabled
+	}
+	return DefaultAutoDownloadUpdatesEnabled
 }
 
 // UpdateCheckInterval returns how often automatic update checks run.
@@ -744,6 +777,10 @@ func mergeConfig(base, override *Config) *Config {
 		v := *override.UpdateCheckIntervalSeconds
 		merged.UpdateCheckIntervalSeconds = &v
 	}
+	if override.AutoDownloadUpdatesEnabled != nil {
+		v := *override.AutoDownloadUpdatesEnabled
+		merged.AutoDownloadUpdatesEnabled = &v
+	}
 	if override.OnboardingSeenWelcome != nil {
 		v := *override.OnboardingSeenWelcome
 		merged.OnboardingSeenWelcome = &v
@@ -832,6 +869,10 @@ func copyConfig(src *Config) *Config {
 	if src.UpdateCheckIntervalSeconds != nil {
 		updateCheckIntervalSeconds := *src.UpdateCheckIntervalSeconds
 		cfg.UpdateCheckIntervalSeconds = &updateCheckIntervalSeconds
+	}
+	if src.AutoDownloadUpdatesEnabled != nil {
+		autoDownloadUpdatesEnabled := *src.AutoDownloadUpdatesEnabled
+		cfg.AutoDownloadUpdatesEnabled = &autoDownloadUpdatesEnabled
 	}
 	if src.OnboardingSeenWelcome != nil {
 		onboardingSeenWelcome := *src.OnboardingSeenWelcome

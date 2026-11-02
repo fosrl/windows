@@ -125,6 +125,8 @@ func onStarted() {
 	go checkStartupUpdate()
 	go watchAuthState()
 
+	adoptRunningTunnel(authManager)
+
 	if onboardingNeeded() {
 		// Nothing connects until setup is finished.
 		go autoOpenOnboarding()

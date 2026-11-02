@@ -58,6 +58,20 @@ export function PreferencesTab({ initial }: { initial: Settings }) {
           </Row>
         </Section>
 
+        <Section header="Updates">
+          <Row
+            title="Automatically Download and Install Updates"
+            description="Downloads updates in the background and installs them the next time Pangolin quits or starts."
+          >
+            <Switch
+              label="Automatically Download and Install Updates"
+              checked={form.autoDownloadUpdates}
+              disabled={disabled}
+              onChange={(v) => toggle({ autoDownloadUpdates: v })}
+            />
+          </Row>
+        </Section>
+
         <Section header="DNS Settings">
           <Row
             title="Enable Aliases (DNS Override)"
