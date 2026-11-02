@@ -1,5 +1,3 @@
-//go:build windows
-
 package config
 
 import (
@@ -50,14 +48,7 @@ func (s OrgSettings) IsEmpty() bool {
 }
 
 func NewAccountManager() *AccountManager {
-	// Get Local AppData directory (equivalent to Application Support on macOS)
-	appData := os.Getenv("LOCALAPPDATA")
-	if appData == "" {
-		// Fallback to APPDATA if LOCALAPPDATA is not set
-		appData = os.Getenv("APPDATA")
-	}
-
-	pangolinDir := filepath.Join(appData, AppName)
+	pangolinDir := UserDataDir()
 	accountsPath := filepath.Join(pangolinDir, AccountsFileName)
 
 	mgr := &AccountManager{

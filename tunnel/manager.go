@@ -1,5 +1,3 @@
-//go:build windows
-
 package tunnel
 
 import (
@@ -14,7 +12,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Microsoft/go-winio"
 	"github.com/fosrl/windows/auth"
 	"github.com/fosrl/windows/config"
 	"github.com/fosrl/windows/secrets"
@@ -551,20 +548,13 @@ type SelectGatewayRequest struct {
 	SiteIDs        []int `json:"siteIds"`
 }
 
-// getOLMPipePath returns the Windows named pipe path for OLM
-func getOLMPipePath() string {
-	return OLMNamedPipePath
-}
-
-// createOLMHTTPClient creates an HTTP client that can connect to OLM via named pipe
+// createOLMHTTPClient creates an HTTP client that talks to the OLM API over
+// its local socket (a named pipe on Windows, a Unix socket on Linux).
 func createOLMHTTPClient() (*http.Client, error) {
-	pipePath := getOLMPipePath()
-
-	// Create a custom transport that dials the named pipe
 	transport := &http.Transport{
 		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
-			// Ignore network and addr, we're connecting to a named pipe
-			return winio.DialPipe(pipePath, nil)
+			// Ignore network and addr, we're connecting to the local socket
+			return dialOLM(ctx)
 		},
 		DisableKeepAlives: false,
 		MaxIdleConns:      1,

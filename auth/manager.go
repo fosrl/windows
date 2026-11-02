@@ -1,5 +1,3 @@
-//go:build windows
-
 package auth
 
 import (
@@ -13,6 +11,7 @@ import (
 	"github.com/fosrl/windows/api"
 	"github.com/fosrl/windows/config"
 	"github.com/fosrl/windows/secrets"
+	"github.com/fosrl/windows/version"
 
 	"github.com/fosrl/newt/logger"
 )
@@ -194,7 +193,7 @@ func (am *AuthManager) LoginWithDeviceAuth(ctx context.Context, hostnameOverride
 	deviceName := config.GetFriendlyDeviceName()
 
 	// Start device auth
-	startResponse, err := loginClient.StartDeviceAuth("Pangolin Windows Client", &deviceName)
+	startResponse, err := loginClient.StartDeviceAuth("Pangolin "+version.OSDisplayName+" Client", &deviceName)
 	if err != nil {
 		am.mu.Lock()
 		if apiErr, ok := err.(*api.APIError); ok {

@@ -1,5 +1,3 @@
-//go:build windows
-
 package version
 
 import (
@@ -20,3 +18,5 @@ func OsName() string {
 	return fmt.Sprintf("Windows%s %d.%d.%d", winType, versionInfo.MajorVersion, versionInfo.MinorVersion, versionInfo.BuildNumber)
 }
 
+// OSDisplayName is the OS name shown to users and the server.
+const OSDisplayName = "Windows"

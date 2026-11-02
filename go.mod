@@ -8,7 +8,7 @@ require (
 	github.com/fosrl/newt v1.19.0
 	github.com/fosrl/olm v1.10.2
 	github.com/pkg/browser v0.0.0-20240102092130-5ac0b6a4141c
-	github.com/wailsapp/wails/v3 v3.0.0-beta.25
+	github.com/wailsapp/wails/v3 v3.0.0
 	github.com/zalando/go-keyring v0.2.6
 	golang.org/x/crypto v0.58.0
 	golang.org/x/sys v0.49.0

@@ -1,5 +1,3 @@
-//go:build windows
-
 package ui
 
 import (
@@ -9,8 +7,6 @@ import (
 	"fmt"
 	"io/fs"
 	"log/slog"
-	"os"
-	"path/filepath"
 	"runtime/debug"
 
 	"github.com/fosrl/newt/logger"
@@ -24,7 +20,6 @@ import (
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/events"
 	"github.com/wailsapp/wails/v3/pkg/services/notifications"
-	"github.com/wailsapp/wails/v3/pkg/w32"
 )
 
 //go:embed all:frontend/dist
@@ -34,8 +29,6 @@ var frontendDist embed.FS
 var ErrWebView2Missing = errors.New("the Microsoft Edge WebView2 Runtime is not installed")
 
 var app *application.App
-
-var procChangeWindowMessageFilter = user32.NewProc("ChangeWindowMessageFilter")
 
 // Deps are the managers the UI works with.
 type Deps struct {
@@ -48,8 +41,8 @@ type Deps struct {
 
 // Run starts the tray UI and blocks until the UI quits.
 func Run(d Deps) error {
-	if !webView2Installed() {
-		return ErrWebView2Missing
+	if err := checkWebView(); err != nil {
+		return err
 	}
 
 	authManager = d.Auth
@@ -66,10 +59,10 @@ func Run(d Deps) error {
 		return fmt.Errorf("frontend assets: %w", err)
 	}
 
-	allowTaskbarCreated()
+	beforeAppStart()
 
 	notifier = notifications.New()
-	app = application.New(application.Options{
+	opts := application.Options{
 		Name:        config.AppName,
 		Description: "Pangolin client",
 		Icon:        icons.Orange,
@@ -98,11 +91,9 @@ func Run(d Deps) error {
 		PanicHandler: func(p *application.PanicDetails) {
 			logger.Error("UI panic: %v\n%s", p.Error, p.StackTrace)
 		},
-		Windows: application.WindowsOptions{
-			DisableQuitOnLastWindowClosed: true,
-			WebviewUserDataPath:           webviewUserDataPath(),
-		},
-	})
+	}
+	setPlatformOptions(&opts)
+	app = application.New(opts)
 
 	setupSystemTray()
 	registerIPCCallbacks()
@@ -135,27 +126,6 @@ func onStarted() {
 		go autoConnect(authManager)
 	}
 	publish()
-}
-
-func allowTaskbarCreated() {
-	const msgfltAdd = 1
-	msg := w32.RegisterWindowMessage(w32.MustStringToUTF16Ptr("TaskbarCreated"))
-	if r, _, err := procChangeWindowMessageFilter.Call(uintptr(msg), msgfltAdd); r == 0 {
-		logger.Error("Failed to allow TaskbarCreated message: %v", err)
-	}
-}
-
-// webviewUserDataPath keeps WebView2's profile in the user's local app data;
-// the default next to the exe is not writable under Program Files.
-func webviewUserDataPath() string {
-	base := os.Getenv("LOCALAPPDATA")
-	if base == "" {
-		base = os.Getenv("APPDATA")
-	}
-	if base == "" {
-		return ""
-	}
-	return filepath.Join(base, config.AppName, "WebView2")
 }
 
 // newtLogHandler forwards Wails' slog output to the shared Pangolin log.

@@ -1,5 +1,3 @@
-//go:build windows
-
 package ui
 
 import (
@@ -10,7 +8,6 @@ import (
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/events"
-	"github.com/wailsapp/wails/v3/pkg/w32"
 )
 
 // Setup (onboarding), as in the macOS app's MacOnboardingFlowView: welcome,
@@ -105,7 +102,7 @@ func autoOpenOnboarding() {
 
 // onboardingBackground is the setup window color from the macOS app.
 func onboardingBackground() application.RGBA {
-	if w32.IsCurrentlyDarkMode() {
+	if systemDarkMode() {
 		return application.NewRGB(0x16, 0x16, 0x18)
 	}
 	return application.NewRGB(0xfd, 0xfd, 0xfd)

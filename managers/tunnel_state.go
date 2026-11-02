@@ -1,5 +1,3 @@
-//go:build windows
-
 package managers
 
 import "github.com/fosrl/windows/tunnel"

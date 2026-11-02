@@ -1,5 +1,3 @@
-//go:build windows
-
 package config
 
 import (
@@ -9,10 +7,9 @@ import (
 	"strings"
 	"sync"
 	"time"
-	"unsafe"
 
 	"github.com/fosrl/newt/logger"
-	"golang.org/x/sys/windows"
+	"github.com/fosrl/windows/version"
 )
 
 const (
@@ -76,14 +73,7 @@ type ConfigManager struct {
 
 // NewConfigManager creates a new ConfigManager instance
 func NewConfigManager() *ConfigManager {
-	// Get Local AppData directory (equivalent to Application Support on macOS)
-	appData := os.Getenv("LOCALAPPDATA")
-	if appData == "" {
-		// Fallback to APPDATA if LOCALAPPDATA is not set
-		appData = os.Getenv("APPDATA")
-	}
-
-	pangolinDir := filepath.Join(appData, AppName)
+	pangolinDir := UserDataDir()
 	configPath := filepath.Join(pangolinDir, ConfigFileName)
 
 	// Create directory if it doesn't exist
@@ -569,9 +559,7 @@ func openUIAtLogin(cfg *Config) bool {
 }
 
 func LoadSystemConfig() *SystemConfig {
-	configPath := filepath.Join(GetProgramDataDir(), ConfigFileName)
-
-	data, err := os.ReadFile(configPath)
+	data, err := os.ReadFile(systemConfigPath())
 	if err != nil {
 		return &SystemConfig{}
 	}
@@ -860,69 +848,11 @@ func copyConfig(src *Config) *Config {
 	return cfg
 }
 
-// GetProgramDataDir returns the base ProgramData directory for the application
-// The installer should create this directory and place application files here
-func GetProgramDataDir() string {
-	return filepath.Join(os.Getenv("PROGRAMDATA"), AppName)
-}
-
-// GetLogDir returns the directory path for log files
-func GetLogDir() string {
-	return filepath.Join(GetProgramDataDir(), "logs")
-}
-
-// GetIconsPath returns the directory path for icon files
-func GetIconsPath() string {
-	return filepath.Join(os.Getenv("PROGRAMFILES"), AppName, "icons")
-}
-
-// GetFriendlyDeviceName returns a friendly device name like "Windows Laptop" or "Windows Desktop"
-// It attempts to detect the device type by checking for battery presence
+// GetFriendlyDeviceName returns a friendly device name like "Windows Laptop"
+// or "Linux Desktop", using battery presence to tell laptops apart.
 func GetFriendlyDeviceName() string {
-	// Check if system has a battery (indicates laptop)
-	hasBattery := isLaptop()
-
-	if hasBattery {
-		return "Windows Laptop"
+	if isLaptop() {
+		return version.OSDisplayName + " Laptop"
 	}
-	return "Windows Desktop"
-}
-
-// isLaptop attempts to determine if the system is a laptop by checking for battery presence
-func isLaptop() bool {
-	// Use GetSystemPowerStatus to check if battery is present
-	// This is a simple heuristic: laptops typically have batteries
-	var status struct {
-		ACLineStatus        byte
-		BatteryFlag         byte
-		BatteryLifePercent  byte
-		Reserved1           byte
-		BatteryLifeTime     uint32
-		BatteryFullLifeTime uint32
-	}
-
-	kernel32 := windows.NewLazySystemDLL("kernel32.dll")
-	getSystemPowerStatus := kernel32.NewProc("GetSystemPowerStatus")
-
-	ret, _, _ := getSystemPowerStatus.Call(uintptr(unsafe.Pointer(&status)))
-	if ret == 0 {
-		// If we can't get power status, default to desktop (more common)
-		return false
-	}
-
-	// BatteryFlag values:
-	// 1 = High (more than 66%)
-	// 2 = Low (less than 33%)
-	// 4 = Critical (less than 5%)
-	// 8 = Charging
-	// 128 = No battery
-	// 255 = Unknown status
-
-	// If BatteryFlag is 128 (no battery) or 255 (unknown), assume desktop
-	if status.BatteryFlag == 128 || status.BatteryFlag == 255 {
-		return false
-	}
-
-	// If we have a valid battery flag, it's likely a laptop
-	return status.BatteryFlag != 0
+	return version.OSDisplayName + " Desktop"
 }

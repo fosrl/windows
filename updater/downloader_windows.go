@@ -1,12 +1,9 @@
-//go:build windows
-
 package updater
 
 import (
 	"crypto/hmac"
 	"errors"
 	"fmt"
-	"hash"
 	"io"
 	"net/url"
 	"os"
@@ -25,45 +22,6 @@ import (
 	"github.com/fosrl/windows/updater/winhttp"
 	"github.com/fosrl/windows/version"
 )
-
-type DownloadProgress struct {
-	Activity        string
-	BytesDownloaded uint64
-	BytesTotal      uint64
-	Error           error
-	Complete        bool
-}
-
-type progressHashWatcher struct {
-	dp        *DownloadProgress
-	c         chan DownloadProgress
-	hashState hash.Hash
-}
-
-func (pm *progressHashWatcher) Write(p []byte) (int, error) {
-	bytes := len(p)
-	pm.dp.BytesDownloaded += uint64(bytes)
-	pm.c <- *pm.dp
-	pm.hashState.Write(p)
-	return bytes, nil
-}
-
-type UpdateFound struct {
-	name             string
-	version          string
-	hash             [blake2b.Size256]byte
-	downloadLocation string // Can be empty (use default), a relative path, or a full URL
-}
-
-// Name returns the filename of the update MSI
-func (u *UpdateFound) Name() string {
-	return u.name
-}
-
-// Version returns the version of the update, parsed from its filename
-func (u *UpdateFound) Version() string {
-	return u.version
-}
 
 func CheckForUpdate() (updateFound *UpdateFound, err error) {
 	logger.Debug("Updater: CheckForUpdate() called")

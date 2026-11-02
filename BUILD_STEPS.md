@@ -20,7 +20,7 @@ Install the required tools:
   - The UI is a Vite + React + TypeScript app rendered with [Wails v3](https://v3.wails.io/). `make build` builds it and embeds it into the exe.
 
 - **wails3 CLI** (only to regenerate the TypeScript bindings after changing a bound Go service in `ui/`)
-  - `go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0-beta.25`, then `make bindings`
+  - `go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0`, then `make bindings`. On Linux, install it with `-tags gtk3` unless you have WebKitGTK 6.0.
 
 - **WiX Toolset**: For building MSI installers (Windows only)
   - Download from: https://github.com/wixtoolset/wix/releases/

@@ -1,12 +1,9 @@
-//go:build windows
-
 package tunnel
 
 import (
 	"time"
 
 	"github.com/fosrl/newt/logger"
-	"github.com/fosrl/olm/olm"
 	"golang.org/x/sys/windows/svc"
 )
 
@@ -18,12 +15,6 @@ func RunTunnelService(configJSON string) error {
 	// Tunnels always run as Windows services (started via UI)
 	logger.Info("Tunnel service: Running as Windows service")
 	return svc.Run("", &tunnelService{configJSON: configJSON})
-}
-
-type tunnelService struct {
-	configJSON string
-
-	olm *olm.Olm
 }
 
 func (s *tunnelService) Execute(args []string, r <-chan svc.ChangeRequest, changes chan<- svc.Status) (svcSpecificEC bool, exitCode uint32) {

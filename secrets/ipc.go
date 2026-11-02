@@ -1,5 +1,3 @@
-//go:build windows
-
 package secrets
 
 import "github.com/fosrl/windows/managers/secretstore"

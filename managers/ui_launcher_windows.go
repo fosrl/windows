@@ -1,5 +1,3 @@
-//go:build windows
-
 package managers
 
 import (
@@ -16,17 +14,6 @@ import (
 const (
 	uiLaunchPipePath = `\\.\pipe\pangolin-manager-ui-launch`
 	uiActionPipePath = `\\.\pipe\pangolin-manager-ui-action`
-)
-
-// UIAction is something another process asks the running UI to do.
-type UIAction uint32
-
-const (
-	// UIActionOpenUpdate opens the update window, e.g. from the update toast's Open button.
-	UIActionOpenUpdate UIAction = iota + 1
-	// UIActionShow opens a window when the app is launched again while the UI
-	// is already running, so it is reachable even if the tray icon is missing.
-	UIActionShow
 )
 
 // currentSessionID returns the Windows session of this process, or 0 if unknown.

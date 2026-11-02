@@ -1,5 +1,3 @@
-//go:build windows
-
 package ui
 
 import (
@@ -62,6 +60,6 @@ func updateTrayForState(state tunnel.State) {
 	if systemTray == nil {
 		return
 	}
-	systemTray.SetIcon(trayIconForState(state))
+	systemTray.SetIcon(trayIconData(trayIconForState(state)))
 	systemTray.SetTooltip(trayTooltipForState(state))
 }

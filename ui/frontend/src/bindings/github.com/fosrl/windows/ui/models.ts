@@ -296,7 +296,7 @@ export interface StatusView {
     "orgId": string;
 
     /**
-     * Gateway summarizes the exit node: "Off", or "Active".
+     * Gateway summarizes the exit node: "Off", or "Active (<exit node name>)".
      */
     "gateway": string;
     "sites": StatusSite[] | null;

@@ -1,5 +1,3 @@
-//go:build windows
-
 package auth
 
 // DevicePostureIPC fetches cached device fingerprint/posture from the manager service.

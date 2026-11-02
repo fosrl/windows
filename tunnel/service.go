@@ -1,5 +1,3 @@
-//go:build windows
-
 package tunnel
 
 import (
@@ -33,9 +31,6 @@ func notifyStateChange(state State) {
 		cb(state)
 	}
 }
-
-// OLMNamedPipePath is the Windows named pipe path for OLM API communication
-const OLMNamedPipePath = `\\.\pipe\pangolin-olm`
 
 // State represents the state of a tunnel
 type State int

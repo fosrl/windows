@@ -1,5 +1,3 @@
-//go:build windows
-
 package managers
 
 import (
@@ -14,7 +12,6 @@ import (
 	"time"
 
 	"github.com/fosrl/newt/logger"
-	"golang.org/x/sys/windows"
 
 	"github.com/fosrl/windows/fingerprint"
 	"github.com/fosrl/windows/managers/secretstore"
@@ -42,10 +39,11 @@ var (
 )
 
 type ManagerService struct {
-	events           *os.File
-	eventLock        sync.Mutex
-	elevatedToken    windows.Token
-	clientWindowsSID string
+	events        *os.File
+	eventLock     sync.Mutex
+	elevatedToken userToken
+	// clientUserKey identifies the connected user: a SID on Windows, a UID on Linux.
+	clientUserKey string
 }
 
 func setUserAlwaysOn(sid string, enabled bool) {
@@ -68,12 +66,12 @@ func userAlwaysOn(sid string) bool {
 }
 
 func (s *ManagerService) SetAlwaysOn(enabled bool) {
-	setUserAlwaysOn(s.clientWindowsSID, enabled)
-	logger.Info("Always-On for %s: %v", s.clientWindowsSID, enabled)
+	setUserAlwaysOn(s.clientUserKey, enabled)
+	logger.Info("Always-On for %s: %v", s.clientUserKey, enabled)
 }
 
 func (s *ManagerService) AlwaysOnEnabled() bool {
-	return userAlwaysOn(s.clientWindowsSID)
+	return userAlwaysOn(s.clientUserKey)
 }
 
 func (s *ManagerService) Quit(stopTunnelsOnQuit bool) (alreadyQuit bool, err error) {
@@ -262,11 +260,11 @@ func (s *ManagerService) StopAllTunnels() error {
 }
 
 func (s *ManagerService) GetUserSecrets(userID string) (secretstore.UserSecrets, error) {
-	if s.clientWindowsSID == "" {
-		logger.Error("IPC server: GetUserSecrets() clientWindowsSID empty (userId=%s)", userID)
+	if s.clientUserKey == "" {
+		logger.Error("IPC server: GetUserSecrets() clientUserKey empty (userId=%s)", userID)
 		return secretstore.UserSecrets{}, errors.New("manager IPC client is not bound to a windows user")
 	}
-	secrets, err := secretStore.Load(s.clientWindowsSID, userID)
+	secrets, err := secretStore.Load(s.clientUserKey, userID)
 	if err != nil {
 		logger.Error("IPC server: GetUserSecrets() failed (userId=%s): %v", userID, err)
 		return secrets, err
@@ -277,10 +275,10 @@ func (s *ManagerService) GetUserSecrets(userID string) (secretstore.UserSecrets,
 }
 
 func (s *ManagerService) SaveUserSecrets(userID string, update secretstore.SecretsUpdate) error {
-	if s.clientWindowsSID == "" {
+	if s.clientUserKey == "" {
 		return errors.New("manager IPC client is not bound to a windows user")
 	}
-	err := secretStore.Save(s.clientWindowsSID, userID, update)
+	err := secretStore.Save(s.clientUserKey, userID, update)
 	if err != nil {
 		logger.Error("IPC server: SaveUserSecrets() failed (userId=%s): %v", userID, err)
 	}
@@ -288,10 +286,10 @@ func (s *ManagerService) SaveUserSecrets(userID string, update secretstore.Secre
 }
 
 func (s *ManagerService) DeleteUserSecrets(userID string, flags secretstore.DeleteSecretsFlags) error {
-	if s.clientWindowsSID == "" {
+	if s.clientUserKey == "" {
 		return errors.New("manager IPC client is not bound to a windows user")
 	}
-	err := secretStore.Delete(s.clientWindowsSID, userID, flags)
+	err := secretStore.Delete(s.clientUserKey, userID, flags)
 	return err
 }
 
@@ -468,7 +466,7 @@ func (s *ManagerService) ServeConn(reader io.Reader, writer io.Writer) {
 	}
 }
 
-func IPCServerListen(reader, writer, events *os.File, elevatedToken windows.Token, clientWindowsSID string) {
+func IPCServerListen(reader, writer, events *os.File, elevatedToken userToken, clientUserKey string) {
 	postureRefresherOnce.Do(func() {
 		go func() {
 			fingerprint.RefreshPostureMemory()
@@ -481,9 +479,9 @@ func IPCServerListen(reader, writer, events *os.File, elevatedToken windows.Toke
 	})
 
 	service := &ManagerService{
-		events:           events,
-		elevatedToken:    elevatedToken,
-		clientWindowsSID: clientWindowsSID,
+		events:        events,
+		elevatedToken: elevatedToken,
+		clientUserKey: clientUserKey,
 	}
 
 	go func() {

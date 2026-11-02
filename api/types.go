@@ -1,5 +1,3 @@
-//go:build windows
-
 package api
 
 import "github.com/fosrl/windows/config"

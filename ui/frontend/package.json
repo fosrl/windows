@@ -11,7 +11,7 @@
   },
   "dependencies": {
     "@tanstack/react-virtual": "^3.14.13",
-    "@wailsio/runtime": "3.0.0-beta.25",
+    "@wailsio/runtime": "3.0.0",
     "react": "^19.3.0",
     "react-dom": "^19.3.0"
   },

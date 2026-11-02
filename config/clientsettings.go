@@ -1,5 +1,3 @@
-//go:build windows
-
 package config
 
 // ClientSettings is the server's GET /org/:orgId/my-client-settings response. A
