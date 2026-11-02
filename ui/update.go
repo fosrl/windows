@@ -73,6 +73,15 @@ func notifyUpdateAvailableOnce() {
 	notifyUpdateAvailable(v)
 }
 
+// remindToInstallUpdate opens the update window for a silently downloaded update
+// the user has not installed by quitting, like Sparkle's reminder after a week.
+func remindToInstallUpdate() {
+	if manualUpdateCheck.Load() || updateInProgress() {
+		return
+	}
+	showUpdateWindow()
+}
+
 // showUpdateWindow opens the update window from the menu or the toast, or
 // focuses it if it is already open. An earlier error is cleared so the update
 // can be offered again.
@@ -110,7 +119,7 @@ func checkForUpdates() {
 			info.Phase = updatePhaseCheckFailed
 			info.Error = err.Error()
 		})
-	case updateState == managers.UpdateStateFoundUpdate:
+	case updateState.HasUpdate():
 		logger.Info("Update available")
 		updateToastShown.Store(true)
 		offerUpdate()

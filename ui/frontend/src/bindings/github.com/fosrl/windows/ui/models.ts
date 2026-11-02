@@ -224,10 +224,7 @@ export interface Settings {
     "secondaryDns": string;
     "mtu": string;
     "exitNodeTakesPrecedence": boolean;
-
-    /**
-     * Disabled is set when an administrator has turned off user settings.
-     */
+    "autoDownloadUpdates": boolean;
     "disabled": boolean;
 }
 
@@ -280,7 +277,7 @@ export interface StatusView {
     "orgId": string;
 
     /**
-     * Gateway summarizes the exit node: "Off", or "Active".
+     * Gateway summarizes the exit node: "Off", or "Active (<exit node name>)".
      */
     "gateway": string;
     "sites": StatusSite[] | null;

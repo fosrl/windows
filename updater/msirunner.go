@@ -46,8 +46,10 @@ func (t *tempFile) Delete() error {
 	return err
 }
 
-func runMsi(msi *tempFile, userToken uintptr) error {
-	logger.Debug("Updater: runMsi() called with userToken: %v", userToken)
+// runMsi installs the MSI with msiexec. With silent set, msiexec shows no UI and
+// never reboots; otherwise it shows basic progress without a cancel button.
+func runMsi(msi *tempFile, userToken uintptr, silent bool) error {
+	logger.Debug("Updater: runMsi() called with userToken: %v, silent: %v", userToken, silent)
 
 	logger.Debug("Updater: Getting system directory")
 	system32, err := windows.GetSystemDirectory()
@@ -79,9 +81,13 @@ func runMsi(msi *tempFile, userToken uintptr) error {
 	}
 	msiexec := filepath.Join(system32, "msiexec.exe")
 	logger.Debug("Updater: msiexec path: %s", msiexec)
-	logger.Debug("Updater: Starting msiexec with args: /qb!- /i %s", filepath.Base(msiPath))
+	args := []string{msiexec, "/qb!-", "/i", filepath.Base(msiPath)}
+	if silent {
+		args = []string{msiexec, "/qn", "/norestart", "/i", filepath.Base(msiPath)}
+	}
+	logger.Debug("Updater: Starting msiexec with args: %v", args[1:])
 
-	proc, err := os.StartProcess(msiexec, []string{msiexec, "/qb!-", "/i", filepath.Base(msiPath)}, attr)
+	proc, err := os.StartProcess(msiexec, args, attr)
 	if err != nil {
 		logger.Error("Updater: Failed to start msiexec process: %v", err)
 		return fmt.Errorf("failed to start msiexec: %w", err)
@@ -99,6 +105,77 @@ func runMsi(msi *tempFile, userToken uintptr) error {
 	if !state.Success() {
 		logger.Error("Updater: msiexec failed with exit code: %d", state.ExitCode())
 		return &exec.ExitError{ProcessState: state}
+	}
+	logger.Debug("Updater: MSI installation completed successfully")
+	return nil
+}
+
+// runMsiInSession installs the MSI as SYSTEM, showing basic progress without a cancel
+// button on session's desktop, for an update installed while the user waits for
+// Pangolin to launch. Like the silent install, it never reboots.
+func runMsiInSession(msi *tempFile, session uint32) error {
+	logger.Debug("Updater: runMsiInSession() called for session %d", session)
+
+	system32, err := windows.GetSystemDirectory()
+	if err != nil {
+		return err
+	}
+
+	// A copy of the service's SYSTEM token moved into the user's session, so msiexec's
+	// progress window shows on their desktop. Needs SeTcbPrivilege, which the manager enables.
+	var processToken windows.Token
+	if err := windows.OpenProcessToken(windows.CurrentProcess(), windows.TOKEN_DUPLICATE, &processToken); err != nil {
+		return fmt.Errorf("failed to open process token: %w", err)
+	}
+	defer processToken.Close()
+	var token windows.Token
+	if err := windows.DuplicateTokenEx(processToken, windows.MAXIMUM_ALLOWED, nil, windows.SecurityIdentification, windows.TokenPrimary, &token); err != nil {
+		return fmt.Errorf("failed to duplicate process token: %w", err)
+	}
+	defer token.Close()
+	if err := windows.SetTokenInformation(token, windows.TokenSessionId, (*byte)(unsafe.Pointer(&session)), uint32(unsafe.Sizeof(session))); err != nil {
+		return fmt.Errorf("failed to set token session: %w", err)
+	}
+
+	msiPath := msi.ExclusivePath()
+	msiexec := filepath.Join(system32, "msiexec.exe")
+	args := []string{msiexec, "/qb!-", "/norestart", "/i", filepath.Base(msiPath)}
+	logger.Debug("Updater: Starting msiexec in session %d with args: %v", session, args[1:])
+	msiexec16, err := windows.UTF16PtrFromString(msiexec)
+	if err != nil {
+		return err
+	}
+	args16, err := windows.UTF16PtrFromString(windows.ComposeCommandLine(args))
+	if err != nil {
+		return err
+	}
+	dir16, err := windows.UTF16PtrFromString(filepath.Dir(msiPath))
+	if err != nil {
+		return err
+	}
+	desktop16, err := windows.UTF16PtrFromString(`winsta0\default`)
+	if err != nil {
+		return err
+	}
+	si := &windows.StartupInfo{Cb: uint32(unsafe.Sizeof(windows.StartupInfo{})), Desktop: desktop16}
+	pi := new(windows.ProcessInformation)
+	if err := windows.CreateProcessAsUser(token, msiexec16, args16, nil, nil, false, windows.CREATE_DEFAULT_ERROR_MODE, nil, dir16, si, pi); err != nil {
+		return fmt.Errorf("failed to start msiexec: %w", err)
+	}
+	windows.CloseHandle(pi.Thread)
+	defer windows.CloseHandle(pi.Process)
+	logger.Debug("Updater: msiexec process started (PID: %d)", pi.ProcessId)
+
+	if _, err := windows.WaitForSingleObject(pi.Process, windows.INFINITE); err != nil {
+		return fmt.Errorf("failed to wait for msiexec: %w", err)
+	}
+	var exitCode uint32
+	if err := windows.GetExitCodeProcess(pi.Process, &exitCode); err != nil {
+		return err
+	}
+	logger.Debug("Updater: msiexec completed with exit code: %d", exitCode)
+	if exitCode != 0 && exitCode != uint32(windows.ERROR_SUCCESS_REBOOT_REQUIRED) {
+		return fmt.Errorf("msiexec failed with exit code %d", exitCode)
 	}
 	logger.Debug("Updater: MSI installation completed successfully")
 	return nil

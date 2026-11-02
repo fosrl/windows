@@ -8,7 +8,9 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/fosrl/newt/logger"
 	"github.com/fosrl/windows/config"
+	"github.com/fosrl/windows/managers"
 )
 
 const (
@@ -26,8 +28,8 @@ type Settings struct {
 	SecondaryDNS            string `json:"secondaryDns"`
 	MTU                     string `json:"mtu"`
 	ExitNodeTakesPrecedence bool   `json:"exitNodeTakesPrecedence"`
-	// Disabled is set when an administrator has turned off user settings.
-	Disabled bool `json:"disabled"`
+	AutoDownloadUpdates     bool   `json:"autoDownloadUpdates"`
+	Disabled                bool   `json:"disabled"`
 }
 
 // PrefsOpened is sent to the preferences window each time it is shown.
@@ -52,6 +54,7 @@ func currentSettings() Settings {
 		SecondaryDNS:            cm.GetSecondaryDNS(),
 		MTU:                     strconv.Itoa(cm.GetMTU()),
 		ExitNodeTakesPrecedence: cm.GetExitNodeTakesPrecedence(),
+		AutoDownloadUpdates:     cm.GetAutoDownloadUpdates(),
 		Disabled:                cm.GetUserSettingsDisabled(),
 	}
 }
@@ -105,12 +108,15 @@ func applySettings(form Settings) SettingsResult {
 	dnsTunnel := form.DNSTunnel
 	autoConnect := form.AutoConnect
 	exitNodeTakesPrecedence := form.ExitNodeTakesPrecedence
+	autoDownloadUpdates := form.AutoDownloadUpdates
+	turnedOnAutoDownloadUpdates := autoDownloadUpdates && !configManager.GetAutoDownloadUpdates()
 	cfg.DNSOverride = &dnsOverride
 	cfg.DNSTunnel = &dnsTunnel
 	cfg.AutoConnectAtLogin = &autoConnect
 	cfg.OpenUIAtLogin = &openAtLogin
 	cfg.MTU = &mtu
 	cfg.ExitNodeTakesPrecedence = &exitNodeTakesPrecedence
+	cfg.AutoDownloadUpdatesEnabled = &autoDownloadUpdates
 	if primaryDNS != "" {
 		cfg.PrimaryDNS = &primaryDNS
 	} else {
@@ -124,6 +130,12 @@ func applySettings(form Settings) SettingsResult {
 
 	if !configManager.Save(cfg) {
 		showError(preferencesWindowOrNil(), "Save Failed", "Failed to save settings. Please try again.")
+	}
+	// Download an available update now instead of at the manager's next check.
+	if turnedOnAutoDownloadUpdates {
+		if err := managers.IPCClientAutoDownloadUpdatesTurnedOn(); err != nil {
+			logger.Error("Failed to notify manager of automatic update downloads: %v", err)
+		}
 	}
 	return SettingsResult{Settings: currentSettings()}
 }

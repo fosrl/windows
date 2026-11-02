@@ -114,30 +114,43 @@ func (s *ManagerService) Quit(stopTunnelsOnQuit bool) (alreadyQuit bool, err err
 }
 
 func (s *ManagerService) UpdateState() UpdateState {
-	return updateState
+	state, _ := currentUpdateState()
+	return state
 }
 
 func (s *ManagerService) UpdateVersion() string {
-	return foundVersion
+	_, version := currentUpdateState()
+	return version
 }
 
 func (s *ManagerService) CheckForUpdates() (UpdateState, error) {
 	update, err := updater.CheckForUpdate()
 	if err != nil {
-		return updateState, err
+		return s.UpdateState(), err
 	}
 	if update != nil {
-		updateState = UpdateStateFoundUpdate
-		foundVersion = update.Version()
-		IPCServerNotifyUpdateFound(updateState)
-	} else if updateState != UpdateStateFoundUpdate {
+		state, _ := setFoundUpdate(update.Version())
+		IPCServerNotifyUpdateFound(state)
+		return state, nil
+	}
+	updateLock.Lock()
+	defer updateLock.Unlock()
+	if !updateState.HasUpdate() {
 		updateState = UpdateStateUnknown
 	}
 	return updateState, nil
 }
 
+// AutoDownloadUpdatesTurnedOn is called after a user turns on automatic update
+// downloads in Preferences, so an available update downloads now.
+func (s *ManagerService) AutoDownloadUpdatesTurnedOn() {
+	logger.Info("Automatic update downloads turned on from Preferences")
+	autoDownloadUpdatesEnabled()
+}
+
 func (s *ManagerService) Update() {
-	progress := updater.DownloadVerifyAndExecute(uintptr(s.elevatedToken))
+	// Install the silently downloaded update, if any, instead of downloading again.
+	progress := updater.DownloadVerifyAndExecute(uintptr(s.elevatedToken), takeStagedUpdate())
 	go func() {
 		for {
 			dp := <-progress
@@ -240,6 +253,12 @@ func (s *ManagerService) StopAllTunnels() error {
 		return UninstallTunnel(name)
 	})
 
+	stopActiveTunnels()
+	return nil
+}
+
+// stopActiveTunnels stops every tunnel the manager started.
+func stopActiveTunnels() {
 	activeTunnelsLock.Lock()
 	tunnelNames := make([]string, 0, len(activeTunnels))
 	for name := range activeTunnels {
@@ -258,7 +277,6 @@ func (s *ManagerService) StopAllTunnels() error {
 			activeTunnelsLock.Unlock()
 		}
 	}
-	return nil
 }
 
 func (s *ManagerService) GetUserSecrets(userID string) (secretstore.UserSecrets, error) {
@@ -362,6 +380,8 @@ func (s *ManagerService) ServeConn(reader io.Reader, writer io.Writer) {
 			if err != nil {
 				return
 			}
+		case AutoDownloadUpdatesTurnedOnMethodType:
+			s.AutoDownloadUpdatesTurnedOn()
 		case UpdateVersionMethodType:
 			err = encoder.Encode(s.UpdateVersion())
 			if err != nil {
