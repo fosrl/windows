@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { OnboardingService, type OnboardingState } from "@bindings";
 import { Button, cx, openExternal } from "../components/controls";
-import { report, urls, useEvent } from "../lib";
+import { isLinux, report, urls, useEvent } from "../lib";
 import logoLight from "../assets/pangolin_logo_light.png";
 import logoDark from "../assets/pangolin_logo_dark.png";
 import trayIcon from "../assets/tray_icon.png";
@@ -217,7 +217,11 @@ function AllSetPage() {
       <Body>Setup is complete. You can now log in to connect to your network.</Body>
       <div className="mx-6 mt-4 flex w-[calc(100%-48px)] flex-col items-center gap-3 rounded-[10px] border border-mac-tertiary px-6 py-5">
         <img src={trayIcon} alt="" className="h-[44px]" />
-        <div className="text-center text-[13px] font-bold">Look for the Pangolin icon in the system tray to log in.</div>
+        <div className="text-center text-[13px] font-bold">
+          {isLinux
+            ? "Look for the Pangolin icon in your panel or top bar to log in."
+            : "Look for the Pangolin icon in the system tray to log in."}
+        </div>
       </div>
       <div className="flex-1" />
     </div>

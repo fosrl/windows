@@ -1,0 +1,7 @@
+{
+  "uuid": "pangolin@pangolin.net",
+  "name": "Pangolin",
+  "description": "Shows the Pangolin client in the top bar. Click it to open Pangolin's menu.",
+  "url": "https://github.com/fosrl/windows",
+  "shell-version": ["45", "46", "47", "48", "49", "50", "51"]
+}

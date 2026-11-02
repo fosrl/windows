@@ -30,3 +30,30 @@ func systemDarkMode() bool {
 	scheme, ok := v.Value().(uint32)
 	return ok && scheme == 1
 }
+
+// watchColorScheme makes GTK, and with it WebKit's prefers-color-scheme,
+// follow the desktop's light or dark preference, now and when it changes.
+// Desktops like KDE set the preference without switching to a dark GTK theme.
+func watchColorScheme() {
+	setPreferDark(systemDarkMode())
+	conn, err := dbus.ConnectSessionBus()
+	if err != nil {
+		return
+	}
+	if err := conn.AddMatchSignal(
+		dbus.WithMatchInterface("org.freedesktop.portal.Settings"),
+		dbus.WithMatchMember("SettingChanged"),
+		dbus.WithMatchArg(0, "org.freedesktop.appearance"),
+	); err != nil {
+		return
+	}
+	signals := make(chan *dbus.Signal, 4)
+	conn.Signal(signals)
+	go func() {
+		for sig := range signals {
+			if len(sig.Body) == 3 && sig.Body[1] == "color-scheme" {
+				setPreferDark(systemDarkMode())
+			}
+		}
+	}()
+}

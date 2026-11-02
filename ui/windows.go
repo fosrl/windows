@@ -31,8 +31,6 @@ const (
 )
 
 var (
-	systemTray *application.SystemTray
-
 	trayWindow  *application.WebviewWindow
 	trayMu      sync.Mutex
 	trayHeight  = 400 // window content height
@@ -63,21 +61,6 @@ var (
 	prefsVisible atomic.Bool
 	prefsLoginID int
 )
-
-func setupSystemTray() {
-	systemTray = app.SystemTray.New()
-	updateTrayForState(currentTunnelState())
-	systemTray.OnClick(toggleTrayPopup)
-	// Right-click shows only Quit, like the macOS status item's context menu.
-	contextMenu := application.NewMenu()
-	contextMenu.Add("Quit Pangolin").OnClick(func(*application.Context) { go quit() })
-	systemTray.SetMenu(contextMenu)
-	systemTray.OnRightClick(func() {
-		hideTrayPopup()
-		systemTray.OpenMenu()
-	})
-	createTrayWindow()
-}
 
 func createTrayWindow() {
 	opts := application.WebviewWindowOptions{
@@ -140,7 +123,9 @@ func toggleTrayPopup() {
 // is hidden, so a freshly shown window would first draw a stale frame at the
 // wrong size. Instead the window is shown off screen at its final size, the
 // popup draws the current menu (still transparent) and reports back, and only
-// then is the window moved into place and the menu faded in.
+// then is the window moved into place and the menu faded in. Where windows
+// can't be shown off screen (trayOpensOffscreen is false) the window opens in
+// place, still transparent, and the menu fades in once drawn.
 func showTrayPopup() {
 	handleMenuOpen()
 	disableTrayTransitions()
@@ -164,14 +149,17 @@ func showTrayPopup() {
 	trayOpenAck = ack
 	trayMu.Unlock()
 
-	offscreen := bounds
-	offscreen.X, offscreen.Y = trayOffscreen, trayOffscreen
-	setTrayBounds(offscreen)
+	openBounds := bounds
+	if trayOpensOffscreen {
+		openBounds.X, openBounds.Y = trayOffscreen, trayOffscreen
+	}
+	setTrayBounds(openBounds)
 
 	app.Event.Emit(eventMenuState, currentMenuState())
 	trayWindow.EmitEvent("tray:open", layout)
+	beforeTrayShow()
 	trayWindow.Show()
-	trayWindow.Focus()
+	focusTrayWindow()
 
 	// This may run on the main thread, which the popup needs to report back.
 	go func() {
@@ -246,6 +234,7 @@ func hideTrayPopup() {
 		case <-time.After(trayHideWait):
 		}
 		trayWindow.Hide()
+		afterTrayHide()
 		trayMu.Lock()
 		trayHiding = false
 		trayHideAck = nil
@@ -315,38 +304,27 @@ func positionTrayWindow() {
 }
 
 // trayPlacement returns the window bounds and popup layout for the last tray
-// click and the current height.
+// click and the current height. The placement is worked out in popup units
+// (DIPs on Windows, CSS pixels on Linux) and converted to window bounds.
 func trayPlacement() (application.Rect, TrayLayout) {
 	trayMu.Lock()
 	cursor := trayCursor
 	height := trayHeight
 	trayMu.Unlock()
 
-	work := trayRect{X: 0, Y: 0, Width: 1920, Height: 1080}
-	scale := float32(1)
-	screen := app.Screen.ScreenNearestDipPoint(cursor)
-	if screen == nil {
-		screen = app.Screen.GetPrimary()
-	}
-	if screen != nil {
-		work = trayRect{X: screen.WorkArea.X, Y: screen.WorkArea.Y, Width: screen.WorkArea.Width, Height: screen.WorkArea.Height}
-		if screen.ScaleFactor > 0 {
-			scale = screen.ScaleFactor
-		}
-	}
-
+	work, scale := trayWorkArea(cursor)
 	rect, layout := placeTrayWindow(cursor.X, cursor.Y, height, work)
 
 	// The rect above is where the web content must go. The webview only fills
 	// the client area, so grow the window by whatever frame Windows keeps
 	// around it; otherwise the bottom-anchored menu is clipped at the top.
 	in := trayFrameInsets(scale)
-	return application.Rect{
+	return trayNativeBounds(application.Rect{
 		X:      rect.X - in.left,
 		Y:      rect.Y - in.top,
 		Width:  trayWindowWidth + in.left + in.right,
 		Height: rect.Height + in.top + in.bottom,
-	}, layout
+	}), layout
 }
 
 // setTrayBounds moves the window, skipping bounds it already has.
@@ -429,7 +407,7 @@ func showPreferencesWindow(tab int, login *LoginRequest) {
 		prefsLogin = login
 	}
 	if prefsWindow == nil {
-		prefsWindow = app.Window.NewWithOptions(application.WebviewWindowOptions{
+		opts := application.WebviewWindowOptions{
 			Name:             "preferences",
 			Title:            "Pangolin Preferences",
 			URL:              "/#/preferences",
@@ -442,7 +420,9 @@ func showPreferencesWindow(tab int, login *LoginRequest) {
 			Windows: application.WindowsWindow{
 				CustomTheme: windowTitleBarTheme(),
 			},
-		})
+		}
+		scaleWindowOptions(&opts)
+		prefsWindow = app.Window.NewWithOptions(opts)
 		// Closing only hides the window. Hooks run on the main thread, so the
 		// work that takes locks happens on a goroutine.
 		prefsWindow.RegisterHook(events.Common.WindowClosing, func(e *application.WindowEvent) {
@@ -463,7 +443,7 @@ func showPreferencesWindow(tab int, login *LoginRequest) {
 	if prefsWindow.IsMinimised() {
 		prefsWindow.Restore()
 	}
-	prefsWindow.Focus()
+	focusWindow(prefsWindow)
 }
 
 func hidePreferencesWindow() {
@@ -494,7 +474,7 @@ func preferencesWindowOrNil() application.Window {
 // installing an update, centered and hidden until shown. Closing it calls
 // onClose instead, so the task can keep running and the window be shown again.
 func newDialogWindow(name, title, route string, height int, onClose func()) *application.WebviewWindow {
-	w := app.Window.NewWithOptions(application.WebviewWindowOptions{
+	opts := application.WebviewWindowOptions{
 		Name:                name,
 		Title:               title,
 		URL:                 "/#/" + route,
@@ -508,7 +488,9 @@ func newDialogWindow(name, title, route string, height int, onClose func()) *app
 		Windows: application.WindowsWindow{
 			CustomTheme: windowTitleBarTheme(),
 		},
-	})
+	}
+	scaleWindowOptions(&opts)
+	w := app.Window.NewWithOptions(opts)
 	// Hooks run on the main thread, so the work that takes locks happens on a goroutine.
 	w.RegisterHook(events.Common.WindowClosing, func(e *application.WindowEvent) {
 		e.Cancel()

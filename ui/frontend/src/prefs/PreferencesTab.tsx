@@ -1,7 +1,7 @@
 import { useRef, useState } from "react";
 import { PreferencesService, type Settings, type SettingsResult } from "@bindings";
 import { Button, Form, LinkRow, Row, Section, Sheet, Switch, TextField, Value } from "../components/controls";
-import { report, urls, useEvent } from "../lib";
+import { isLinux, report, urls, useEvent } from "../lib";
 
 const defaultMTU = "1280";
 
@@ -88,7 +88,7 @@ export function PreferencesTab({ initial }: { initial: Settings }) {
         )}
 
         <Section header="General">
-          <Row title="Start at Login" description="Starts Pangolin when you sign in to Windows.">
+          <Row title="Start at Login" description={`Starts Pangolin when you sign in${isLinux ? "" : " to Windows"}.`}>
             <Switch
               label="Start at Login"
               checked={form.openAtLogin}

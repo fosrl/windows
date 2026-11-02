@@ -20,3 +20,6 @@ export const urls = {
   privacy: "https://pangolin.net/privacy",
   configureClient: "https://docs.pangolin.net/manage/clients/configure-client",
 };
+
+/** True in the Linux build (WebKitGTK), false on Windows (WebView2). */
+export const isLinux = /Linux/.test(navigator.userAgent) && !/Windows/.test(navigator.userAgent);

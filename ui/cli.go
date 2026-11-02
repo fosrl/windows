@@ -53,7 +53,7 @@ func showCLIWindow() {
 	}
 	cliWindow.EmitEvent(eventCLIState, cliInfo)
 	cliWindow.Show()
-	cliWindow.Focus()
+	focusWindow(cliWindow)
 	cliMu.Unlock()
 }
 
@@ -103,7 +103,7 @@ func installCLI() {
 	cliMu.Lock()
 	if cliWindow != nil {
 		cliWindow.Show()
-		cliWindow.Focus()
+		focusWindow(cliWindow)
 	}
 	cliMu.Unlock()
 }

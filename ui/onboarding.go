@@ -115,7 +115,7 @@ func showOnboardingWindow() {
 
 	onboardingAutoOpened = true
 	if onboardingWindow == nil {
-		onboardingWindow = app.Window.NewWithOptions(application.WebviewWindowOptions{
+		opts := application.WebviewWindowOptions{
 			Name:                "onboarding",
 			Title:               "Pangolin Setup",
 			URL:                 "/#/onboarding",
@@ -126,7 +126,9 @@ func showOnboardingWindow() {
 			MinimiseButtonState: application.ButtonHidden,
 			MaximiseButtonState: application.ButtonHidden,
 			BackgroundColour:    onboardingBackground(),
-		})
+		}
+		scaleWindowOptions(&opts)
+		onboardingWindow = app.Window.NewWithOptions(opts)
 		// Closing only hides the window; finished steps are kept and setup
 		// resumes at the first unfinished one.
 		onboardingWindow.RegisterHook(events.Common.WindowClosing, func(e *application.WindowEvent) {
@@ -144,7 +146,7 @@ func showOnboardingWindow() {
 	if onboardingWindow.IsMinimised() {
 		onboardingWindow.Restore()
 	}
-	onboardingWindow.Focus()
+	focusWindow(onboardingWindow)
 }
 
 func closeOnboardingWindow() {

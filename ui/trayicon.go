@@ -57,9 +57,5 @@ func trayTooltipForState(state tunnel.State) string {
 }
 
 func updateTrayForState(state tunnel.State) {
-	if systemTray == nil {
-		return
-	}
-	systemTray.SetIcon(trayIconData(trayIconForState(state)))
-	systemTray.SetTooltip(trayTooltipForState(state))
+	setTrayIcon(trayIconForState(state), trayTooltipForState(state))
 }

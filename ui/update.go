@@ -148,7 +148,7 @@ func presentUpdateWindow() {
 	}
 	updateWindow.EmitEvent(eventUpdateState, updateInfo)
 	updateWindow.Show()
-	updateWindow.Focus()
+	focusWindow(updateWindow)
 }
 
 func hideUpdateWindow() {

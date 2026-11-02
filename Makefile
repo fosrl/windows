@@ -12,6 +12,7 @@ LINUX_BINARY_NAME=pangolin-client
 LINUX_GOARCH ?= $(shell go env GOHOSTARCH)
 PREFIX ?= /usr/local
 LINUX_PKG_DIR=packaging/linux
+GNOME_EXTENSION_UUID=pangolin@pangolin.net
 OLM_VERSION := $(shell go list -m -f '{{.Version}}' github.com/fosrl/olm | sed 's/^v//')
 OLM_LDFLAGS = -X github.com/fosrl/windows/version.OlmVersionOverride=$(OLM_VERSION)
 
@@ -40,8 +41,10 @@ build-linux: frontend
 	CGO_ENABLED=1 GOOS=linux GOARCH=$(LINUX_GOARCH) go build -tags "gtk3 production" -ldflags="-s -w $(OLM_LDFLAGS)" -o $(BUILD_DIR)/$(LINUX_BINARY_NAME)
 	@echo "Build complete: $(BUILD_DIR)/$(LINUX_BINARY_NAME)"
 
-# Install a Linux build for testing: the binary, the systemd service, and
-# the app menu and autostart entries. Packages (deb, rpm, AUR) replace this.
+# Install a Linux build for testing: the binary, the systemd service, the app
+# menu and autostart entries, and the GNOME Shell extension (enable it with
+# "gnome-extensions enable pangolin@pangolin.net" after logging back in).
+# Packages (deb, rpm, AUR) replace this.
 # Run "make build-linux" first, then "sudo make install-linux" and
 # "sudo systemctl enable --now pangolin-client".
 install-linux:
@@ -51,6 +54,7 @@ install-linux:
 	install -Dm644 $(LINUX_PKG_DIR)/pangolin-client.desktop $(DESTDIR)$(PREFIX)/share/applications/pangolin-client.desktop
 	install -Dm644 $(LINUX_PKG_DIR)/pangolin-client-autostart.desktop $(DESTDIR)/etc/xdg/autostart/pangolin-client-autostart.desktop
 	install -Dm644 $(LINUX_PKG_DIR)/pangolin-client.png $(DESTDIR)$(PREFIX)/share/icons/hicolor/256x256/apps/pangolin-client.png
+	install -Dm644 -t $(DESTDIR)$(PREFIX)/share/gnome-shell/extensions/$(GNOME_EXTENSION_UUID) $(LINUX_PKG_DIR)/gnome-shell-extension/$(GNOME_EXTENSION_UUID)/*
 	-systemctl daemon-reload
 
 uninstall-linux:
@@ -58,6 +62,7 @@ uninstall-linux:
 	rm -f $(DESTDIR)$(PREFIX)/bin/$(LINUX_BINARY_NAME) $(DESTDIR)/etc/systemd/system/pangolin-client.service
 	rm -f $(DESTDIR)$(PREFIX)/share/applications/pangolin-client.desktop $(DESTDIR)/etc/xdg/autostart/pangolin-client-autostart.desktop
 	rm -f $(DESTDIR)$(PREFIX)/share/icons/hicolor/256x256/apps/pangolin-client.png
+	rm -rf $(DESTDIR)$(PREFIX)/share/gnome-shell/extensions/$(GNOME_EXTENSION_UUID)
 	-systemctl daemon-reload
 
 # Build the webview frontend into ui/frontend/dist (embedded into the exe)
