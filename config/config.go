@@ -534,9 +534,18 @@ func (cm *ConfigManager) SetMTU(value int) bool {
 // localAppData is that user's LOCALAPPDATA directory. The manager service
 // must pass it explicitly, because its own process environment is the system profile.
 func LaunchUIAtLoginEnabled(localAppData string) bool {
+	if localAppData == "" {
+		return LaunchUIAtLoginEnabledIn("")
+	}
+	return LaunchUIAtLoginEnabledIn(filepath.Join(localAppData, AppName))
+}
+
+// LaunchUIAtLoginEnabledIn is LaunchUIAtLoginEnabled for a user whose data
+// directory (see UserDataDir) is userDataDir, or "" for machine config only.
+func LaunchUIAtLoginEnabledIn(userDataDir string) bool {
 	merged := configFromSystemConfig(LoadSystemConfig())
-	if localAppData != "" {
-		userCfg, ok := loadConfigFile(filepath.Join(localAppData, AppName, ConfigFileName))
+	if userDataDir != "" {
+		userCfg, ok := loadConfigFile(filepath.Join(userDataDir, ConfigFileName))
 		if ok {
 			merged = mergeConfig(merged, userCfg)
 		}

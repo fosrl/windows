@@ -166,6 +166,7 @@ func (s *ManagerService) StartTunnel(config tunnel.Config) error {
 		snapshot, ok = fingerprint.CachedDevicePosture()
 	}
 	if ok {
+		snapshot = postureForClient(snapshot, s.clientUserKey)
 		fpBytes, errFP := json.Marshal(snapshot.Fingerprint)
 		postBytes, errPost := json.Marshal(snapshot.Postures)
 		if errFP == nil && errPost == nil && len(fpBytes) > 0 && len(postBytes) > 0 {
@@ -466,7 +467,9 @@ func (s *ManagerService) ServeConn(reader io.Reader, writer io.Writer) {
 	}
 }
 
-func IPCServerListen(reader, writer, events *os.File, elevatedToken userToken, clientUserKey string) {
+// IPCServerListen serves one UI's IPC connection in the background. The
+// returned channel is closed once the UI disconnects.
+func IPCServerListen(reader, writer, events *os.File, elevatedToken userToken, clientUserKey string) <-chan struct{} {
 	postureRefresherOnce.Do(func() {
 		go func() {
 			fingerprint.RefreshPostureMemory()
@@ -484,7 +487,9 @@ func IPCServerListen(reader, writer, events *os.File, elevatedToken userToken, c
 		clientUserKey: clientUserKey,
 	}
 
+	done := make(chan struct{})
 	go func() {
+		defer close(done)
 		managerServicesLock.Lock()
 		managerServices[service] = true
 		managerServicesLock.Unlock()
@@ -496,6 +501,7 @@ func IPCServerListen(reader, writer, events *os.File, elevatedToken userToken, c
 		delete(managerServices, service)
 		managerServicesLock.Unlock()
 	}()
+	return done
 }
 
 func notifyAll(notificationType NotificationType, adminOnly bool, ifaces ...any) {

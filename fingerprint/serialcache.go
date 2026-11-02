@@ -8,7 +8,6 @@ import (
 	"sync"
 
 	"github.com/fosrl/newt/logger"
-	"github.com/fosrl/windows/config"
 )
 
 // serialCacheFileName holds the last successfully-resolved hardware serial
@@ -22,10 +21,6 @@ type serialCacheFile struct {
 }
 
 var serialCacheMu sync.Mutex
-
-func serialCachePath() string {
-	return filepath.Join(config.UserDataDir(), serialCacheFileName)
-}
 
 func loadCachedSerial() string {
 	serialCacheMu.Lock()

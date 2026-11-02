@@ -46,8 +46,10 @@ var (
 	logsSize    int64
 )
 
+// logFilePath is the log the Logs tab shows: the one the manager service and
+// tunnels write, where connection problems show up.
 func logFilePath() string {
-	return filepath.Join(config.GetLogDir(), "pangolin.log")
+	return filepath.Join(config.DaemonLogDir(), "pangolin.log")
 }
 
 func toLogEntry(it logEntryItem) LogEntry {

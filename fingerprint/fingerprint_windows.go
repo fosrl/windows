@@ -17,6 +17,7 @@ import (
 	"unsafe"
 
 	"github.com/fosrl/newt/logger"
+	"github.com/fosrl/windows/config"
 	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/registry"
 )
@@ -102,6 +103,18 @@ foreach ($key in $tasks.Keys) {
   antivirusProductStates = $antivirusProductStates
 } | ConvertTo-Json -Compress
 `
+
+type PostureChecks struct {
+	// Platform-agnostic checks
+
+	DiskEncrypted   bool `json:"diskEncrypted"`
+	FirewallEnabled bool `json:"firewallEnabled"`
+	TpmAvailable    bool `json:"tpmAvailable"`
+
+	// Windows-specific posture check information
+
+	WindowsAntivirusEnabled bool `json:"windowsAntivirusEnabled"`
+}
 
 type windowsSystemQueryResult struct {
 	SerialNumber           string   `json:"serialNumber"`
@@ -444,4 +457,10 @@ func dmiFingerprint() string {
 	read("BaseBoardProduct", "board_name")
 
 	return strings.Join(parts, "|")
+}
+
+// serialCachePath is in the user data directory of the account gathering the
+// fingerprint, which for the manager service is LocalSystem's.
+func serialCachePath() string {
+	return filepath.Join(config.UserDataDir(), serialCacheFileName)
 }

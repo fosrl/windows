@@ -10,8 +10,8 @@ import (
 )
 
 // runUI creates the managers the UI works with and runs the tray UI until it
-// quits.
-func runUI() error {
+// quits. startupWarning, if set, is shown once the UI is up.
+func runUI(startupWarning string) error {
 	// Initialize managers
 	accountManager := config.NewAccountManager()
 	configManager := config.NewConfigManager()
@@ -46,5 +46,7 @@ func runUI() error {
 		Accounts: accountManager,
 		API:      apiClient,
 		Secrets:  secretManager,
+
+		StartupWarning: startupWarning,
 	})
 }

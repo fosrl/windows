@@ -32,13 +32,23 @@ func GetProgramDataDir() string {
 // cannot write under /var/log.
 func GetLogDir() string {
 	if os.Geteuid() == 0 {
-		return filepath.Join("/var/log", linuxDirName)
+		return DaemonLogDir()
 	}
 	state := os.Getenv("XDG_STATE_HOME")
 	if state == "" || !filepath.IsAbs(state) {
 		state = filepath.Join(homeDir(), ".local", "state")
 	}
 	return filepath.Join(state, linuxDirName, "logs")
+}
+
+// DaemonLogDir is where the root daemon and tunnels log, /var/log/pangolin-client.
+func DaemonLogDir() string {
+	return filepath.Join("/var/log", linuxDirName)
+}
+
+// RuntimeDir holds the daemon's sockets and tunnel configs, /run/pangolin-client.
+func RuntimeDir() string {
+	return filepath.Join("/run", linuxDirName)
 }
 
 // systemConfigPath is the machine-wide config file, /etc/pangolin-client/pangolin.json.

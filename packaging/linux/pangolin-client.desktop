@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=Pangolin
+GenericName=Pangolin Client
+Comment=Connect to your Pangolin networks
+Exec=pangolin-client
+Icon=pangolin-client
+Terminal=false
+Categories=Network;
+Keywords=VPN;Pangolin;Tunnel;
+StartupNotify=false
+StartupWMClass=pangolin-client

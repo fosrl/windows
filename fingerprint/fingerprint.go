@@ -20,18 +20,6 @@ type Fingerprint struct {
 	PlatformFingerprint string `json:"platformFingerprint"`
 }
 
-type PostureChecks struct {
-	// Platform-agnostic checks
-
-	DiskEncrypted   bool `json:"diskEncrypted"`
-	FirewallEnabled bool `json:"firewallEnabled"`
-	TpmAvailable    bool `json:"tpmAvailable"`
-
-	// Windows-specific posture check information
-
-	WindowsAntivirusEnabled bool `json:"windowsAntivirusEnabled"`
-}
-
 func GatherFingerprintInfo() *Fingerprint {
 	fp, _ := gatherDevicePosture()
 	return fp

@@ -29,6 +29,12 @@ func GetLogDir() string {
 	return filepath.Join(GetProgramDataDir(), "logs")
 }
 
+// DaemonLogDir is where the manager service and tunnels log. On Windows the
+// UI logs there too.
+func DaemonLogDir() string {
+	return GetLogDir()
+}
+
 // systemConfigPath is the machine-wide config file, %ProgramData%\Pangolin\pangolin.json.
 func systemConfigPath() string {
 	return filepath.Join(GetProgramDataDir(), ConfigFileName)

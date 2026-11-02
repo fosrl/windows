@@ -37,7 +37,13 @@ type Deps struct {
 	Accounts *config.AccountManager
 	API      *api.APIClient
 	Secrets  *secrets.SecretManager
+
+	// StartupWarning, if set, is shown once the UI has started; for example
+	// when the background service can't be reached.
+	StartupWarning string
 }
+
+var startupWarning string
 
 // Run starts the tray UI and blocks until the UI quits.
 func Run(d Deps) error {
@@ -47,6 +53,7 @@ func Run(d Deps) error {
 
 	authManager = d.Auth
 	configManager = d.Config
+	startupWarning = d.StartupWarning
 	accountManager = d.Accounts
 	apiClient = d.API
 	tunnelManager = tunnel.NewManager(d.Auth, d.Config, d.Accounts, d.Secrets, managers.NewIPCAdapter())
@@ -112,6 +119,9 @@ func onStarted() {
 		}
 	}()
 
+	if startupWarning != "" {
+		go showWarning(nil, config.AppName, startupWarning)
+	}
 	updateTrayForState(currentTunnelState())
 	refreshCLIInstallState()
 	go checkStartupUpdate()

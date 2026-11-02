@@ -1,4 +1,4 @@
-.PHONY: build build-debug build-linux clean rsrc frontend bindings test help
+.PHONY: build build-debug build-linux install-linux uninstall-linux clean rsrc frontend bindings test help
 
 # Variables
 BINARY_NAME=Pangolin
@@ -10,6 +10,8 @@ GOOS=windows
 GOARCH=amd64
 LINUX_BINARY_NAME=pangolin-client
 LINUX_GOARCH ?= $(shell go env GOHOSTARCH)
+PREFIX ?= /usr/local
+LINUX_PKG_DIR=packaging/linux
 OLM_VERSION := $(shell go list -m -f '{{.Version}}' github.com/fosrl/olm | sed 's/^v//')
 OLM_LDFLAGS = -X github.com/fosrl/windows/version.OlmVersionOverride=$(OLM_VERSION)
 
@@ -37,6 +39,26 @@ build-linux: frontend
 	@mkdir -p $(BUILD_DIR)
 	CGO_ENABLED=1 GOOS=linux GOARCH=$(LINUX_GOARCH) go build -tags "gtk3 production" -ldflags="-s -w $(OLM_LDFLAGS)" -o $(BUILD_DIR)/$(LINUX_BINARY_NAME)
 	@echo "Build complete: $(BUILD_DIR)/$(LINUX_BINARY_NAME)"
+
+# Install a Linux build for testing: the binary, the systemd service, and
+# the app menu and autostart entries. Packages (deb, rpm, AUR) replace this.
+# Run "make build-linux" first, then "sudo make install-linux" and
+# "sudo systemctl enable --now pangolin-client".
+install-linux:
+	install -Dm755 $(BUILD_DIR)/$(LINUX_BINARY_NAME) $(DESTDIR)$(PREFIX)/bin/$(LINUX_BINARY_NAME)
+	install -d $(DESTDIR)/etc/systemd/system
+	sed 's|/usr/bin/$(LINUX_BINARY_NAME)|$(PREFIX)/bin/$(LINUX_BINARY_NAME)|' $(LINUX_PKG_DIR)/pangolin-client.service > $(DESTDIR)/etc/systemd/system/pangolin-client.service
+	install -Dm644 $(LINUX_PKG_DIR)/pangolin-client.desktop $(DESTDIR)$(PREFIX)/share/applications/pangolin-client.desktop
+	install -Dm644 $(LINUX_PKG_DIR)/pangolin-client-autostart.desktop $(DESTDIR)/etc/xdg/autostart/pangolin-client-autostart.desktop
+	install -Dm644 $(LINUX_PKG_DIR)/pangolin-client.png $(DESTDIR)$(PREFIX)/share/icons/hicolor/256x256/apps/pangolin-client.png
+	-systemctl daemon-reload
+
+uninstall-linux:
+	-systemctl disable --now pangolin-client
+	rm -f $(DESTDIR)$(PREFIX)/bin/$(LINUX_BINARY_NAME) $(DESTDIR)/etc/systemd/system/pangolin-client.service
+	rm -f $(DESTDIR)$(PREFIX)/share/applications/pangolin-client.desktop $(DESTDIR)/etc/xdg/autostart/pangolin-client-autostart.desktop
+	rm -f $(DESTDIR)$(PREFIX)/share/icons/hicolor/256x256/apps/pangolin-client.png
+	-systemctl daemon-reload
 
 # Build the webview frontend into ui/frontend/dist (embedded into the exe)
 frontend:
@@ -72,6 +94,8 @@ help:
 	@echo "  make build       - Build the Windows executable to build/ (GUI mode, no console)"
 	@echo "  make build-debug - Build with Wails devtools enabled"
 	@echo "  make build-linux - Build the Linux binary to build/ (needs gtk3, webkit2gtk-4.1)"
+	@echo "  make install-linux - Install the Linux build and its systemd service (run as root)"
+	@echo "  make uninstall-linux - Remove what install-linux installed (run as root)"
 	@echo "  make frontend    - Build the webview frontend"
 	@echo "  make bindings    - Regenerate TypeScript bindings for the Go services"
 	@echo "  make test        - Run unit tests"

@@ -243,7 +243,7 @@ func main() {
 		// This standalone mode is mainly for development/testing
 	}
 
-	err := runUI()
+	err := runUI("")
 	if errors.Is(err, ui.ErrWebView2Missing) {
 		showMessageBox("Pangolin needs the Microsoft Edge WebView2 Runtime, which is not installed.\n\n"+
 			"Download it from https://go.microsoft.com/fwlink/p/?LinkId=2124703 and then start Pangolin again.", config.AppName)
