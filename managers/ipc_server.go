@@ -32,7 +32,7 @@ var (
 	managerServicesLock sync.RWMutex
 	haveQuit            uint32
 	quitManagersChan    = make(chan struct{}, 1)
-	activeTunnels       = make(map[string]bool) // Track active tunnel names
+	activeTunnels       = make(map[string]uint32) // Active tunnel names and the session that started each
 	activeTunnelsLock   sync.RWMutex
 	alwaysOnUsers       = make(map[string]bool)
 	alwaysOnUsersLock   sync.Mutex
@@ -46,6 +46,7 @@ type ManagerService struct {
 	eventLock        sync.Mutex
 	elevatedToken    windows.Token
 	clientWindowsSID string
+	session          uint32
 }
 
 func setUserAlwaysOn(sid string, enabled bool) {
@@ -206,7 +207,7 @@ func (s *ManagerService) StartTunnel(config tunnel.Config) error {
 	}
 	// Track this tunnel as active
 	activeTunnelsLock.Lock()
-	activeTunnels[config.Name] = true
+	activeTunnels[config.Name] = s.session
 	activeTunnelsLock.Unlock()
 	// Notify UI of initial state change (starting)
 	state := tunnel.GetState()
@@ -255,6 +256,36 @@ func (s *ManagerService) StopAllTunnels() error {
 
 	stopActiveTunnels()
 	return nil
+}
+
+// stopSessionTunnels stops the tunnels started from a session, so a tunnel
+// does not stay connected with a user's credentials after they sign out.
+func stopSessionTunnels(session uint32) {
+	activeTunnelsLock.Lock()
+	tunnelNames := make([]string, 0, len(activeTunnels))
+	for name, owner := range activeTunnels {
+		if owner == session {
+			tunnelNames = append(tunnelNames, name)
+		}
+	}
+	activeTunnelsLock.Unlock()
+
+	for _, name := range tunnelNames {
+		logger.Info("Session %d signed out, stopping tunnel: %s", session, name)
+		if err := UninstallTunnel(name); err != nil {
+			logger.Error("Failed to stop tunnel %s: %v", name, err)
+			continue
+		}
+		activeTunnelsLock.Lock()
+		if activeTunnels[name] == session {
+			delete(activeTunnels, name)
+		}
+		activeTunnelsLock.Unlock()
+		if tunnel.GetTunnelName() == name {
+			tunnel.SetState(tunnel.StateStopped)
+		}
+		IPCServerNotifyTunnelStateChange(tunnel.StateStopped)
+	}
 }
 
 // stopActiveTunnels stops every tunnel the manager started.
@@ -488,7 +519,7 @@ func (s *ManagerService) ServeConn(reader io.Reader, writer io.Writer) {
 	}
 }
 
-func IPCServerListen(reader, writer, events *os.File, elevatedToken windows.Token, clientWindowsSID string) {
+func IPCServerListen(reader, writer, events *os.File, elevatedToken windows.Token, clientWindowsSID string, session uint32) {
 	postureRefresherOnce.Do(func() {
 		go func() {
 			fingerprint.RefreshPostureMemory()
@@ -504,6 +535,7 @@ func IPCServerListen(reader, writer, events *os.File, elevatedToken windows.Toke
 		events:           events,
 		elevatedToken:    elevatedToken,
 		clientWindowsSID: clientWindowsSID,
+		session:          session,
 	}
 
 	go func() {

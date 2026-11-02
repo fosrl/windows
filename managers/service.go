@@ -203,7 +203,7 @@ func (service *managerService) Execute(args []string, r <-chan svc.ChangeRequest
 				logger.Error("Unable to create pipe: %v", err)
 				return
 			}
-			IPCServerListen(ourReader, ourWriter, ourEvents, elevatedToken, clientWindowsSID)
+			IPCServerListen(ourReader, ourWriter, ourEvents, elevatedToken, clientWindowsSID, session)
 
 			logger.Info("Starting UI process for user '%s@%s' for session %d", username, domain, session)
 			procsLock.Lock()
@@ -458,6 +458,7 @@ loop:
 						proc.Kill()
 					}
 					procsLock.Unlock()
+					go stopSessionTunnels(sessionNotification.SessionID)
 				case windows.WTS_SESSION_LOGON:
 					onSessionLogon(sessionNotification.SessionID)
 				default:
