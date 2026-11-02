@@ -122,3 +122,64 @@ Upload the following files to your update server:
 
 2. **MSI files** → Upload to path specified in `updater/constants.go` (`msiPath`)
    - Example: `/windows-client/pangolin-amd64-1.0.1.msi`
+
+## Linux Release Workflow
+
+Linux packages are built by CI (`.github/workflows/linux-release.yml`) when a
+release tag is pushed. They can also be built by hand on a machine with Go, Node.js,
+`libgtk-3-dev` and `libwebkit2gtk-4.1-dev` (Arch: `gtk3`, `webkit2gtk-4.1`),
+plus [nfpm](https://nfpm.goreleaser.com).
+
+### 1. Set the Version and Tag
+
+Run `./scripts/set-version.sh <version>` as for Windows, commit, and push a tag
+named exactly the version (e.g. `1.0.3` or `1.0.3-rc.1`). CI refuses a tag that
+doesn't match `version/version.go`.
+
+### 2. Packages (CI or by hand)
+
+```bash
+make package-linux                     # this machine's architecture
+make package-linux LINUX_GOARCH=arm64  # on an arm64 machine
+```
+
+This makes `build/pangolin-client-<arch>-<version>.deb`, `.rpm` and
+`.pkg.tar.zst`. Packages built for release should come from Ubuntu 22.04 (as CI
+does), so they run on Ubuntu 22.04+, Debian 12+, Fedora and Arch. RHEL 9 and its
+rebuilds don't ship WebKitGTK 4.1, so they can't install the package.
+
+Each package installs the binary, the `pangolin-client` systemd service (enabled
+and started on deb and rpm installs; Arch prints the command), the app menu and
+autostart entries, and the GNOME Shell extension.
+
+### 3. Manifest
+
+CI makes and signs the Linux manifest when the `UPDATE_SIGNING_KEY` secret holds
+`release.sec`, and attaches it to the draft release as `linux-latest.sig`. By hand:
+
+```bash
+./scripts/generate-linux-manifest.sh
+./scripts/sign-manifest.sh signing-keys/release.sec build/linux
+```
+
+The manifest points at the packages on the GitHub release by default (set
+`DOWNLOAD_LOCATION_TEMPLATE` as for Windows to change that).
+
+### 4. Publish
+
+1. Publish the draft GitHub release, after adding the Windows MSIs to it.
+2. Upload `linux-latest.sig` to the update server as `/linux-client/latest.sig`
+   (`latestVersionPath` in `updater/constants_linux.go`).
+3. Publishing the release runs `.github/workflows/aur.yml`, which updates the
+   `pangolin-client-bin` AUR package when the `AUR_SSH_PRIVATE_KEY` secret is set.
+
+### How Linux Updates Install
+
+The daemon checks the Linux manifest like the Windows manager does. On deb and rpm
+installs, an administrator (root or a member of `sudo`, `wheel` or `admin`) can
+install an update from the app: the daemon downloads the package, checks its
+hash against the signed manifest, and installs it with `apt-get`, `dnf`,
+`zypper` or `rpm` in a transient systemd unit (`pangolin-client-update-*`), so the
+install survives the package restarting the daemon. The new daemon reopens the
+UIs that were open. The AUR package and hand-installed builds show the command
+or download link instead (`updater.ManualUpdate`).

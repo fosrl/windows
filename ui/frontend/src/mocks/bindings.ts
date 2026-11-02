@@ -225,10 +225,15 @@ export const AppService = {
 
 // Update window: `?update=checking|upToDate|disabled|checkFailed|available|downloading|error|complete`
 // picks the phase; Check finds an update and Install runs through a fake download.
+// `?manualUpdate` shows the AUR instructions in place of Install.
 let update: UpdateInfo = {
   phase: params.get("update") ?? "available", version: "1.4.2", currentVersion: "0.9.0",
   activity: "Downloading update", error: "The download could not be verified.",
   bytesDownloaded: 12_400_000, bytesTotal: 38_000_000,
+  manual: params.has("manualUpdate")
+    ? "Pangolin was installed from the AUR. Update the pangolin-client-bin package with your AUR helper, for example:"
+    : "",
+  manualCommand: params.has("manualUpdate") ? "yay -Syu pangolin-client-bin" : "",
 };
 const setUpdate = (u: Partial<UpdateInfo>) => {
   update = { ...update, ...u };

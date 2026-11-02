@@ -60,8 +60,7 @@ func versionNewerThanUs(candidate string) (bool, error) {
 }
 
 func findCandidate(candidates fileList) (*UpdateFound, error) {
-	prefix := fmt.Sprintf(msiArchPrefix, version.Arch())
-	suffix := msiSuffix
+	prefix, suffix := candidatePattern()
 	currentVersion := version.Number
 	logger.Debug("Updater: findCandidate() - Current version: %s, Architecture: %s", currentVersion, version.Arch())
 	logger.Debug("Updater: Looking for files matching prefix: %s, suffix: %s", prefix, suffix)

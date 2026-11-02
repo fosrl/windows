@@ -332,4 +332,11 @@ export interface UpdateInfo {
     "error": string;
     "bytesDownloaded": number;
     "bytesTotal": number;
+
+    /**
+     * Manual, when set, says how to update instead of installing in the app
+     * (Linux AUR and hand-installed builds), with ManualCommand to copy.
+     */
+    "manual": string;
+    "manualCommand": string;
 }

@@ -1,8 +1,10 @@
 #!/bin/bash
 # Sign the file list manifest with Ed25519 private key
 # Outputs signed manifest to build/ directory for production use
-# Usage: ./sign-manifest.sh <secret-key-file>
+# Usage: ./sign-manifest.sh <secret-key-file> [manifest-dir]
 #   secret-key-file: Path to the release.sec file
+#   manifest-dir: Directory holding filelist.txt (default: build; the Linux
+#     manifest is in build/linux)
 
 set -e
 
@@ -17,16 +19,21 @@ fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="${SCRIPT_DIR}/.."
-BUILD_DIR="${PROJECT_ROOT}/build"
+BUILD_DIR="${2:-${PROJECT_ROOT}/build}"
 SECRET_KEY_FILE="$1"
 MANIFEST_FILE="${BUILD_DIR}/filelist.txt"
 SIGNED_MANIFEST="${BUILD_DIR}/latest.sig"
 
-# Check if signify is available
+# Check if signify is available (Debian and Ubuntu call it signify-openbsd)
+SIGNIFY=signify
 if ! command -v signify &> /dev/null; then
-    echo "Error: 'signify' is not installed."
-    echo "Install it first (see generate-keys.sh for instructions)"
-    exit 1
+    if command -v signify-openbsd &> /dev/null; then
+        SIGNIFY=signify-openbsd
+    else
+        echo "Error: 'signify' is not installed."
+        echo "Install it first (see generate-keys.sh for instructions)"
+        exit 1
+    fi
 fi
 
 # Check if secret key exists
@@ -52,7 +59,7 @@ echo "Output: ${SIGNED_MANIFEST}"
 # -e: embed the signature in the file
 # -s: secret key file
 # -m: message file to sign
-signify -S -e -s "${SECRET_KEY_FILE}" -m "${MANIFEST_FILE}"
+"${SIGNIFY}" -S -e -s "${SECRET_KEY_FILE}" -m "${MANIFEST_FILE}"
 
 # The signed file will be created as ${MANIFEST_FILE}.sig
 SIGNED_OUTPUT="${MANIFEST_FILE}.sig"

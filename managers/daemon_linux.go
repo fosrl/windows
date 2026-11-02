@@ -11,12 +11,14 @@ import (
 	"os/user"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
 
 	"github.com/fosrl/newt/logger"
 	"github.com/fosrl/windows/config"
+	"github.com/fosrl/windows/updater"
 	"golang.org/x/sys/unix"
 )
 
@@ -99,6 +101,9 @@ func Run() error {
 		}
 	}()
 	logger.Info("Pangolin daemon listening on %s", socketPath)
+	go restartUIsAfterUpdate()
+	go updater.RemoveDownloads()
+	go checkForUpdates()
 
 	sig := <-signals
 	logger.Info("Pangolin daemon stopping on %v", sig)
@@ -333,4 +338,43 @@ func launchUIForUser(uid uint32) error {
 		return fmt.Errorf("%v: %s", err, out)
 	}
 	return nil
+}
+
+// prepareUpdateRestart records whose UI is open before an update, since the
+// package restarts the daemon, which closes them.
+func prepareUpdateRestart() {
+	attachedUIsLock.Lock()
+	uids := make([]string, 0, len(attachedUIs))
+	for uid := range attachedUIs {
+		uids = append(uids, strconv.FormatUint(uint64(uid), 10))
+	}
+	attachedUIsLock.Unlock()
+	if err := os.MkdirAll(filepath.Dir(updater.RestartUIFile), 0o700); err != nil {
+		logger.Error("Updater: %v", err)
+		return
+	}
+	if err := os.WriteFile(updater.RestartUIFile, []byte(strings.Join(uids, "\n")), 0o600); err != nil {
+		logger.Error("Updater: failed to record open UIs: %v", err)
+	}
+}
+
+// restartUIsAfterUpdate reopens the UIs that were open when an update
+// started, once the updated daemon is running.
+func restartUIsAfterUpdate() {
+	data, err := os.ReadFile(updater.RestartUIFile)
+	if err != nil {
+		return
+	}
+	os.Remove(updater.RestartUIFile)
+	for _, field := range strings.Fields(string(data)) {
+		uid, err := strconv.ParseUint(field, 10, 32)
+		if err != nil || uiAttached(uint32(uid)) {
+			continue
+		}
+		if err := launchUIForUser(uint32(uid)); err != nil {
+			logger.Error("Failed to reopen the UI for uid %d after the update: %v", uid, err)
+		} else {
+			logger.Info("Reopened the UI for uid %d after the update", uid)
+		}
+	}
 }

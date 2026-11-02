@@ -33,6 +33,10 @@ type UpdateInfo struct {
 	Error           string `json:"error"`
 	BytesDownloaded uint64 `json:"bytesDownloaded"`
 	BytesTotal      uint64 `json:"bytesTotal"`
+	// Manual, when set, says how to update instead of installing in the app
+	// (Linux AUR and hand-installed builds), with ManualCommand to copy.
+	Manual        string `json:"manual"`
+	ManualCommand string `json:"manualCommand"`
 }
 
 var (
@@ -133,8 +137,10 @@ func offerUpdate() {
 	if err != nil {
 		logger.Error("Failed to get update version: %v", err)
 	}
+	manual, command := updater.ManualUpdate()
 	setUpdateInfo(func(info *UpdateInfo) {
-		*info = UpdateInfo{Phase: updatePhaseAvailable, Version: v, CurrentVersion: version.Number}
+		*info = UpdateInfo{Phase: updatePhaseAvailable, Version: v, CurrentVersion: version.Number,
+			Manual: manual, ManualCommand: command}
 	})
 }
 

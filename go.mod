@@ -7,6 +7,7 @@ require (
 	github.com/Microsoft/go-winio v0.6.4
 	github.com/fosrl/newt v1.19.0
 	github.com/fosrl/olm v1.10.2
+	github.com/godbus/dbus/v5 v5.2.4
 	github.com/pkg/browser v0.0.0-20240102092130-5ac0b6a4141c
 	github.com/wailsapp/wails/v3 v3.0.0
 	github.com/zalando/go-keyring v0.2.6
@@ -20,7 +21,6 @@ require (
 	github.com/coder/websocket v1.8.15 // indirect
 	github.com/danieljoos/wincred v1.2.3 // indirect
 	github.com/go-ole/go-ole v1.3.0 // indirect
-	github.com/godbus/dbus/v5 v5.2.4 // indirect
 	github.com/google/btree v1.1.3 // indirect
 	github.com/google/go-cmp v0.7.0 // indirect
 	github.com/google/nftables v0.3.0 // indirect

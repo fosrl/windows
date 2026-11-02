@@ -1,0 +1,41 @@
+name: Test
+
+# Vets and tests the code for Linux, and cross-compiles and vets it for Windows.
+
+on:
+  pull_request:
+  push:
+    branches: [main, linux]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+
+      - name: Install GTK and WebKitGTK
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq libgtk-3-dev libwebkit2gtk-4.1-dev
+
+      - name: Linux vet and tests
+        run: |
+          go vet -tags gtk3 ./...
+          go test -tags gtk3 ./...
+
+      - name: Windows vet and build
+        env:
+          GOOS: windows
+          GOARCH: amd64
+        run: |
+          # -unsafeptr=false: the service's WTS session callback converts
+          # EventData, which vet flags.
+          go vet -unsafeptr=false ./...
+          go build -tags production -o /dev/null .

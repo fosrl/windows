@@ -135,6 +135,7 @@ func (s *ManagerService) CheckForUpdates() (UpdateState, error) {
 }
 
 func (s *ManagerService) Update() {
+	prepareUpdateRestart()
 	progress := updater.DownloadVerifyAndExecute(uintptr(s.elevatedToken))
 	go func() {
 		for {

@@ -13,3 +13,7 @@ type userToken = windows.Token
 func postureForClient(snapshot fingerprint.DevicePostureSnapshot, clientUserKey string) fingerprint.DevicePostureSnapshot {
 	return snapshot
 }
+
+// prepareUpdateRestart is a no-op on Windows: the updater writes the
+// restart-ui flag itself before running the MSI.
+func prepareUpdateRestart() {}

@@ -1,0 +1,73 @@
+# Builds the deb, rpm and Arch packages: see "make package-linux".
+# VERSION, GOARCH and BINARY come from the environment.
+name: pangolin-client
+arch: ${GOARCH}
+platform: linux
+version: ${VERSION}
+version_schema: semver
+release: "1"
+section: net
+priority: optional
+maintainer: Fossorial, Inc. <support@pangolin.net>
+vendor: Fossorial, Inc.
+homepage: https://pangolin.net
+license: AGPL-3.0-only
+description: |
+  Pangolin client.
+  Connects this computer to your Pangolin networks, with a tray menu and
+  settings window. A background service manages the tunnel.
+
+overrides:
+  deb:
+    depends:
+      - libgtk-3-0t64 | libgtk-3-0
+      - libwebkit2gtk-4.1-0
+  rpm:
+    depends:
+      # Fedora names, or openSUSE's.
+      - (gtk3 or libgtk-3-0)
+      - (webkit2gtk4.1 or libwebkit2gtk-4_1-0)
+  archlinux:
+    depends:
+      - gtk3
+      - webkit2gtk-4.1
+
+contents:
+  - src: ${BINARY}
+    dst: /usr/bin/pangolin-client
+    expand: true
+    file_info:
+      mode: 0755
+  - src: packaging/linux/pangolin-client.service
+    dst: /usr/lib/systemd/system/pangolin-client.service
+  - src: packaging/linux/pangolin-client.desktop
+    dst: /usr/share/applications/pangolin-client.desktop
+  - src: packaging/linux/pangolin-client-autostart.desktop
+    dst: /etc/xdg/autostart/pangolin-client-autostart.desktop
+    type: config|noreplace
+  - src: packaging/linux/pangolin-client.png
+    dst: /usr/share/icons/hicolor/256x256/apps/pangolin-client.png
+  - src: packaging/linux/gnome-shell-extension/pangolin@pangolin.net/metadata.json
+    dst: /usr/share/gnome-shell/extensions/pangolin@pangolin.net/metadata.json
+  - src: packaging/linux/gnome-shell-extension/pangolin@pangolin.net/extension.js
+    dst: /usr/share/gnome-shell/extensions/pangolin@pangolin.net/extension.js
+  # Tells the in-app updater how this copy was installed.
+  - src: packaging/linux/package-format/deb
+    dst: /usr/share/pangolin-client/package-format
+    packager: deb
+  - src: packaging/linux/package-format/rpm
+    dst: /usr/share/pangolin-client/package-format
+    packager: rpm
+  - src: packaging/linux/package-format/archlinux
+    dst: /usr/share/pangolin-client/package-format
+    packager: archlinux
+
+scripts:
+  postinstall: packaging/linux/scripts/postinstall.sh
+  preremove: packaging/linux/scripts/preremove.sh
+  postremove: packaging/linux/scripts/postremove.sh
+
+archlinux:
+  packager: Fossorial, Inc. <support@pangolin.net>
+  scripts:
+    postupgrade: packaging/linux/scripts/postupgrade-arch.sh

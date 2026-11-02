@@ -7,6 +7,7 @@ import (
 
 	"github.com/fosrl/newt/logger"
 	"github.com/fosrl/windows/tunnel"
+	"github.com/fosrl/windows/updater"
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/services/notifications"
 )
@@ -85,6 +86,12 @@ func notifyUpdateAvailable(version string) {
 	body := "A new version of Pangolin is ready to install."
 	if version != "" {
 		body = fmt.Sprintf("Pangolin %s is ready to install.", version)
+	}
+	if manual, _ := updater.ManualUpdate(); manual != "" {
+		body = "A new version of Pangolin is available."
+		if version != "" {
+			body = fmt.Sprintf("Pangolin %s is available.", version)
+		}
 	}
 	if err := notifier.SendNotificationWithActions(notifications.NotificationOptions{
 		ID:         "pangolin-update",

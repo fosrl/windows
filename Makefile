@@ -1,4 +1,4 @@
-.PHONY: build build-debug build-linux install-linux uninstall-linux clean rsrc frontend bindings test help
+.PHONY: build build-debug build-linux package-linux install-linux uninstall-linux clean rsrc frontend bindings test help
 
 # Variables
 BINARY_NAME=Pangolin
@@ -13,6 +13,8 @@ LINUX_GOARCH ?= $(shell go env GOHOSTARCH)
 PREFIX ?= /usr/local
 LINUX_PKG_DIR=packaging/linux
 GNOME_EXTENSION_UUID=pangolin@pangolin.net
+VERSION ?= $(shell sed -n 's/.*Number *= *"\(.*\)".*/\1/p' version/version.go)
+NFPM ?= nfpm
 OLM_VERSION := $(shell go list -m -f '{{.Version}}' github.com/fosrl/olm | sed 's/^v//')
 OLM_LDFLAGS = -X github.com/fosrl/windows/version.OlmVersionOverride=$(OLM_VERSION)
 
@@ -40,6 +42,17 @@ build-linux: frontend
 	@mkdir -p $(BUILD_DIR)
 	CGO_ENABLED=1 GOOS=linux GOARCH=$(LINUX_GOARCH) go build -tags "gtk3 production" -ldflags="-s -w $(OLM_LDFLAGS)" -o $(BUILD_DIR)/$(LINUX_BINARY_NAME)
 	@echo "Build complete: $(BUILD_DIR)/$(LINUX_BINARY_NAME)"
+
+# Build the deb, rpm and Arch packages from the Linux binary with nfpm
+# (https://nfpm.goreleaser.com), as build/pangolin-client-<arch>-<version>.*.
+# The in-app updater looks for these names in the release manifest.
+package-linux: build-linux
+	@for fmt in deb rpm archlinux; do \
+		case $$fmt in deb) ext=deb;; rpm) ext=rpm;; archlinux) ext=pkg.tar.zst;; esac; \
+		out=$(BUILD_DIR)/$(LINUX_BINARY_NAME)-$(LINUX_GOARCH)-$(VERSION).$$ext; \
+		VERSION=$(VERSION) GOARCH=$(LINUX_GOARCH) BINARY=$(BUILD_DIR)/$(LINUX_BINARY_NAME) \
+			$(NFPM) pkg -f $(LINUX_PKG_DIR)/nfpm.yaml -p $$fmt -t $$out || exit 1; \
+	done
 
 # Install a Linux build for testing: the binary, the systemd service, the app
 # menu and autostart entries, and the GNOME Shell extension (enable it with
@@ -99,6 +112,7 @@ help:
 	@echo "  make build       - Build the Windows executable to build/ (GUI mode, no console)"
 	@echo "  make build-debug - Build with Wails devtools enabled"
 	@echo "  make build-linux - Build the Linux binary to build/ (needs gtk3, webkit2gtk-4.1)"
+	@echo "  make package-linux - Build the deb, rpm and Arch packages with nfpm"
 	@echo "  make install-linux - Install the Linux build and its systemd service (run as root)"
 	@echo "  make uninstall-linux - Remove what install-linux installed (run as root)"
 	@echo "  make frontend    - Build the webview frontend"

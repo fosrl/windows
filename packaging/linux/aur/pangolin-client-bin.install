@@ -1,0 +1,15 @@
+post_install() {
+  echo "Start the Pangolin background service with:"
+  echo "  sudo systemctl enable --now pangolin-client"
+  echo "On GNOME, log out and back in, then enable the top bar button with:"
+  echo "  gnome-extensions enable pangolin@pangolin.net"
+}
+
+post_upgrade() {
+  systemctl daemon-reload >/dev/null 2>&1 || true
+  systemctl try-restart pangolin-client.service >/dev/null 2>&1 || true
+}
+
+pre_remove() {
+  systemctl disable --now pangolin-client.service >/dev/null 2>&1 || true
+}
