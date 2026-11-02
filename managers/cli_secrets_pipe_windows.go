@@ -1,9 +1,6 @@
 package managers
 
 import (
-	"encoding/binary"
-	"encoding/json"
-	"io"
 	"net"
 	"syscall"
 	"unsafe"
@@ -13,12 +10,6 @@ import (
 )
 
 const cliSecretsPipePath = `\\.\pipe\pangolin-manager-cli-secrets`
-
-const (
-	cliSecretsStatusOK       uint32 = 0
-	cliSecretsStatusNotFound uint32 = 1
-	cliSecretsStatusError    uint32 = 2
-)
 
 var (
 	modKernel32                     = windows.NewLazySystemDLL("kernel32.dll")
@@ -45,31 +36,7 @@ func handleCLISecretsConn(conn net.Conn) {
 		return
 	}
 
-	userID, err := readCLISecretsUserID(conn)
-	if err != nil {
-		logger.Error("CLI secrets pipe: read user id failed: %v", err)
-		writeCLISecretsResponse(conn, cliSecretsStatusError, []byte("invalid request"))
-		return
-	}
-
-	secrets, err := secretStore.Load(windowsSID, userID)
-	if err != nil {
-		logger.Error("CLI secrets pipe: load secrets failed (userId=%s): %v", userID, err)
-		writeCLISecretsResponse(conn, cliSecretsStatusError, []byte(err.Error()))
-		return
-	}
-
-	if secrets.SessionToken == "" && secrets.OlmId == "" && secrets.OlmSecret == "" {
-		writeCLISecretsResponse(conn, cliSecretsStatusNotFound, []byte("{}"))
-		return
-	}
-
-	payload, err := json.Marshal(secrets)
-	if err != nil {
-		writeCLISecretsResponse(conn, cliSecretsStatusError, []byte("failed to encode secrets"))
-		return
-	}
-	writeCLISecretsResponse(conn, cliSecretsStatusOK, payload)
+	serveCLISecrets(conn, windowsSID)
 }
 
 func pipeClientWindowsSID(conn net.Conn) (string, error) {
@@ -105,27 +72,4 @@ func pipeClientWindowsSID(conn net.Conn) (string, error) {
 		return "", err
 	}
 	return user.User.Sid.String(), nil
-}
-
-func readCLISecretsUserID(conn net.Conn) (string, error) {
-	var length uint32
-	if err := binary.Read(conn, binary.LittleEndian, &length); err != nil {
-		return "", err
-	}
-	if length == 0 || length > 256 {
-		return "", io.ErrUnexpectedEOF
-	}
-	buf := make([]byte, length)
-	if _, err := io.ReadFull(conn, buf); err != nil {
-		return "", err
-	}
-	return string(buf), nil
-}
-
-func writeCLISecretsResponse(conn net.Conn, status uint32, payload []byte) {
-	_ = binary.Write(conn, binary.LittleEndian, status)
-	_ = binary.Write(conn, binary.LittleEndian, uint32(len(payload)))
-	if len(payload) > 0 {
-		_, _ = conn.Write(payload)
-	}
 }

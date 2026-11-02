@@ -32,6 +32,11 @@ import (
 const (
 	daemonRequestAttachUI byte = 'U' // reply: attachStatus, plus pipe FDs on success
 	daemonRequestUIAction byte = 'A' // followed by a uint32 UIAction; reply: 0 delivered, 1 no UI
+	// daemonRequestCLISecrets serves the Pangolin CLI's companion mode. It is
+	// followed by a uint32 UID, then the request in cli_secrets.go. The UID
+	// must be the caller's own, except that root (the CLI under sudo) may
+	// name the user it acts for.
+	daemonRequestCLISecrets byte = 'S'
 )
 
 // Replies to daemonRequestAttachUI.
@@ -145,6 +150,17 @@ func handleDaemonConn(conn *net.UnixConn) {
 			reply = 0
 		}
 		_, _ = conn.Write([]byte{reply})
+	case daemonRequestCLISecrets:
+		var forUID uint32
+		if err := binary.Read(conn, binary.LittleEndian, &forUID); err != nil {
+			return
+		}
+		if uid != 0 && forUID != uid {
+			logger.Error("Daemon: uid %d asked for the CLI secrets of uid %d", uid, forUID)
+			writeCLISecretsResponse(conn, cliSecretsStatusError, []byte("permission denied"))
+			return
+		}
+		serveCLISecrets(conn, strconv.FormatUint(uint64(forUID), 10))
 	default:
 		logger.Error("Daemon: unknown request %q from uid %d", request[0], uid)
 	}

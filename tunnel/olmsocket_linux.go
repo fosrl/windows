@@ -5,8 +5,9 @@ import (
 	"net"
 )
 
-// OLMSocketPath is the Unix socket OLM serves its API on. /run/pangolin-client
-// is root-only, so only the daemon can reach it.
+// OLMSocketPath is the Unix socket OLM serves its API on. OLM makes it
+// world-writable, as the Windows pipe allows Everyone, so the Pangolin CLI
+// can show and stop this app's tunnel.
 const OLMSocketPath = "/run/pangolin-client/olm.sock"
 
 func dialOLM(ctx context.Context) (net.Conn, error) {
