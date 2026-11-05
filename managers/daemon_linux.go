@@ -54,6 +54,8 @@ func daemonSocketPath() string {
 
 type attachedUI struct {
 	done chan struct{}
+	// subject names the UI process to polkit: "pid,start-time,uid".
+	subject string
 }
 
 var (
@@ -126,7 +128,7 @@ func handleDaemonConn(conn *net.UnixConn) {
 	defer conn.Close()
 	_ = conn.SetDeadline(time.Now().Add(10 * time.Second))
 
-	uid, err := peerUID(conn)
+	uid, pid, err := peerCred(conn)
 	if err != nil {
 		logger.Error("Daemon: failed to read peer credentials: %v", err)
 		return
@@ -137,7 +139,7 @@ func handleDaemonConn(conn *net.UnixConn) {
 	}
 	switch request[0] {
 	case daemonRequestAttachUI:
-		attachUI(conn, uid)
+		attachUI(conn, uid, pid)
 	case daemonRequestUIAction:
 		var action uint32
 		if err := binary.Read(conn, binary.LittleEndian, &action); err != nil {
@@ -166,22 +168,23 @@ func handleDaemonConn(conn *net.UnixConn) {
 	}
 }
 
-func peerUID(conn *net.UnixConn) (uint32, error) {
+// peerCred returns the UID and PID of the process on the other end of conn.
+func peerCred(conn *net.UnixConn) (uid uint32, pid int32, err error) {
 	raw, err := conn.SyscallConn()
 	if err != nil {
-		return 0, err
+		return 0, 0, err
 	}
 	var cred *unix.Ucred
 	var credErr error
 	if err := raw.Control(func(fd uintptr) {
 		cred, credErr = unix.GetsockoptUcred(int(fd), unix.SOL_SOCKET, unix.SO_PEERCRED)
 	}); err != nil {
-		return 0, err
+		return 0, 0, err
 	}
 	if credErr != nil {
-		return 0, credErr
+		return 0, 0, credErr
 	}
-	return cred.Uid, nil
+	return cred.Uid, cred.Pid, nil
 }
 
 func uiAttached(uid uint32) bool {
@@ -193,7 +196,7 @@ func uiAttached(uid uint32) bool {
 
 // attachUI connects a UI process to the IPC server. Each user gets one UI;
 // a second one is told the first is running.
-func attachUI(conn *net.UnixConn, uid uint32) {
+func attachUI(conn *net.UnixConn, uid uint32, pid int32) {
 	attachedUIsLock.Lock()
 	if daemonStopping {
 		attachedUIsLock.Unlock()
@@ -205,7 +208,7 @@ func attachUI(conn *net.UnixConn, uid uint32) {
 		_, _ = conn.Write([]byte{attachAlreadyRunning})
 		return
 	}
-	ui := &attachedUI{done: make(chan struct{})}
+	ui := &attachedUI{done: make(chan struct{}), subject: polkitSubject(pid, uid)}
 	attachedUIs[uid] = ui
 	attachedUIsLock.Unlock()
 

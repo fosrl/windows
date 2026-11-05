@@ -45,6 +45,8 @@ contents:
   - src: packaging/linux/pangolin-client-autostart.desktop
     dst: /etc/xdg/autostart/pangolin-client-autostart.desktop
     type: config|noreplace
+  - src: packaging/linux/net.pangolin.client.policy
+    dst: /usr/share/polkit-1/actions/net.pangolin.client.policy
   - src: packaging/linux/pangolin-client.png
     dst: /usr/share/icons/hicolor/256x256/apps/pangolin-client.png
   - src: packaging/linux/gnome-shell-extension/pangolin@pangolin.net/metadata.json

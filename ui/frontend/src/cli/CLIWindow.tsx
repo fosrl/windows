@@ -27,7 +27,7 @@ export function CLIWindow() {
       body = (
         <div className="mt-3 flex flex-col gap-1.5">
           <ProgressBar />
-          <div className="text-[11px] text-mac-secondary">Downloading the installer, then running setup.</div>
+          <div className="text-[11px] text-mac-secondary">Downloading the CLI, then installing it.</div>
         </div>
       );
       buttons = <Button onClick={close}>Hide</Button>;
@@ -62,7 +62,7 @@ export function CLIWindow() {
       title = "Install the Pangolin CLI?";
       body = (
         <DialogMessage>
-          This downloads the latest Pangolin CLI installer and runs it. The CLI lets you manage your connection with
+          This downloads and installs the latest Pangolin CLI. The CLI lets you manage your connection with
           the <code className="font-mono text-[12px] text-mac-label">pangolin</code> command in a terminal.
         </DialogMessage>
       );

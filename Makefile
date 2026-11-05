@@ -67,6 +67,7 @@ install-linux:
 	install -Dm644 $(LINUX_PKG_DIR)/pangolin-client.desktop $(DESTDIR)$(PREFIX)/share/applications/pangolin-client.desktop
 	install -Dm644 $(LINUX_PKG_DIR)/pangolin-client-autostart.desktop $(DESTDIR)/etc/xdg/autostart/pangolin-client-autostart.desktop
 	install -Dm644 $(LINUX_PKG_DIR)/pangolin-client.png $(DESTDIR)$(PREFIX)/share/icons/hicolor/256x256/apps/pangolin-client.png
+	install -Dm644 $(LINUX_PKG_DIR)/net.pangolin.client.policy $(DESTDIR)/usr/share/polkit-1/actions/net.pangolin.client.policy
 	install -Dm644 -t $(DESTDIR)$(PREFIX)/share/gnome-shell/extensions/$(GNOME_EXTENSION_UUID) $(LINUX_PKG_DIR)/gnome-shell-extension/$(GNOME_EXTENSION_UUID)/*
 	-systemctl daemon-reload
 
@@ -75,6 +76,7 @@ uninstall-linux:
 	rm -f $(DESTDIR)$(PREFIX)/bin/$(LINUX_BINARY_NAME) $(DESTDIR)/etc/systemd/system/pangolin-client.service
 	rm -f $(DESTDIR)$(PREFIX)/share/applications/pangolin-client.desktop $(DESTDIR)/etc/xdg/autostart/pangolin-client-autostart.desktop
 	rm -f $(DESTDIR)$(PREFIX)/share/icons/hicolor/256x256/apps/pangolin-client.png
+	rm -f $(DESTDIR)/usr/share/polkit-1/actions/net.pangolin.client.policy
 	rm -rf $(DESTDIR)$(PREFIX)/share/gnome-shell/extensions/$(GNOME_EXTENSION_UUID)
 	-systemctl daemon-reload
 

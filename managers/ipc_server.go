@@ -153,10 +153,11 @@ func (s *ManagerService) IsCLIInstalled() bool {
 }
 
 func (s *ManagerService) InstallCLI() error {
-	if s.elevatedToken == 0 {
-		return errors.New("manager is not running with elevated privileges")
+	token, err := authorizeCLIInstall(s)
+	if err != nil {
+		return err
 	}
-	return InstallCLI(uintptr(s.elevatedToken))
+	return InstallCLI(uintptr(token))
 }
 
 func (s *ManagerService) StartTunnel(config tunnel.Config) error {
