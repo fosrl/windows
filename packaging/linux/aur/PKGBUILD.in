@@ -28,4 +28,7 @@ package() {
   [[ $CARCH == aarch64 ]] && goarch=arm64
   bsdtar -xf "${srcdir}/pangolin-client-${goarch}-${pkgver}.pkg.tar.zst" -C "${pkgdir}" \
     --exclude=.PKGINFO --exclude=.MTREE --exclude=.BUILDINFO --exclude=.INSTALL
+  # The AUR helper updates this package, so the app shows its command
+  # instead of installing updates itself.
+  echo aur > "${pkgdir}/usr/share/pangolin-client/package-format"
 }

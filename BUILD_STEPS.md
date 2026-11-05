@@ -149,8 +149,9 @@ does), so they run on Ubuntu 22.04+, Debian 12+, Fedora and Arch. RHEL 9 and its
 rebuilds don't ship WebKitGTK 4.1, so they can't install the package.
 
 Each package installs the binary, the `pangolin-client` systemd service (enabled
-and started on deb and rpm installs; Arch prints the command), the app menu and
-autostart entries, and the GNOME Shell extension.
+and started on install), the app menu and autostart entries, and the GNOME Shell
+extension. Arch users install the `.pkg.tar.zst` from the release with
+`sudo pacman -U <file>`.
 
 ### 3. Manifest
 
@@ -171,15 +172,18 @@ The manifest points at the packages on the GitHub release by default (set
 2. Upload `linux-latest.sig` to the update server as `/linux-client/latest.sig`
    (`latestVersionPath` in `updater/constants_linux.go`).
 3. Publishing the release runs `.github/workflows/aur.yml`, which updates the
-   `pangolin-client-bin` AUR package when the `AUR_SSH_PRIVATE_KEY` secret is set.
+   `pangolin-client-bin` AUR package when the `AUR_SSH_PRIVATE_KEY` secret is set
+   (not set up yet: there is no AUR account).
 
 ### How Linux Updates Install
 
-The daemon checks the Linux manifest like the Windows manager does. On deb and rpm
-installs, an administrator (root or a member of `sudo`, `wheel` or `admin`) can
+The daemon checks the Linux manifest like the Windows manager does. On deb, rpm
+and Arch installs, an administrator (root or a member of `sudo`, `wheel` or `admin`) can
 install an update from the app: the daemon downloads the package, checks its
 hash against the signed manifest, and installs it with `apt-get`, `dnf`,
-`zypper` or `rpm` in a transient systemd unit (`pangolin-client-update-*`), so the
+`zypper`, `rpm` or `pacman -U` in a transient systemd unit (`pangolin-client-update-*`), so the
 install survives the package restarting the daemon. The new daemon reopens the
-UIs that were open. The AUR package and hand-installed builds show the command
-or download link instead (`updater.ManualUpdate`).
+UIs that were open. The AUR package (which marks itself `aur` in
+`/usr/share/pangolin-client/package-format`, as its AUR helper updates it) and
+hand-installed builds show the command or download link instead
+(`updater.ManualUpdate`).

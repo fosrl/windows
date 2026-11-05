@@ -23,10 +23,10 @@ import (
 )
 
 // Linux updates use the same signed manifest scheme as Windows: a signify
-// signed list of BLAKE2b-256 hashes at latestVersionPath. deb and rpm
+// signed list of BLAKE2b-256 hashes at latestVersionPath. deb, rpm and Arch
 // installs download the package, check its hash and install it through the
 // system package manager. The install runs in its own transient systemd unit,
-// because the package restarts this daemon partway through. Arch (AUR) and
+// because the package restarts this daemon partway through. AUR and
 // hand-installed builds are told how to update instead; see ManualUpdate.
 
 const (
@@ -99,13 +99,14 @@ func CheckForUpdate() (*UpdateFound, error) {
 }
 
 // ManualUpdate returns instructions, and a command where there is one, for
-// installs that can't update in the app: the AUR package and builds
-// installed by hand. Both are empty when the app can install updates.
+// installs that can't update in the app: the AUR package, which its AUR
+// helper keeps up to date, and builds installed by hand. Both are empty when
+// the app can install updates.
 func ManualUpdate() (instructions, command string) {
 	switch packageFormat() {
-	case formatDeb, formatRPM:
+	case formatDeb, formatRPM, formatArch:
 		return "", ""
-	case formatArch:
+	case formatAUR:
 		return "Pangolin was installed from the AUR. Update the pangolin-client-bin package with your AUR helper, for example:",
 			"yay -Syu pangolin-client-bin"
 	default:
@@ -275,6 +276,10 @@ func installCommand(path string) ([]string, error) {
 			return []string{"yum", "install", "-y", "--nogpgcheck", path}, nil
 		}
 		return []string{"rpm", "-U", "--replacepkgs", path}, nil
+	case formatArch:
+		// pacman accepts the unsigned package under its default
+		// LocalFileSigLevel; its hash was checked against the signed manifest.
+		return []string{"pacman", "-U", "--noconfirm", path}, nil
 	}
 	return nil, errors.New("this copy of Pangolin can't install updates itself")
 }

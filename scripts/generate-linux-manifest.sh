@@ -1,12 +1,12 @@
 #!/bin/bash
-# Generate the Linux update manifest: BLAKE2b-256 hashes of the deb and rpm
-# packages, with where to download each, in build/linux/filelist.txt.
+# Generate the Linux update manifest: BLAKE2b-256 hashes of the deb, rpm and
+# Arch packages, with where to download each, in build/linux/filelist.txt.
 # Sign it with: ./sign-manifest.sh <secret-key-file> build/linux
 # and upload build/linux/latest.sig to /linux-client/latest.sig on the update
 # server (see updater/constants_linux.go).
 #
 # Usage: ./generate-linux-manifest.sh [package files...]
-#   With no files, uses build/pangolin-client-*-*.deb and .rpm.
+#   With no files, uses build/pangolin-client-*-*.deb, .rpm and .pkg.tar.zst.
 #
 # Optional environment variables:
 #   DOWNLOAD_LOCATION_TEMPLATE: as in generate-manifest.sh, with %s for the
@@ -25,7 +25,8 @@ command -v b2sum >/dev/null || { echo "Error: b2sum is not installed." >&2; exit
 
 if [ $# -eq 0 ]; then
     shopt -s nullglob
-    set -- "${BUILD_DIR}"/pangolin-client-*-*.deb "${BUILD_DIR}"/pangolin-client-*-*.rpm
+    set -- "${BUILD_DIR}"/pangolin-client-*-*.deb "${BUILD_DIR}"/pangolin-client-*-*.rpm \
+        "${BUILD_DIR}"/pangolin-client-*-*.pkg.tar.zst
     [ $# -gt 0 ] || { echo "Error: no packages in ${BUILD_DIR}; run make package-linux" >&2; exit 1; }
 fi
 
@@ -35,8 +36,8 @@ placeholders=$(printf '%s' "${TEMPLATE}" | grep -o '%s' | wc -l)
 
 for PKG in "$@"; do
     NAME=$(basename "${PKG}")
-    # pangolin-client-<arch>-<version>.(deb|rpm)
-    VERSION=$(echo "${NAME}" | sed -nE 's/^pangolin-client-[^-]+-(.+)\.(deb|rpm)$/\1/p')
+    # pangolin-client-<arch>-<version>.(deb|rpm|pkg.tar.zst)
+    VERSION=$(echo "${NAME}" | sed -nE 's/^pangolin-client-[^-]+-(.+)\.(deb|rpm|pkg\.tar\.zst)$/\1/p')
     [ -n "${VERSION}" ] || { echo "Error: unexpected file name ${NAME}" >&2; exit 1; }
     HASH=$(b2sum -l 256 "${PKG}" | awk '{print $1}')
     case "${placeholders}" in
