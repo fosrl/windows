@@ -1,4 +1,4 @@
-module github.com/fosrl/windows
+module github.com/fosrl/windows-linux
 
 go 1.26.0
 

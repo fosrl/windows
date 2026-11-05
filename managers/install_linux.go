@@ -13,7 +13,7 @@ import (
 	"time"
 
 	"github.com/fosrl/newt/logger"
-	"github.com/fosrl/windows/config"
+	"github.com/fosrl/windows-linux/config"
 )
 
 // On Linux each tunnel runs as a child process of the daemon,

@@ -9,8 +9,8 @@ import (
 	"github.com/fosrl/newt/logger"
 
 	olmpkg "github.com/fosrl/olm/olm"
-	configpkg "github.com/fosrl/windows/config"
-	"github.com/fosrl/windows/version"
+	configpkg "github.com/fosrl/windows-linux/config"
+	"github.com/fosrl/windows-linux/version"
 )
 
 // tunnelService is one running tunnel: a Windows service on Windows, a child

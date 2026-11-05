@@ -2,11 +2,11 @@ package main
 
 import (
 	"github.com/fosrl/newt/logger"
-	"github.com/fosrl/windows/api"
-	"github.com/fosrl/windows/auth"
-	"github.com/fosrl/windows/config"
-	"github.com/fosrl/windows/secrets"
-	"github.com/fosrl/windows/ui"
+	"github.com/fosrl/windows-linux/api"
+	"github.com/fosrl/windows-linux/auth"
+	"github.com/fosrl/windows-linux/config"
+	"github.com/fosrl/windows-linux/secrets"
+	"github.com/fosrl/windows-linux/ui"
 )
 
 // runUI creates the managers the UI works with and runs the tray UI until it

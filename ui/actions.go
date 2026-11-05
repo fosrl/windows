@@ -5,8 +5,8 @@ import (
 	"strings"
 
 	"github.com/fosrl/newt/logger"
-	"github.com/fosrl/windows/managers"
-	"github.com/fosrl/windows/tunnel"
+	"github.com/fosrl/windows-linux/managers"
+	"github.com/fosrl/windows-linux/tunnel"
 	"github.com/pkg/browser"
 )
 

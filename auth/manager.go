@@ -8,10 +8,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/fosrl/windows/api"
-	"github.com/fosrl/windows/config"
-	"github.com/fosrl/windows/secrets"
-	"github.com/fosrl/windows/version"
+	"github.com/fosrl/windows-linux/api"
+	"github.com/fosrl/windows-linux/config"
+	"github.com/fosrl/windows-linux/secrets"
+	"github.com/fosrl/windows-linux/version"
 
 	"github.com/fosrl/newt/logger"
 )

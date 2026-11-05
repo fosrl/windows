@@ -5,9 +5,9 @@ import (
 	_ "unsafe"
 
 	"github.com/fosrl/newt/logger"
-	"github.com/fosrl/windows/config"
-	"github.com/fosrl/windows/services"
-	"github.com/fosrl/windows/updater"
+	"github.com/fosrl/windows-linux/config"
+	"github.com/fosrl/windows-linux/services"
+	"github.com/fosrl/windows-linux/updater"
 )
 
 //go:linkname fastrandn runtime.fastrandn

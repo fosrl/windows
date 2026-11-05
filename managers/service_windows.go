@@ -16,7 +16,7 @@ import (
 
 	"github.com/Microsoft/go-winio"
 	"github.com/fosrl/newt/logger"
-	"github.com/fosrl/windows/config"
+	"github.com/fosrl/windows-linux/config"
 	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/svc"
 )

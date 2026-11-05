@@ -15,22 +15,22 @@ import { Call as $Call, CancellablePromise as $CancellablePromise } from "@wails
 import * as $models from "./models.js";
 
 export function Hide(): $CancellablePromise<void> {
-    return $Call.ByID(2876902081);
+    return $Call.ByID(1460983014);
 }
 
 /**
  * HideReady is called once the popup has painted itself transparent for hiding.
  */
 export function HideReady(): $CancellablePromise<void> {
-    return $Call.ByID(1975564104);
+    return $Call.ByID(1852813317);
 }
 
 export function Invoke(id: string): $CancellablePromise<void> {
-    return $Call.ByID(2561977761, id);
+    return $Call.ByID(3111089974, id);
 }
 
 export function Layout(): $CancellablePromise<$models.TrayLayout> {
-    return $Call.ByID(1064267347);
+    return $Call.ByID(1986323808);
 }
 
 /**
@@ -38,11 +38,11 @@ export function Layout(): $CancellablePromise<$models.TrayLayout> {
  * the window height it needs.
  */
 export function OpenReady(height: number): $CancellablePromise<void> {
-    return $Call.ByID(3316759108, height);
+    return $Call.ByID(1961489253, height);
 }
 
 export function Resize(height: number): $CancellablePromise<void> {
-    return $Call.ByID(662057829, height);
+    return $Call.ByID(258867098, height);
 }
 
 /**
@@ -50,9 +50,9 @@ export function Resize(height: number): $CancellablePromise<void> {
  * status is only polled while it is on screen.
  */
 export function SetSitesVisible(visible: boolean): $CancellablePromise<void> {
-    return $Call.ByID(2059415649, visible);
+    return $Call.ByID(507716108, visible);
 }
 
 export function State(): $CancellablePromise<$models.MenuState> {
-    return $Call.ByID(3291030602);
+    return $Call.ByID(2933014747);
 }

@@ -16,7 +16,7 @@ GNOME_EXTENSION_UUID=pangolin@pangolin.net
 VERSION ?= $(shell sed -n 's/.*Number *= *"\(.*\)".*/\1/p' version/version.go)
 NFPM ?= nfpm
 OLM_VERSION := $(shell go list -m -f '{{.Version}}' github.com/fosrl/olm | sed 's/^v//')
-OLM_LDFLAGS = -X github.com/fosrl/windows/version.OlmVersionOverride=$(OLM_VERSION)
+OLM_LDFLAGS = -X github.com/fosrl/windows-linux/version.OlmVersionOverride=$(OLM_VERSION)
 
 # Default target
 all: clean rsrc build

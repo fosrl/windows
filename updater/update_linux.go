@@ -17,8 +17,8 @@ import (
 	"time"
 
 	"github.com/fosrl/newt/logger"
-	"github.com/fosrl/windows/config"
-	"github.com/fosrl/windows/version"
+	"github.com/fosrl/windows-linux/config"
+	"github.com/fosrl/windows-linux/version"
 	"golang.org/x/crypto/blake2b"
 )
 
@@ -111,7 +111,7 @@ func ManualUpdate() (instructions, command string) {
 			"yay -Syu pangolin-client-bin"
 	default:
 		return "This copy of Pangolin wasn't installed from a package. Download the new version from:",
-			"https://github.com/fosrl/windows/releases/latest"
+			"https://github.com/fosrl/windows-linux/releases/latest"
 	}
 }
 

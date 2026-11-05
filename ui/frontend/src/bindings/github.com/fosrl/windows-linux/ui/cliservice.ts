@@ -15,13 +15,13 @@ import { Call as $Call, CancellablePromise as $CancellablePromise } from "@wails
 import * as $models from "./models.js";
 
 export function Close(): $CancellablePromise<void> {
-    return $Call.ByID(2692646730);
+    return $Call.ByID(2935271841);
 }
 
 export function Install(): $CancellablePromise<void> {
-    return $Call.ByID(4217032069);
+    return $Call.ByID(4046249914);
 }
 
 export function State(): $CancellablePromise<$models.CLIInfo> {
-    return $Call.ByID(3612442787);
+    return $Call.ByID(4243488188);
 }

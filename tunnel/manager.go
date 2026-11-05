@@ -12,9 +12,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/fosrl/windows/auth"
-	"github.com/fosrl/windows/config"
-	"github.com/fosrl/windows/secrets"
+	"github.com/fosrl/windows-linux/config"
+	"github.com/fosrl/windows-linux/auth"
+	"github.com/fosrl/windows-linux/secrets"
 
 	"github.com/fosrl/newt/logger"
 )

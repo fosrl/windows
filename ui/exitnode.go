@@ -6,9 +6,9 @@ import (
 	"sync"
 
 	"github.com/fosrl/newt/logger"
-	"github.com/fosrl/windows/api"
-	"github.com/fosrl/windows/config"
-	"github.com/fosrl/windows/tunnel"
+	"github.com/fosrl/windows-linux/config"
+	"github.com/fosrl/windows-linux/api"
+	"github.com/fosrl/windows-linux/tunnel"
 )
 
 // Exit nodes are the org's gateway-mode site resources. Selecting one routes

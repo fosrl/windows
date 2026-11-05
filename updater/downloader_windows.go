@@ -17,10 +17,10 @@ import (
 	"golang.org/x/sys/windows"
 
 	"github.com/fosrl/newt/logger"
-	"github.com/fosrl/windows/config"
-	"github.com/fosrl/windows/elevate"
-	"github.com/fosrl/windows/updater/winhttp"
-	"github.com/fosrl/windows/version"
+	"github.com/fosrl/windows-linux/elevate"
+	"github.com/fosrl/windows-linux/config"
+	"github.com/fosrl/windows-linux/updater/winhttp"
+	"github.com/fosrl/windows-linux/version"
 )
 
 func CheckForUpdate() (updateFound *UpdateFound, err error) {

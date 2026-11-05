@@ -3,7 +3,7 @@ package updater
 import (
 	"fmt"
 
-	"github.com/fosrl/windows/version"
+	"github.com/fosrl/windows-linux/version"
 )
 
 const (

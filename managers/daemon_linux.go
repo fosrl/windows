@@ -17,8 +17,8 @@ import (
 	"time"
 
 	"github.com/fosrl/newt/logger"
-	"github.com/fosrl/windows/config"
-	"github.com/fosrl/windows/updater"
+	"github.com/fosrl/windows-linux/config"
+	"github.com/fosrl/windows-linux/updater"
 	"golang.org/x/sys/unix"
 )
 

@@ -4,7 +4,7 @@ import (
 	"sync"
 
 	"github.com/fosrl/newt/logger"
-	"github.com/fosrl/windows/managers/secretstore"
+	"github.com/fosrl/windows-linux/managers/secretstore"
 )
 
 var credentialMigrationOnce sync.Once

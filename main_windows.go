@@ -9,11 +9,11 @@ import (
 	"time"
 	"unsafe"
 
-	"github.com/fosrl/windows/config"
-	"github.com/fosrl/windows/elevate"
-	"github.com/fosrl/windows/managers"
-	"github.com/fosrl/windows/ui"
-	"github.com/fosrl/windows/version"
+	"github.com/fosrl/windows-linux/config"
+	"github.com/fosrl/windows-linux/elevate"
+	"github.com/fosrl/windows-linux/managers"
+	"github.com/fosrl/windows-linux/ui"
+	"github.com/fosrl/windows-linux/version"
 
 	"github.com/fosrl/newt/logger"
 	"golang.org/x/sys/windows"

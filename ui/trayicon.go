@@ -6,9 +6,9 @@ import (
 	"sync"
 
 	"github.com/fosrl/newt/logger"
-	"github.com/fosrl/windows/config"
-	"github.com/fosrl/windows/icons"
-	"github.com/fosrl/windows/tunnel"
+	"github.com/fosrl/windows-linux/icons"
+	"github.com/fosrl/windows-linux/config"
+	"github.com/fosrl/windows-linux/tunnel"
 )
 
 // overlayTrayIcon lazily composes the gray icon with a colored badge.

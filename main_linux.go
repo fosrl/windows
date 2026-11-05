@@ -6,9 +6,9 @@ import (
 	"os"
 
 	"github.com/fosrl/newt/logger"
-	"github.com/fosrl/windows/config"
-	"github.com/fosrl/windows/managers"
-	"github.com/fosrl/windows/version"
+	"github.com/fosrl/windows-linux/config"
+	"github.com/fosrl/windows-linux/managers"
+	"github.com/fosrl/windows-linux/version"
 )
 
 const usage = `Usage: pangolin-client [--autostart]

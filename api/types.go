@@ -1,6 +1,6 @@
 package api
 
-import "github.com/fosrl/windows/config"
+import "github.com/fosrl/windows-linux/config"
 
 // APIResponse is the wrapper structure for all API responses
 type APIResponse[T any] struct {

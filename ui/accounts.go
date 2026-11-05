@@ -6,8 +6,8 @@ import (
 	"strings"
 
 	"github.com/fosrl/newt/logger"
-	"github.com/fosrl/windows/auth"
-	"github.com/fosrl/windows/managers"
+	"github.com/fosrl/windows-linux/auth"
+	"github.com/fosrl/windows-linux/managers"
 )
 
 // AccountRow is one account in Preferences > Accounts.

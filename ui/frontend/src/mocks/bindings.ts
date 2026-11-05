@@ -11,9 +11,9 @@ import type {
   StatusView,
   TrayLayout,
   UpdateInfo,
-} from "../bindings/github.com/fosrl/windows/ui/models";
+} from "../bindings/github.com/fosrl/windows-linux/ui/models";
 
-export type * from "../bindings/github.com/fosrl/windows/ui/models";
+export type * from "../bindings/github.com/fosrl/windows-linux/ui/models";
 import { Events } from "./runtime";
 
 const params = new URLSearchParams(window.location.search);

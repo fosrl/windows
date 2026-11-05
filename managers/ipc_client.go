@@ -7,10 +7,10 @@ import (
 	"sync"
 
 	"github.com/fosrl/newt/logger"
-	"github.com/fosrl/windows/fingerprint"
-	"github.com/fosrl/windows/managers/secretstore"
-	"github.com/fosrl/windows/tunnel"
-	"github.com/fosrl/windows/updater"
+	"github.com/fosrl/windows-linux/fingerprint"
+	"github.com/fosrl/windows-linux/updater"
+	"github.com/fosrl/windows-linux/managers/secretstore"
+	"github.com/fosrl/windows-linux/tunnel"
 )
 
 // TunnelConfig is exported for use in UI

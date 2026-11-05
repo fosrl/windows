@@ -7,9 +7,9 @@ import (
 	"time"
 
 	"github.com/fosrl/newt/logger"
-	"github.com/fosrl/windows/config"
-	"github.com/fosrl/windows/icons"
-	"github.com/fosrl/windows/ui/sni"
+	"github.com/fosrl/windows-linux/icons"
+	"github.com/fosrl/windows-linux/config"
+	"github.com/fosrl/windows-linux/ui/sni"
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/events"
 )

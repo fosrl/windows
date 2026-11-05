@@ -6,9 +6,9 @@ import (
 	"sync/atomic"
 
 	"github.com/fosrl/newt/logger"
-	"github.com/fosrl/windows/managers"
-	"github.com/fosrl/windows/updater"
-	"github.com/fosrl/windows/version"
+	"github.com/fosrl/windows-linux/version"
+	"github.com/fosrl/windows-linux/managers"
+	"github.com/fosrl/windows-linux/updater"
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
 

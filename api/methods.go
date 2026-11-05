@@ -9,8 +9,8 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/fosrl/windows/config"
-	"github.com/fosrl/windows/version"
+	"github.com/fosrl/windows-linux/config"
+	"github.com/fosrl/windows-linux/version"
 )
 
 // Login authenticates a user with email and password

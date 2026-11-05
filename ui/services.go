@@ -4,7 +4,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/fosrl/windows/version"
+	"github.com/fosrl/windows-linux/version"
 )
 
 // Services bound to the frontend. Each method runs on its own goroutine, so

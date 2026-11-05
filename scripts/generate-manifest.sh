@@ -10,7 +10,7 @@
 #     - Example: "https://github.com/owner/repo/releases/download/v%s/%s" (version + filename)
 #     - Example: "https://example.com/downloads/%s" (filename only)
 #     - Example: "/windows-client/%s" (relative path on update server)
-#     - If unset, uses default: https://github.com/fosrl/windows/releases/download/%s/%s
+#     - If unset, uses default: https://github.com/fosrl/windows-linux/releases/download/%s/%s
 
 set -e
 
@@ -34,7 +34,7 @@ fi
 mkdir -p "${BUILD_DIR}"
 
 # Default download location template (can be overridden by environment variable)
-DEFAULT_DOWNLOAD_LOCATION_TEMPLATE="https://github.com/fosrl/windows/releases/download/%s/%s"
+DEFAULT_DOWNLOAD_LOCATION_TEMPLATE="https://github.com/fosrl/windows-linux/releases/download/%s/%s"
 
 # Use environment variable if set, otherwise use default
 DOWNLOAD_LOCATION_TEMPLATE="${DOWNLOAD_LOCATION_TEMPLATE:-${DEFAULT_DOWNLOAD_LOCATION_TEMPLATE}}"

@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/fosrl/newt/logger"
-	"github.com/fosrl/windows/version"
+	"github.com/fosrl/windows-linux/version"
 )
 
 const (

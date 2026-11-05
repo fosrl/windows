@@ -8,12 +8,12 @@ import (
 	"time"
 
 	"github.com/fosrl/newt/logger"
-	"github.com/fosrl/windows/api"
-	"github.com/fosrl/windows/auth"
-	"github.com/fosrl/windows/config"
-	"github.com/fosrl/windows/managers"
-	"github.com/fosrl/windows/tunnel"
-	"github.com/fosrl/windows/version"
+	"github.com/fosrl/windows-linux/api"
+	"github.com/fosrl/windows-linux/config"
+	"github.com/fosrl/windows-linux/auth"
+	"github.com/fosrl/windows-linux/managers"
+	"github.com/fosrl/windows-linux/tunnel"
+	"github.com/fosrl/windows-linux/version"
 )
 
 // Event names emitted to the frontend.

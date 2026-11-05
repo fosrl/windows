@@ -15,9 +15,9 @@ import { Call as $Call, CancellablePromise as $CancellablePromise } from "@wails
 import * as $models from "./models.js";
 
 export function Info(): $CancellablePromise<$models.AppInfo> {
-    return $Call.ByID(801984083);
+    return $Call.ByID(513327722);
 }
 
 export function OpenURL(url: string): $CancellablePromise<void> {
-    return $Call.ByID(3758435148, url);
+    return $Call.ByID(1326431907, url);
 }

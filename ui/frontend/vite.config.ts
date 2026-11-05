@@ -17,7 +17,7 @@ export default defineConfig(({ mode }) => ({
             "@wailsio/runtime": path("./src/mocks/runtime.ts"),
           }
         : {
-            "@bindings": path("./src/bindings/github.com/fosrl/windows/ui"),
+            "@bindings": path("./src/bindings/github.com/fosrl/windows-linux/ui"),
           },
   },
   build: {

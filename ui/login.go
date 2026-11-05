@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/fosrl/newt/logger"
-	"github.com/fosrl/windows/managers"
+	"github.com/fosrl/windows-linux/managers"
 )
 
 const cloudHostname = "https://app.pangolin.net"

@@ -6,8 +6,8 @@ import (
 	"sync/atomic"
 
 	"github.com/fosrl/newt/logger"
-	"github.com/fosrl/windows/tunnel"
-	"github.com/fosrl/windows/updater"
+	"github.com/fosrl/windows-linux/tunnel"
+	"github.com/fosrl/windows-linux/updater"
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/services/notifications"
 )

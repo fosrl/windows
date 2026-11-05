@@ -10,8 +10,8 @@ import (
 
 	"git.sr.ht/~jackmordaunt/go-toast/v2/wintoast"
 	"github.com/fosrl/newt/logger"
-	"github.com/fosrl/windows/config"
-	"github.com/fosrl/windows/managers"
+	"github.com/fosrl/windows-linux/config"
+	"github.com/fosrl/windows-linux/managers"
 	"github.com/wailsapp/wails/v3/pkg/services/notifications"
 	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/registry"
