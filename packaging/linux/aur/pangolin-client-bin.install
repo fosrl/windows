@@ -1,6 +1,8 @@
 post_install() {
-  echo "Start the Pangolin background service with:"
-  echo "  sudo systemctl enable --now pangolin-client"
+  if [ -d /run/systemd/system ]; then
+    systemctl daemon-reload >/dev/null 2>&1 || true
+    systemctl enable --now pangolin-client.service >/dev/null 2>&1 || true
+  fi
   echo "On GNOME, log out and back in, then enable the top bar button with:"
   echo "  gnome-extensions enable pangolin@pangolin.net"
 }
