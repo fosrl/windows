@@ -7,15 +7,15 @@ name: AUR
 # - AUR_SSH_PRIVATE_KEY: SSH key of an AUR account that maintains
 #   pangolin-client-bin. Without it the PKGBUILD is only kept as an artifact.
 
-# on:
-#   release:
-#     types: [published]
-#   workflow_dispatch:
-#     inputs:
-#       tag:
-#         description: "Published release to package (X.Y.Z)"
-#         required: true
-#         type: string
+on:
+  # release:
+  #   types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Published release to package (X.Y.Z)"
+        required: true
+        type: string
 
 permissions:
   contents: read
