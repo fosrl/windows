@@ -60,6 +60,19 @@ const (
 
 ## Production Release Workflow
 
+CI (`.github/workflows/cicd.yml`) does all of this when a release tag is pushed:
+it builds `Pangolin.exe`, signs it with the DigiCert certificate (jsign), builds
+and signs `pangolin-amd64-<version>.msi`, builds the Linux packages, makes and
+signs both update manifests, and attaches everything to a draft GitHub release.
+Run `./scripts/set-version.sh <version>`, commit, and push a tag named exactly
+the version (e.g. `1.0.3` or `1.0.3-rc.1`); CI refuses a tag that doesn't match
+`version/version.go`. CI sets the MSI version itself (without any `-rc.N`).
+
+After publishing the release, upload `windows-latest.sig` to the update server
+as `/windows-client/latest.sig` and `linux-latest.sig` as `/linux-client/latest.sig`.
+
+The steps below are the manual equivalent.
+
 ### 1. Set Version Number
 
 ```bash
@@ -125,7 +138,7 @@ Upload the following files to your update server:
 
 ## Linux Release Workflow
 
-Linux packages are built by CI (`.github/workflows/linux-release.yml`) when a
+Linux packages are built by CI (`.github/workflows/cicd.yml`) when a
 release tag is pushed. They can also be built by hand on a machine with Go, Node.js,
 `libgtk-3-dev` and `libwebkit2gtk-4.1-dev` (Arch: `gtk3`, `webkit2gtk-4.1`),
 plus [nfpm](https://nfpm.goreleaser.com).
@@ -168,7 +181,7 @@ The manifest points at the packages on the GitHub release by default (set
 
 ### 4. Publish
 
-1. Publish the draft GitHub release, after adding the Windows MSIs to it.
+1. Publish the draft GitHub release (CI attaches the signed Windows MSI too).
 2. Upload `linux-latest.sig` to the update server as `/linux-client/latest.sig`
    (`latestVersionPath` in `updater/constants_linux.go`).
 3. Publishing the release runs `.github/workflows/aur.yml`, which updates the
