@@ -1,8 +1,15 @@
 <?xml version="1.0" encoding="UTF-8"?>
+<!--
+  MSI installer for Pangolin (WiX v4+ schema).
+  Built in CI by the windows-sign job in .github/workflows/cicd.yml, or locally
+  with scripts\build-msi.bat:
+    wix build -arch x64 -ext WixToolset.Util.wixext -d Version=X.Y.Z -d BuildDir=build -d ProjectDir=. -o build/pangolin-amd64-X.Y.Z.msi pangolin.wxs
+  Version must be numeric (X.Y.Z); drop any -rc.N suffix.
+-->
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
   <Package Name="Pangolin" 
            Language="1033" 
-           Version="0.16.0" 
+           Version="$(var.Version)" 
            Manufacturer="Fossorial" 
            UpgradeCode="165F13D3-9A2F-4AF7-9C68-474A8256B274"
            Compressed="yes">

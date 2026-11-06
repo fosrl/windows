@@ -64,49 +64,37 @@ CI (`.github/workflows/cicd.yml`) does all of this when a release tag is pushed:
 it builds `Pangolin.exe`, signs it with the DigiCert certificate (jsign), builds
 and signs `pangolin-amd64-<version>.msi`, builds the Linux packages, makes and
 signs both update manifests, and attaches everything to a draft GitHub release.
-Run `./scripts/set-version.sh <version>`, commit, and push a tag named exactly
-the version (e.g. `1.0.3` or `1.0.3-rc.1`); CI refuses a tag that doesn't match
-`version/version.go`. CI sets the MSI version itself (without any `-rc.N`).
+Push a tag named exactly the version (e.g. `1.0.3` or `1.0.3-rc.1`). Nothing in
+the repo holds the version: CI stamps the tag into the binaries with `-ldflags`
+(`make build VERSION=<tag>`) and passes it to WiX (`-d Version=...`, without any
+`-rc.N`). A build without `VERSION` reports itself as `dev`.
 
 After publishing the release, upload `windows-latest.sig` to the update server
 as `/windows-client/latest.sig` and `linux-latest.sig` as `/linux-client/latest.sig`.
 
 The steps below are the manual equivalent.
 
-### 1. Set Version Number
+### 1. Build the Application
 
 ```bash
-./scripts/set-version.sh 1.0.3
+make build VERSION=1.0.3
 ```
 
-This updates both `version/version.go` and `pangolin.wxs` with the new version.
-
-### 2. Build the Application
-
-```bash
-make build
-```
-
-This builds the frontend (`ui/frontend/dist`) and creates `build/Pangolin.exe`.
+This builds the frontend (`ui/frontend/dist`) and creates `build/Pangolin.exe`
+with the version set in `version.Number`.
 
 To preview the UI in a desktop browser without Windows, run `npm run mock` in `ui/frontend` and open `http://localhost:5173/#/tray`, `#/preferences`, `#/login` or `#/progress?kind=update`. Mock mode swaps the Go services for fake data.
 
-### 3. Build MSI Installers
+### 2. Build MSI Installers
 
 ```bash
 # Windows
-scripts\build-msi.bat
+scripts\build-msi.bat 1.0.3
 ```
 
-### 4. Add Version to File Name
+This creates `build\pangolin-amd64-1.0.3.msi`.
 
-Rename the generated MSI files to include the version number:
-
-```
-build\pangolin-amd64-<version>.msi
-```
-
-### 4. Generate Manifest
+### 3. Generate Manifest
 
 ```bash
 # Auto-detect all MSI files in build/
@@ -118,7 +106,7 @@ build\pangolin-amd64-<version>.msi
 
 This creates `build/filelist.txt` with BLAKE2b-256 hashes of all MSI files.
 
-### 5. Sign Manifest
+### 4. Sign Manifest
 
 ```bash
 ./scripts/sign-manifest.sh signing-keys/release.sec
@@ -126,7 +114,7 @@ This creates `build/filelist.txt` with BLAKE2b-256 hashes of all MSI files.
 
 This creates `build/latest.sig` (the signed manifest).
 
-### 6. Upload to Update Server
+### 5. Upload to Update Server
 
 Upload the following files to your update server:
 
@@ -143,17 +131,16 @@ release tag is pushed. They can also be built by hand on a machine with Go, Node
 `libgtk-3-dev` and `libwebkit2gtk-4.1-dev` (Arch: `gtk3`, `webkit2gtk-4.1`),
 plus [nfpm](https://nfpm.goreleaser.com).
 
-### 1. Set the Version and Tag
+### 1. Tag the Release
 
-Run `./scripts/set-version.sh <version>` as for Windows, commit, and push a tag
-named exactly the version (e.g. `1.0.3` or `1.0.3-rc.1`). CI refuses a tag that
-doesn't match `version/version.go`.
+Push a tag named exactly the version (e.g. `1.0.3` or `1.0.3-rc.1`); CI passes
+it to the build as `VERSION`.
 
 ### 2. Packages (CI or by hand)
 
 ```bash
-make package-linux                     # this machine's architecture
-make package-linux LINUX_GOARCH=arm64  # on an arm64 machine
+make package-linux VERSION=1.0.3                     # this machine's architecture
+make package-linux VERSION=1.0.3 LINUX_GOARCH=arm64  # on an arm64 machine
 ```
 
 This makes `build/pangolin-client-<arch>-<version>.deb`, `.rpm` and

@@ -1,4 +1,4 @@
-.PHONY: build build-debug build-linux package-linux install-linux uninstall-linux clean rsrc frontend bindings test help
+.PHONY: build build-debug build-linux package-linux check-release-version install-linux uninstall-linux clean rsrc frontend bindings test help
 
 # Variables
 BINARY_NAME=Pangolin
@@ -13,10 +13,10 @@ LINUX_GOARCH ?= $(shell go env GOHOSTARCH)
 PREFIX ?= /usr/local
 LINUX_PKG_DIR=packaging/linux
 GNOME_EXTENSION_UUID=pangolin@pangolin.net
-VERSION ?= $(shell sed -n 's/.*Number *= *"\(.*\)".*/\1/p' version/version.go)
+VERSION ?= dev
 NFPM ?= nfpm
 OLM_VERSION := $(shell go list -m -f '{{.Version}}' github.com/fosrl/olm | sed 's/^v//')
-OLM_LDFLAGS = -X github.com/fosrl/windows-linux/version.OlmVersionOverride=$(OLM_VERSION)
+VERSION_LDFLAGS = -X github.com/fosrl/windows-linux/version.Number=$(VERSION) -X github.com/fosrl/windows-linux/version.OlmVersionOverride=$(OLM_VERSION)
 
 # Default target
 all: clean rsrc build
@@ -26,13 +26,13 @@ all: clean rsrc build
 build: rsrc frontend
 	@echo "Building Windows executable (GUI mode)..."
 	@mkdir -p $(BUILD_DIR)
-	GOOS=$(GOOS) GOARCH=$(GOARCH) go build -tags production -ldflags="-s -w -H windowsgui $(OLM_LDFLAGS)" -o $(BUILD_DIR)/$(BINARY_NAME).exe
+	GOOS=$(GOOS) GOARCH=$(GOARCH) go build -tags production -ldflags="-s -w -H windowsgui $(VERSION_LDFLAGS)" -o $(BUILD_DIR)/$(BINARY_NAME).exe
 	@echo "Build complete: $(BUILD_DIR)/$(BINARY_NAME).exe"
 
 # Same as build, but keeps Wails devtools (right-click > Inspect) and debug logging
 build-debug: rsrc frontend
 	@mkdir -p $(BUILD_DIR)
-	GOOS=$(GOOS) GOARCH=$(GOARCH) go build -ldflags="-H windowsgui $(OLM_LDFLAGS)" -o $(BUILD_DIR)/$(BINARY_NAME).exe
+	GOOS=$(GOOS) GOARCH=$(GOARCH) go build -ldflags="-H windowsgui $(VERSION_LDFLAGS)" -o $(BUILD_DIR)/$(BINARY_NAME).exe
 	@echo "Debug build complete: $(BUILD_DIR)/$(BINARY_NAME).exe"
 
 # Build the Linux binary. Needs cgo, gtk3 and webkit2gtk-4.1: the UI uses
@@ -40,19 +40,23 @@ build-debug: rsrc frontend
 build-linux: frontend
 	@echo "Building Linux binary..."
 	@mkdir -p $(BUILD_DIR)
-	CGO_ENABLED=1 GOOS=linux GOARCH=$(LINUX_GOARCH) go build -tags "gtk3 production" -ldflags="-s -w $(OLM_LDFLAGS)" -o $(BUILD_DIR)/$(LINUX_BINARY_NAME)
+	CGO_ENABLED=1 GOOS=linux GOARCH=$(LINUX_GOARCH) go build -tags "gtk3 production" -ldflags="-s -w $(VERSION_LDFLAGS)" -o $(BUILD_DIR)/$(LINUX_BINARY_NAME)
 	@echo "Build complete: $(BUILD_DIR)/$(LINUX_BINARY_NAME)"
 
 # Build the deb, rpm and Arch packages from the Linux binary with nfpm
 # (https://nfpm.goreleaser.com), as build/pangolin-client-<arch>-<version>.*.
 # The in-app updater looks for these names in the release manifest.
-package-linux: build-linux
+package-linux: check-release-version build-linux
 	@for fmt in deb rpm archlinux; do \
 		case $$fmt in deb) ext=deb;; rpm) ext=rpm;; archlinux) ext=pkg.tar.zst;; esac; \
 		out=$(BUILD_DIR)/$(LINUX_BINARY_NAME)-$(LINUX_GOARCH)-$(VERSION).$$ext; \
 		VERSION=$(VERSION) GOARCH=$(LINUX_GOARCH) BINARY=$(BUILD_DIR)/$(LINUX_BINARY_NAME) \
 			$(NFPM) pkg -f $(LINUX_PKG_DIR)/nfpm.yaml -p $$fmt -t $$out || exit 1; \
 	done
+
+# Release packages need a real X.Y.Z version, not "dev".
+check-release-version:
+	@if [ "$(VERSION)" = "dev" ]; then echo "Set a release version, e.g. make $(MAKECMDGOALS) VERSION=X.Y.Z" >&2; exit 1; fi
 
 # Install a Linux build for testing: the binary, the systemd service, the app
 # menu and autostart entries, and the GNOME Shell extension (enable it with
@@ -110,6 +114,7 @@ clean:
 
 # Show help
 help:
+	@echo "Pass VERSION=X.Y.Z to stamp a release version (default: dev)"
 	@echo "Available targets:"
 	@echo "  make build       - Build the Windows executable to build/ (GUI mode, no console)"
 	@echo "  make build-debug - Build with Wails devtools enabled"

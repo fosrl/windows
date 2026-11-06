@@ -45,20 +45,11 @@ jobs:
     name: Check version
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ env.TAG }}
-
-      - name: Check the version matches the tag
+      - name: Check the tag is a release version
         run: |
           set -eu
           if ! printf '%s' "$TAG" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-rc\.[0-9]+)?$'; then
             echo "Invalid tag: $TAG" >&2; exit 1
-          fi
-          version=$(sed -n 's/.*Number *= *"\(.*\)".*/\1/p' version/version.go)
-          if [ "$version" != "$TAG" ]; then
-            echo "version/version.go says $version but the tag is $TAG; run scripts/set-version.sh" >&2
-            exit 1
           fi
 
   # ---------------------------------------------------------------------------
@@ -137,7 +128,7 @@ jobs:
 
       - name: Build Pangolin.exe
         run: |
-          make build
+          make build VERSION="$TAG"
           ls -la build
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -236,15 +227,10 @@ jobs:
 
       - name: Build MSI (with signed exe)
         run: |
-          # MSI ProductVersion must be numeric (X.Y.Z); drop any -rc.N suffix.
-          # This also overrides whatever scripts/set-version.sh wrote to the wxs.
+          # MSI ProductVersion must be numeric (X.Y.Z); drop any -rc.N suffix
           $msiVersion = $env:TAG -replace '-.*$', ''
-          (Get-Content $env:WXS -Raw) -replace '(<Package\b[^>]*?\bVersion=")[^"]*"', "`${1}$msiVersion`"" |
-            Set-Content $env:WXS -NoNewline
-          Select-String -Path $env:WXS -Pattern 'Version="' | Select-Object -First 1
-
           $msi = "build/pangolin-amd64-$env:TAG.msi"
-          wix build -arch x64 -ext WixToolset.Util.wixext -d BuildDir=build -d ProjectDir=. -o $msi $env:WXS
+          wix build -arch x64 -ext WixToolset.Util.wixext -d "Version=$msiVersion" -d BuildDir=build -d ProjectDir=. -o $msi $env:WXS
           if ($LASTEXITCODE -ne 0) { throw "wix build failed" }
           "MSI=$msi" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
