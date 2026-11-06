@@ -60,17 +60,21 @@ const (
 
 ## Production Release Workflow
 
-CI (`.github/workflows/cicd.yml`) does all of this when a release tag is pushed:
-it builds `Pangolin.exe`, signs it with the DigiCert certificate (jsign), builds
-and signs `pangolin-amd64-<version>.msi`, builds the Linux packages, makes and
-signs both update manifests, and attaches everything to a draft GitHub release.
-Push a tag named exactly the version (e.g. `1.0.3` or `1.0.3-rc.1`). Nothing in
-the repo holds the version: CI stamps the tag into the binaries with `-ldflags`
-(`make build VERSION=<tag>`) and passes it to WiX (`-d Version=...`, without any
-`-rc.N`). A build without `VERSION` reports itself as `dev`.
+Windows and Linux are released separately, each from its own tag and with its
+own GitHub release.
+
+CI (`.github/workflows/windows.yml`) does all of this when a `windows-` tag is
+pushed: it builds `Pangolin.exe`, signs it with the DigiCert certificate
+(jsign), builds and signs `pangolin-amd64-<version>.msi`, makes and signs the
+update manifest, and attaches both to a draft GitHub release. Push a tag named
+`windows-` and the version (e.g. `windows-1.0.3` or `windows-1.0.3-rc.1`).
+Nothing in the repo holds the version: CI strips the prefix, stamps the rest
+into the binary with `-ldflags` (`make build VERSION=1.0.3`) and passes it to
+WiX (`-d Version=...`, without any `-rc.N`). A build without `VERSION` reports
+itself as `dev`.
 
 After publishing the release, upload `windows-latest.sig` to the update server
-as `/windows-client/latest.sig` and `linux-latest.sig` as `/linux-client/latest.sig`.
+as `/windows-client/latest.sig`.
 
 The steps below are the manual equivalent.
 
@@ -126,15 +130,18 @@ Upload the following files to your update server:
 
 ## Linux Release Workflow
 
-Linux packages are built by CI (`.github/workflows/cicd.yml`) when a
-release tag is pushed. They can also be built by hand on a machine with Go, Node.js,
+Linux packages are built by CI (`.github/workflows/linux.yml`) when a
+`linux-` tag is pushed. They can also be built by hand on a machine with Go, Node.js,
 `libgtk-3-dev` and `libwebkit2gtk-4.1-dev` (Arch: `gtk3`, `webkit2gtk-4.1`),
 plus [nfpm](https://nfpm.goreleaser.com).
 
 ### 1. Tag the Release
 
-Push a tag named exactly the version (e.g. `1.0.3` or `1.0.3-rc.1`); CI passes
-it to the build as `VERSION`.
+Push a tag named `linux-` and the version (e.g. `linux-1.0.3` or
+`linux-1.0.3-rc.1`); CI strips the prefix and passes the rest to the build as
+`VERSION`. After publishing the release, upload `linux-latest.sig` to the
+update server as `/linux-client/latest.sig`, then run the AUR workflow with the
+tag.
 
 ### 2. Packages (CI or by hand)
 

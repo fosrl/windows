@@ -1,7 +1,7 @@
 name: AUR
 
-# When a release is published, updates the pangolin-client-bin AUR package to
-# it. The PKGBUILD comes from packaging/linux/aur/PKGBUILD.in.
+# When a Linux release (tag linux-X.Y.Z) is published, updates the
+# pangolin-client-bin AUR package to it. The PKGBUILD comes from packaging/linux/aur/PKGBUILD.in.
 #
 # Secrets:
 # - AUR_SSH_PRIVATE_KEY: SSH key of an AUR account that maintains
@@ -13,7 +13,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Published release to package (X.Y.Z)"
+        description: "Published Linux release to package (linux-X.Y.Z)"
         required: true
         type: string
 
@@ -22,8 +22,8 @@ permissions:
 
 jobs:
   aur:
-    # The AUR has no prereleases, and pkgver can't contain "-".
-    if: ${{ github.event_name == 'workflow_dispatch' || !github.event.release.prerelease }}
+    # Only Linux releases; the AUR has no prereleases, and pkgver can't contain "-".
+    if: ${{ github.event_name == 'workflow_dispatch' || (startsWith(github.event.release.tag_name, 'linux-') && !github.event.release.prerelease) }}
     runs-on: ubuntu-24.04
     container: archlinux:latest
     env:
@@ -39,13 +39,15 @@ jobs:
       - name: Make the PKGBUILD
         run: |
           set -eu
-          case "$TAG" in *-*) echo "Not packaging prerelease $TAG" >&2; exit 1 ;; esac
+          case "$TAG" in linux-*) ;; *) echo "Not a Linux release tag: $TAG" >&2; exit 1 ;; esac
+          VERSION="${TAG#linux-}"
+          case "$VERSION" in *-*) echo "Not packaging prerelease $TAG" >&2; exit 1 ;; esac
           base="https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}"
-          sum() { curl -fsSL "$base/pangolin-client-$1-${TAG}.pkg.tar.zst" | sha256sum | cut -d' ' -f1; }
+          sum() { curl -fsSL "$base/pangolin-client-$1-${VERSION}.pkg.tar.zst" | sha256sum | cut -d' ' -f1; }
           amd64=$(sum amd64)
           arm64=$(sum arm64)
           mkdir -p aur-out
-          sed -e "s/@VERSION@/${TAG}/" -e "s/@SHA256_AMD64@/${amd64}/" -e "s/@SHA256_ARM64@/${arm64}/" \
+          sed -e "s/@VERSION@/${VERSION}/" -e "s/@SHA256_AMD64@/${amd64}/" -e "s/@SHA256_ARM64@/${arm64}/" \
             packaging/linux/aur/PKGBUILD.in > aur-out/PKGBUILD
           cp packaging/linux/aur/pangolin-client-bin.install aur-out/
           useradd -m builder
@@ -74,10 +76,10 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add PKGBUILD .SRCINFO pangolin-client-bin.install
           if git diff --cached --quiet; then
-            echo "AUR package is already at ${TAG}"
+            echo "AUR package is already at ${TAG#linux-}"
             exit 0
           fi
-          git commit -m "Update to ${TAG}"
+          git commit -m "Update to ${TAG#linux-}"
           git push origin HEAD:master
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

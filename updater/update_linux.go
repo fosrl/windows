@@ -113,7 +113,7 @@ func ManualUpdate() (instructions, command string) {
 			"yay -Syu pangolin-client-bin"
 	default:
 		return "This copy of Pangolin wasn't installed from a package. Download the new version from:",
-			"https://github.com/fosrl/windows-linux/releases/latest"
+			"https://github.com/fosrl/windows-linux/releases?q=linux-&expanded=true"
 	}
 }
 
