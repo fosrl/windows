@@ -150,7 +150,7 @@ func presentUpdateWindow() {
 	defer updateMu.Unlock()
 	if updateWindow == nil {
 		// Closing only hides the window, so a running download can be shown again.
-		updateWindow = newDialogWindow("update", "Software Update", "update", 200, hideUpdateWindow)
+		updateWindow = newDialogWindow("update", "Software Update", "update", 230, hideUpdateWindow)
 	}
 	updateWindow.EmitEvent(eventUpdateState, updateInfo)
 	updateWindow.Show()
