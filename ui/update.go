@@ -22,6 +22,9 @@ const (
 	updatePhaseDownloading = "downloading"
 	updatePhaseError       = "error"
 	updatePhaseComplete    = "complete"
+	// updatePhaseInstalling is a UI started while the Linux daemon installs a
+	// silently downloaded update; Pangolin opens once it is installed.
+	updatePhaseInstalling = "installing"
 )
 
 // UpdateInfo is what the update window shows.
@@ -63,6 +66,15 @@ func (UpdateService) Check()   { checkForUpdates() }
 func (UpdateService) Install() { startUpdate() }
 func (UpdateService) Close()   { hideUpdateWindow() }
 
+// autoDownloadUpdatesUnavailable explains why this copy can't download and
+// install updates itself (Linux AUR and hand-installed builds), or is empty.
+func autoDownloadUpdatesUnavailable() string {
+	if manual, command := updater.ManualUpdate(); manual != "" {
+		return manual + " " + command
+	}
+	return ""
+}
+
 // notifyUpdateAvailableOnce shows the update toast the first time an update is found.
 func notifyUpdateAvailableOnce() {
 	if manualUpdateCheck.Load() || updateToastShown.Swap(true) || updateWindowVisible() {
@@ -73,6 +85,15 @@ func notifyUpdateAvailableOnce() {
 		logger.Error("Failed to get update version: %v", err)
 	}
 	notifyUpdateAvailable(v)
+}
+
+// remindToInstallUpdate opens the update window for a silently downloaded update
+// the user has not installed by quitting, like Sparkle's reminder after a week.
+func remindToInstallUpdate() {
+	if manualUpdateCheck.Load() || updateInProgress() {
+		return
+	}
+	showUpdateWindow()
 }
 
 // showUpdateWindow opens the update window from the menu or the toast, or
@@ -112,7 +133,7 @@ func checkForUpdates() {
 			info.Phase = updatePhaseCheckFailed
 			info.Error = err.Error()
 		})
-	case updateState == managers.UpdateStateFoundUpdate:
+	case updateState.HasUpdate():
 		logger.Info("Update available")
 		updateToastShown.Store(true)
 		offerUpdate()
@@ -128,7 +149,11 @@ func checkForUpdates() {
 func updateInProgress() bool {
 	updateMu.Lock()
 	defer updateMu.Unlock()
-	return updateInfo.Phase == updatePhaseDownloading || updateInfo.Phase == updatePhaseComplete
+	switch updateInfo.Phase {
+	case updatePhaseDownloading, updatePhaseComplete, updatePhaseInstalling:
+		return true
+	}
+	return false
 }
 
 // offerUpdate puts the window in the "available" phase with the found version.

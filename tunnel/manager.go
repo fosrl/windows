@@ -265,7 +265,7 @@ func (tm *Manager) buildConfig() (Config, error) {
 	}
 
 	config := Config{
-		Name:                "olm",
+		Name:                DefaultTunnelName,
 		ID:                  olmId,
 		Secret:              olmSecret,
 		UserToken:           userToken,
@@ -435,6 +435,40 @@ func (tm *Manager) Connect() error {
 	tm.StartStatusPolling()
 
 	return nil
+}
+
+// AdoptRunningTunnel picks up a tunnel that is already running when the UI
+// starts, such as one left up when a previous UI exited, so the UI shows it
+// instead of replacing it. A tunnel for a different organization than orgID
+// is left alone. It reports whether the tunnel was adopted.
+func (tm *Manager) AdoptRunningTunnel(orgID string) bool {
+	if tm.State() != StateStopped {
+		return false
+	}
+	status, err := tm.GetOLMStatus()
+	if err != nil {
+		// No tunnel is running, so its API pipe does not exist.
+		return false
+	}
+	if status.Terminated || status.Error != nil {
+		return false
+	}
+	if orgID != "" && status.OrgID != "" && status.OrgID != orgID {
+		logger.Info("Running tunnel is for organization %s, not %s; not adopting it", status.OrgID, orgID)
+		return false
+	}
+
+	state := StateRegistering
+	if status.Connected && status.Registered {
+		state = StateRunning
+	} else if status.Registered {
+		state = StateRegistered
+	}
+	logger.Info("Adopting tunnel that is already running (state %s)", state)
+	SetState(state)
+	tm.setLocalState(state)
+	tm.StartStatusPolling()
+	return true
 }
 
 // Disconnect stops the tunnel because the user asked to.

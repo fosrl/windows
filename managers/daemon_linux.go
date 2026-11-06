@@ -11,7 +11,6 @@ import (
 	"os/user"
 	"path/filepath"
 	"strconv"
-	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -37,6 +36,9 @@ const (
 	// must be the caller's own, except that root (the CLI under sudo) may
 	// name the user it acts for.
 	daemonRequestCLISecrets byte = 'S'
+	// daemonRequestUpdateStatus asks whether an update is being installed, for
+	// a UI told attachUpdating. Reply: 0 ready, 1 still installing.
+	daemonRequestUpdateStatus byte = 'Q'
 )
 
 // Replies to daemonRequestAttachUI.
@@ -44,6 +46,9 @@ const (
 	attachOK             byte = 0
 	attachAlreadyRunning byte = 1
 	attachFailed         byte = 2
+	// attachUpdating means an update is being installed. The UI waits for it
+	// with daemonRequestUpdateStatus, then starts again on the new version.
+	attachUpdating byte = 3
 )
 
 // daemonSocketPath is where the daemon listens. Any local user may connect;
@@ -108,8 +113,14 @@ func Run() error {
 		}
 	}()
 	logger.Info("Pangolin daemon listening on %s", socketPath)
-	go restartUIsAfterUpdate()
-	go updater.RemoveDownloads()
+	// An update downloaded before the daemon last stopped is installed before
+	// any UI starts, as the Windows service does; UIs that start meanwhile wait.
+	loadStagedUpdate()
+	go func() {
+		if !installStagedUpdate(0, false, func([]uint32) { restartUIsAfterUpdate() }) {
+			restartUIsAfterUpdate()
+		}
+	}()
 	go checkForUpdates()
 
 	sig := <-signals
@@ -140,6 +151,12 @@ func handleDaemonConn(conn *net.UnixConn) {
 	switch request[0] {
 	case daemonRequestAttachUI:
 		attachUI(conn, uid, pid)
+	case daemonRequestUpdateStatus:
+		reply := byte(0)
+		if stagedUpdateInstalling() {
+			reply = 1
+		}
+		_, _ = conn.Write([]byte{reply})
 	case daemonRequestUIAction:
 		var action uint32
 		if err := binary.Read(conn, binary.LittleEndian, &action); err != nil {
@@ -208,6 +225,14 @@ func attachUI(conn *net.UnixConn, uid uint32, pid int32) {
 		_, _ = conn.Write([]byte{attachAlreadyRunning})
 		return
 	}
+	// With automatic downloads on, a staged update is installed when the UI
+	// launches unless another user's UI is running, as on Windows.
+	if stagedUpdateInstalling() || (len(attachedUIs) == 0 && installStagedUpdate(uid, false, nil)) {
+		attachedUIsLock.Unlock()
+		logger.Info("UI for uid %d is waiting for an update to install", uid)
+		_, _ = conn.Write([]byte{attachUpdating})
+		return
+	}
 	ui := &attachedUI{done: make(chan struct{}), subject: polkitSubject(pid, uid)}
 	attachedUIs[uid] = ui
 	attachedUIsLock.Unlock()
@@ -240,14 +265,50 @@ func attachUI(conn *net.UnixConn, uid uint32, pid int32) {
 
 	key := strconv.FormatUint(uint64(uid), 10)
 	logger.Info("UI attached for uid %d", uid)
-	done := IPCServerListen(pipes.ourReader, pipes.ourWriter, pipes.ourEvents, tokenForUID(uid), key)
+	done := IPCServerListen(pipes.ourReader, pipes.ourWriter, pipes.ourEvents, tokenForUID(uid), key, uid)
 	go func() {
 		<-done
 		pipes.closeOurs()
 		detach()
 		logger.Info("UI detached for uid %d", uid)
-		relaunchUIIfAlwaysOn(uid, key)
+		if !installStagedUpdateAfterQuit(uid, key) {
+			relaunchUIIfAlwaysOn(uid, key)
+		}
 	}()
+}
+
+// quitSignOutGrace is how long after a UI goes away the daemon waits before
+// asking logind whether its user signed out, which also closes the UI.
+const quitSignOutGrace = 2 * time.Second
+
+// installStagedUpdateAfterQuit installs a silently downloaded update once the
+// user quits Pangolin, if no other UI is running, as on Windows. Sign-out and
+// Always-On (which relaunches the UI, so the launch installs it) don't count.
+// It reports whether an install started.
+func installStagedUpdateAfterQuit(uid uint32, key string) bool {
+	attachedUIsLock.Lock()
+	stopping := daemonStopping
+	attachedUIsLock.Unlock()
+	if stopping || userAlwaysOn(key) {
+		return false
+	}
+	updateLock.Lock()
+	hasStaged := stagedUpdate != nil
+	updateLock.Unlock()
+	if !hasStaged {
+		return false
+	}
+	time.Sleep(quitSignOutGrace)
+	if !userSignedIn(uid) {
+		logger.Info("uid %d signed out; not installing the downloaded update now", uid)
+		return false
+	}
+	attachedUIsLock.Lock()
+	defer attachedUIsLock.Unlock()
+	if daemonStopping || len(attachedUIs) > 0 {
+		return false
+	}
+	return installStagedUpdate(uid, false, nil)
 }
 
 type ipcPipes struct {
@@ -363,34 +424,28 @@ func launchUIForUser(uid uint32) error {
 // package restarts the daemon, which closes them.
 func prepareUpdateRestart() {
 	attachedUIsLock.Lock()
-	uids := make([]string, 0, len(attachedUIs))
+	uids := make([]uint32, 0, len(attachedUIs))
 	for uid := range attachedUIs {
-		uids = append(uids, strconv.FormatUint(uint64(uid), 10))
+		uids = append(uids, uid)
 	}
 	attachedUIsLock.Unlock()
-	if err := os.MkdirAll(filepath.Dir(updater.RestartUIFile), 0o700); err != nil {
-		logger.Error("Updater: %v", err)
-		return
-	}
-	if err := os.WriteFile(updater.RestartUIFile, []byte(strings.Join(uids, "\n")), 0o600); err != nil {
-		logger.Error("Updater: failed to record open UIs: %v", err)
+	updater.CancelUIRelaunchAfterUpdate()
+	for _, uid := range uids {
+		if err := updater.RelaunchUIAfterUpdate(uid); err != nil {
+			logger.Error("Updater: failed to record the open UI for uid %d: %v", uid, err)
+		}
 	}
 }
 
 // restartUIsAfterUpdate reopens the UIs that were open when an update
 // started, once the updated daemon is running.
 func restartUIsAfterUpdate() {
-	data, err := os.ReadFile(updater.RestartUIFile)
-	if err != nil {
-		return
-	}
-	os.Remove(updater.RestartUIFile)
-	for _, field := range strings.Fields(string(data)) {
-		uid, err := strconv.ParseUint(field, 10, 32)
-		if err != nil || uiAttached(uint32(uid)) {
+	uids, _ := updater.TakeUIRelaunchAfterUpdate()
+	for _, uid := range uids {
+		if uiAttached(uid) {
 			continue
 		}
-		if err := launchUIForUser(uint32(uid)); err != nil {
+		if err := launchUIForUser(uid); err != nil {
 			logger.Error("Failed to reopen the UI for uid %d after the update: %v", uid, err)
 		} else {
 			logger.Info("Reopened the UI for uid %d after the update", uid)

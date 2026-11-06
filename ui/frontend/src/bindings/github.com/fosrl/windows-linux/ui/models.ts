@@ -227,6 +227,18 @@ export interface Settings {
     "exitNodeTakesPrecedence": boolean;
 
     /**
+     * AutoDownloadUpdates downloads updates silently and installs them the next
+     * time Pangolin quits or starts. It is an application setting, so always global.
+     */
+    "autoDownloadUpdates": boolean;
+
+    /**
+     * AutoDownloadUpdatesUnavailable explains why this copy can't install updates
+     * itself (Linux AUR and hand-installed builds); empty when it can.
+     */
+    "autoDownloadUpdatesUnavailable": string;
+
+    /**
      * Disabled is set when an administrator has turned off user settings.
      */
     "disabled": boolean;

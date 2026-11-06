@@ -123,6 +123,10 @@ function mockInvoke(id: string) {
 const settings: Settings = {
   openAtLogin: true, autoConnect: false, dnsOverride: true, dnsTunnel: false,
   primaryDns: "", secondaryDns: "", mtu: "1280", exitNodeTakesPrecedence: false,
+  autoDownloadUpdates: false,
+  autoDownloadUpdatesUnavailable: params.has("aur")
+    ? "Pangolin was installed from the AUR. Update the pangolin-client-bin package with your AUR helper, for example: yay -Syu pangolin-client-bin"
+    : "",
   disabled: params.has("disabled"),
   orgName: "Fossorial", orgMode: params.has("orgMode"), managed: params.has("managed") ? ["dnsTunnel", "mtu"] : [],
 };

@@ -17,6 +17,7 @@ import (
 	"github.com/fosrl/windows-linux/managers"
 	"github.com/fosrl/windows-linux/secrets"
 	"github.com/fosrl/windows-linux/tunnel"
+	"github.com/fosrl/windows-linux/version"
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/events"
 	"github.com/wailsapp/wails/v3/pkg/services/notifications"
@@ -69,11 +70,7 @@ func Run(d Deps) error {
 	beforeAppStart()
 
 	notifier = notifications.New()
-	opts := application.Options{
-		Name:        config.AppName,
-		Description: "Pangolin client",
-		Icon:        icons.Orange,
-		Services: []application.Service{
+	opts := appOptions(assets, []application.Service{
 			application.NewService(&MenuService{}),
 			application.NewService(&PreferencesService{}),
 			application.NewService(&StatusService{}),
@@ -85,7 +82,26 @@ func Run(d Deps) error {
 			application.NewService(&UpdateService{}),
 			application.NewService(&CLIService{}),
 			application.NewService(&notifierService{}),
-		},
+	})
+	app = application.New(opts)
+
+	setupSystemTray()
+	registerIPCCallbacks()
+
+	app.Event.OnApplicationEvent(events.Common.ApplicationStarted, func(*application.ApplicationEvent) {
+		go onStarted()
+	})
+
+	return app.Run()
+}
+
+// appOptions are the Wails options shared by Run and RunInstallingUpdate.
+func appOptions(assets fs.FS, services []application.Service) application.Options {
+	opts := application.Options{
+		Name:        config.AppName,
+		Description: "Pangolin client",
+		Icon:        icons.Orange,
+		Services:    services,
 		Assets: application.AssetOptions{
 			Handler:        application.BundledAssetFileServer(assets),
 			DisableLogging: true,
@@ -100,15 +116,31 @@ func Run(d Deps) error {
 		},
 	}
 	setPlatformOptions(&opts)
-	app = application.New(opts)
+	return opts
+}
 
-	setupSystemTray()
-	registerIPCCallbacks()
-
+// RunInstallingUpdate shows only the update window, saying that Pangolin is
+// being updated, and runs wait. It is for a UI that starts while the Linux
+// daemon installs an update: wait returns once the install is over, normally
+// by starting the new version in place of this process.
+func RunInstallingUpdate(wait func()) error {
+	assets, err := fs.Sub(frontendDist, "frontend/dist")
+	if err != nil {
+		return fmt.Errorf("frontend assets: %w", err)
+	}
+	beforeAppStart()
+	updateInfo = UpdateInfo{Phase: updatePhaseInstalling, CurrentVersion: version.Number}
+	app = application.New(appOptions(assets, []application.Service{
+		application.NewService(&UpdateService{}),
+		application.NewService(&AppService{}),
+	}))
 	app.Event.OnApplicationEvent(events.Common.ApplicationStarted, func(*application.ApplicationEvent) {
-		go onStarted()
+		go func() {
+			presentUpdateWindow()
+			wait()
+			app.Quit()
+		}()
 	})
-
 	return app.Run()
 }
 
@@ -126,6 +158,8 @@ func onStarted() {
 	refreshCLIInstallState()
 	go checkStartupUpdate()
 	go watchAuthState()
+
+	adoptRunningTunnel(authManager)
 
 	if onboardingNeeded() {
 		// Nothing connects until setup is finished.

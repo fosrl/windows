@@ -32,6 +32,10 @@ func notifyStateChange(state State) {
 	}
 }
 
+// DefaultTunnelName is the name of the tunnel the UI starts. Its Windows
+// service is PangolinTunnel$olm.
+const DefaultTunnelName = "olm"
+
 // State represents the state of a tunnel
 type State int
 
@@ -186,8 +190,9 @@ func StopTunnel() error {
 	tunnelNameLock.RUnlock()
 
 	if name == "" {
-		// Fallback if name wasn't set (shouldn't happen)
-		name = "pangolin-tunnel"
+		// The name isn't known when this manager didn't start the tunnel, e.g.
+		// one adopted by the UI after the manager restarted.
+		name = DefaultTunnelName
 	}
 
 	// Uninstall the Windows service (this stops and removes it)

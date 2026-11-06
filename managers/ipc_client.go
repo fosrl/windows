@@ -45,6 +45,7 @@ const (
 	SetAlwaysOnMethodType
 	AlwaysOnEnabledMethodType
 	UpdateVersionMethodType
+	AutoDownloadUpdatesTurnedOnMethodType
 )
 
 var (
@@ -236,6 +237,18 @@ func IPCClientUpdateVersion() (version string, err error) {
 	}
 	err = rpcDecoder.Decode(&version)
 	return
+}
+
+// IPCClientAutoDownloadUpdatesTurnedOn tells the manager that this user turned on
+// automatic update downloads, so it downloads an available update now.
+func IPCClientAutoDownloadUpdatesTurnedOn() error {
+	rpcMutex.Lock()
+	defer rpcMutex.Unlock()
+
+	if rpcEncoder == nil {
+		return errors.New("manager IPC is not connected")
+	}
+	return rpcEncoder.Encode(AutoDownloadUpdatesTurnedOnMethodType)
 }
 
 func IPCClientCheckForUpdates() (updateState UpdateState, err error) {

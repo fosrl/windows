@@ -23,7 +23,9 @@ type progressHashWatcher struct {
 func (pm *progressHashWatcher) Write(p []byte) (int, error) {
 	bytes := len(p)
 	pm.dp.BytesDownloaded += uint64(bytes)
-	pm.c <- *pm.dp
+	if pm.c != nil {
+		pm.c <- *pm.dp
+	}
 	pm.hashState.Write(p)
 	return bytes, nil
 }
@@ -33,6 +35,7 @@ type UpdateFound struct {
 	version          string
 	hash             [blake2b.Size256]byte
 	downloadLocation string // Can be empty (use default), a relative path, or a full URL
+	manifest         []byte // The signed manifest the update was found in
 }
 
 // Name returns the filename of the update MSI

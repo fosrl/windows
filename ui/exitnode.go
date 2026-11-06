@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"errors"
 	"fmt"
 	"strconv"
 	"sync"
@@ -146,8 +147,15 @@ func refreshExitNodes() {
 	go func() {
 		gateways, err := apiClient.ListGatewayResources(orgID)
 		if err != nil {
-			// Keep whatever we had; the server may just be unreachable.
-			logger.Error("Failed to list exit nodes: %v", err)
+			var apiErr *api.APIError
+			if errors.As(err, &apiErr) && apiErr.Status == 403 {
+				exitNodeMu.Lock()
+				exitNodeList = nil
+				exitNodeListOrg = orgID
+				exitNodeMu.Unlock()
+			}
+			// Keep whatever we had on transient failures (server unreachable, etc.).
+			logger.Debug("Failed to list exit nodes: %v", err)
 		} else {
 			exitNodeMu.Lock()
 			exitNodeList = usableGateways(gateways)

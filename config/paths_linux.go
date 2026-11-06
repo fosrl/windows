@@ -89,3 +89,9 @@ func homeDir() string {
 	}
 	return "/"
 }
+
+// UserDataDirFor is UserDataDir for the user whose home directory is home,
+// for the root daemon, which can't see the user's environment.
+func UserDataDirFor(home string) string {
+	return filepath.Join(home, ".config", linuxDirName)
+}

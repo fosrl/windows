@@ -9,6 +9,7 @@ import (
 
 	"github.com/fosrl/newt/logger"
 	"github.com/fosrl/windows-linux/config"
+	"github.com/fosrl/windows-linux/managers"
 )
 
 const (
@@ -31,6 +32,12 @@ type Settings struct {
 	SecondaryDNS            string `json:"secondaryDns"`
 	MTU                     string `json:"mtu"`
 	ExitNodeTakesPrecedence bool   `json:"exitNodeTakesPrecedence"`
+	// AutoDownloadUpdates downloads updates silently and installs them the next
+	// time Pangolin quits or starts. It is an application setting, so always global.
+	AutoDownloadUpdates bool `json:"autoDownloadUpdates"`
+	// AutoDownloadUpdatesUnavailable explains why this copy can't install updates
+	// itself (Linux AUR and hand-installed builds); empty when it can.
+	AutoDownloadUpdatesUnavailable string `json:"autoDownloadUpdatesUnavailable"`
 	// Disabled is set when an administrator has turned off user settings.
 	Disabled bool `json:"disabled"`
 	// OrgName is the current org, empty if there is none.
@@ -142,18 +149,20 @@ func currentSettings() Settings {
 	server := cachedServerSettings(orgID)
 	effective := cm.EffectiveSettings(orgID, server)
 	return Settings{
-		OpenAtLogin:             cm.GetOpenUIAtLogin() || cm.GetAutoConnectAtLogin(),
-		AutoConnect:             cm.GetAutoConnectAtLogin(),
-		DNSOverride:             effective.DNSOverride,
-		DNSTunnel:               effective.DNSTunnel,
-		PrimaryDNS:              effective.PrimaryDNS,
-		SecondaryDNS:            effective.SecondaryDNS,
-		MTU:                     strconv.Itoa(effective.MTU),
-		ExitNodeTakesPrecedence: effective.ExitNodeTakesPrecedence,
-		Disabled:                cm.GetUserSettingsDisabled(),
-		OrgName:                 orgName,
-		OrgMode:                 !cm.GetOrgConfig(orgID).IsEmpty(),
-		Managed:                 managedFields(server),
+		OpenAtLogin:                    cm.GetOpenUIAtLogin() || cm.GetAutoConnectAtLogin(),
+		AutoConnect:                    cm.GetAutoConnectAtLogin(),
+		DNSOverride:                    effective.DNSOverride,
+		DNSTunnel:                      effective.DNSTunnel,
+		PrimaryDNS:                     effective.PrimaryDNS,
+		SecondaryDNS:                   effective.SecondaryDNS,
+		MTU:                            strconv.Itoa(effective.MTU),
+		ExitNodeTakesPrecedence:        effective.ExitNodeTakesPrecedence,
+		AutoDownloadUpdates:            cm.GetAutoDownloadUpdates(),
+		AutoDownloadUpdatesUnavailable: autoDownloadUpdatesUnavailable(),
+		Disabled:                       cm.GetUserSettingsDisabled(),
+		OrgName:                        orgName,
+		OrgMode:                        !cm.GetOrgConfig(orgID).IsEmpty(),
+		Managed:                        managedFields(server),
 	}
 }
 
@@ -266,8 +275,11 @@ func applySettings(form Settings, scope string) SettingsResult {
 		cfg = &config.Config{}
 	}
 	autoConnect := form.AutoConnect
+	autoDownloadUpdates := form.AutoDownloadUpdates && autoDownloadUpdatesUnavailable() == ""
+	turnedOnAutoDownloadUpdates := autoDownloadUpdates && !configManager.GetAutoDownloadUpdates()
 	cfg.AutoConnectAtLogin = &autoConnect
 	cfg.OpenUIAtLogin = &openAtLogin
+	cfg.AutoDownloadUpdatesEnabled = &autoDownloadUpdates
 	if !saveToOrg {
 		applyGlobalChanges(cfg, changes)
 	}
@@ -278,6 +290,12 @@ func applySettings(form Settings, scope string) SettingsResult {
 	}
 	if !saved {
 		showError(preferencesWindowOrNil(), "Save Failed", "Failed to save settings. Please try again.")
+	}
+	// Download an available update now instead of at the manager's next check.
+	if turnedOnAutoDownloadUpdates {
+		if err := managers.IPCClientAutoDownloadUpdatesTurnedOn(); err != nil {
+			logger.Error("Failed to notify manager of automatic update downloads: %v", err)
+		}
 	}
 	return SettingsResult{Settings: currentSettings()}
 }

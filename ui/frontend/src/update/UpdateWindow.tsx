@@ -95,6 +95,20 @@ export function UpdateWindow() {
         </>
       );
       break;
+    case "installing":
+      // Linux: Pangolin started while the background service installs a
+      // downloaded update; the new version opens when it is done.
+      title = "Updating Pangolin…";
+      body = (
+        <>
+          <div className="mt-2">
+            <Spinner />
+          </div>
+          <Message>Pangolin will open when the update is installed.</Message>
+        </>
+      );
+      buttons = <Button onClick={close}>Hide</Button>;
+      break;
     case "complete":
       title = "Installing update…";
       body = <Message>Pangolin will restart automatically when the installation finishes.</Message>;

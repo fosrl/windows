@@ -10,14 +10,12 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"sync/atomic"
 	"time"
 
 	"github.com/fosrl/newt/logger"
-	"github.com/fosrl/windows-linux/config"
 	"github.com/fosrl/windows-linux/version"
 	"golang.org/x/crypto/blake2b"
 )
@@ -28,16 +26,16 @@ import (
 // system package manager. The install runs in its own transient systemd unit,
 // because the package restarts this daemon partway through. AUR and
 // hand-installed builds are told how to update instead; see ManualUpdate.
+//
+// Every download is staged first (see staged_linux.go), as on Windows: with
+// automatic downloads on, the daemon stages updates in the background and
+// installs them when Pangolin quits or launches, or when the daemon starts.
 
 const (
 	maxManifestSize = 512 * 1024
 	maxPackageSize  = 100 * 1024 * 1024
 	httpTimeout     = 30 * time.Second
 )
-
-// RestartUIFile lists the UIDs whose UI was open when an update started, so
-// the daemon can reopen them once the new version is running.
-var RestartUIFile = filepath.Join(config.GetProgramDataDir(), "restart-ui-after-update")
 
 var httpClient = &http.Client{Timeout: 10 * time.Minute}
 
@@ -95,7 +93,11 @@ func CheckForUpdate() (*UpdateFound, error) {
 	if err != nil {
 		return nil, err
 	}
-	return findCandidate(files)
+	update, err := findCandidate(files)
+	if update != nil {
+		update.manifest = data
+	}
+	return update, err
 }
 
 // ManualUpdate returns instructions, and a command where there is one, for
@@ -115,21 +117,31 @@ func ManualUpdate() (instructions, command string) {
 	}
 }
 
+// manualUpdateError is the error for installs that can't update in the app.
+func manualUpdateError() error {
+	if instructions, command := ManualUpdate(); instructions != "" {
+		return fmt.Errorf("%s %s", instructions, command)
+	}
+	return nil
+}
+
 var updateInProgress atomic.Bool
 
 // DownloadVerifyAndExecute downloads the update, checks it against the
-// signed manifest and starts installing it. userToken is non-zero when the
-// requesting user may install updates. Progress, and any error, arrive on
-// the returned channel.
-func DownloadVerifyAndExecute(userToken uintptr) chan DownloadProgress {
+// signed manifest and starts installing it. With useStaged set, the update
+// downloaded in the background is installed instead of downloading again.
+// userToken is non-zero when the requesting user may install updates; a
+// staged update may be installed by anyone, as it would be when they quit
+// Pangolin. Progress, and any error, arrive on the returned channel.
+func DownloadVerifyAndExecute(userToken uintptr, useStaged bool) chan DownloadProgress {
 	progress := make(chan DownloadProgress, 128)
 	progress <- DownloadProgress{Activity: "Initializing"}
-	if userToken == 0 {
+	if userToken == 0 && !useStaged {
 		progress <- DownloadProgress{Error: errors.New("installing updates needs an administrator: a member of the sudo or wheel group")}
 		return progress
 	}
-	if instructions, command := ManualUpdate(); instructions != "" {
-		progress <- DownloadProgress{Error: fmt.Errorf("%s %s", instructions, command)}
+	if err := manualUpdateError(); err != nil {
+		progress <- DownloadProgress{Error: err}
 		return progress
 	}
 	if !updateInProgress.CompareAndSwap(false, true) {
@@ -138,61 +150,110 @@ func DownloadVerifyAndExecute(userToken uintptr) chan DownloadProgress {
 	}
 	go func() {
 		defer updateInProgress.Store(false)
-		if err := downloadAndInstall(progress); err != nil {
+		if !useStaged {
+			if _, err := downloadAndVerify(progress); err != nil {
+				logger.Error("Updater: %v", err)
+				progress <- DownloadProgress{Error: err}
+				return
+			}
+		} else {
+			logger.Info("Updater: using the update downloaded in the background")
+		}
+		progress <- DownloadProgress{Activity: "Installing update"}
+		if err := installStaged(); err != nil {
+			os.Remove(RestartUIFile)
 			logger.Error("Updater: %v", err)
 			progress <- DownloadProgress{Error: err}
+			return
 		}
+		// Usually the package restarts the daemon before this point.
+		progress <- DownloadProgress{Complete: true}
 	}()
 	return progress
 }
 
-func downloadAndInstall(progress chan DownloadProgress) error {
-	progress <- DownloadProgress{Activity: "Checking for update"}
+// DownloadInBackground downloads, verifies and stages the latest update
+// without installing it.
+func DownloadInBackground() (*StagedUpdate, error) {
+	if err := manualUpdateError(); err != nil {
+		return nil, err
+	}
+	if !updateInProgress.CompareAndSwap(false, true) {
+		return nil, errors.New("an update is already in progress")
+	}
+	defer updateInProgress.Store(false)
+	logger.Info("Updater: downloading update in the background")
+	return downloadAndVerify(nil)
+}
+
+// InstallStagedInBackground installs the staged update without showing
+// anything. The session argument matches Windows, where it picks the desktop
+// that shows msiexec's progress; on Linux a UI waiting for the install shows
+// its own progress window. Any UI relaunch is requested separately with
+// RelaunchUIAfterUpdate.
+func InstallStagedInBackground(uint32) error {
+	if !updateInProgress.CompareAndSwap(false, true) {
+		return errors.New("an update is already in progress")
+	}
+	defer updateInProgress.Store(false)
+	return installStaged()
+}
+
+// downloadAndVerify checks for an update, downloads its package, verifies it
+// against the signed manifest and stages it. progress may be nil.
+func downloadAndVerify(progress chan DownloadProgress) (*StagedUpdate, error) {
+	send := func(dp DownloadProgress) {
+		if progress != nil {
+			progress <- dp
+		}
+	}
+	send(DownloadProgress{Activity: "Checking for update"})
 	update, err := CheckForUpdate()
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if update == nil {
-		return errors.New("no update was found")
+		return nil, errors.New("no update was found")
 	}
-	logger.Info("Updater: installing %s", update.name)
+	logger.Info("Updater: downloading %s", update.name)
 
 	location := update.downloadLocation
 	if location == "" {
-		return errors.New("download location not specified in manifest")
+		return nil, errors.New("download location not specified in manifest")
 	}
 	if !strings.HasPrefix(location, "https://") && !strings.HasPrefix(location, "http://") {
 		location = updateServerURL(location)
 	}
 	if u, err := url.Parse(location); err != nil || (u.Scheme != "https" && u.Scheme != "http") {
-		return fmt.Errorf("invalid download URL %q", location)
+		return nil, fmt.Errorf("invalid download URL %q", location)
 	}
 
-	dir := downloadDir()
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return err
+	f, err := createStagingFile()
+	if err != nil {
+		return nil, err
 	}
-	RemoveDownloads()
-	path := filepath.Join(dir, filepath.Base(update.name))
-	if err := download(location, path, update, progress); err != nil {
-		os.Remove(path)
-		return err
+	defer func() {
+		f.Close()
+		os.Remove(f.Name()) // no-op once committed
+	}()
+	if err := download(location, f, update, progress); err != nil {
+		return nil, err
 	}
-
-	progress <- DownloadProgress{Activity: "Installing update"}
-	if err := install(path); err != nil {
-		os.Remove(RestartUIFile)
-		return err
+	if err := f.Close(); err != nil {
+		return nil, err
 	}
-	// Usually the package restarts the daemon before this point.
-	os.Remove(path)
-	progress <- DownloadProgress{Complete: true}
-	return nil
+	if err := commitStagedFiles(update.manifest); err != nil {
+		return nil, err
+	}
+	logger.Info("Updater: update %s staged", update.version)
+	return &StagedUpdate{version: update.version, StagedAt: time.Now()}, nil
 }
 
-func download(location, path string, update *UpdateFound, progress chan DownloadProgress) error {
+func download(location string, f *os.File, update *UpdateFound, progress chan DownloadProgress) error {
 	dp := DownloadProgress{Activity: "Downloading update"}
-	progress <- dp
+	if progress != nil {
+		progress <- dp
+	}
 	resp, err := get(context.Background(), location)
 	if err != nil {
 		return err
@@ -200,18 +261,13 @@ func download(location, path string, update *UpdateFound, progress chan Download
 	defer resp.Body.Close()
 	if resp.ContentLength > 0 {
 		dp.BytesTotal = uint64(resp.ContentLength)
-		progress <- dp
-	}
-
-	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
-	if err != nil {
-		return err
+		if progress != nil {
+			progress <- dp
+		}
 	}
 	hasher, _ := blake2b.New256(nil)
 	watcher := &progressHashWatcher{dp: &dp, c: progress, hashState: hasher}
-	_, copyErr := io.Copy(f, io.TeeReader(io.LimitReader(resp.Body, maxPackageSize), watcher))
-	closeErr := f.Close()
-	if err := errors.Join(copyErr, closeErr); err != nil {
+	if _, err := io.Copy(f, io.TeeReader(io.LimitReader(resp.Body, maxPackageSize), watcher)); err != nil {
 		return err
 	}
 	if !hmac.Equal(hasher.Sum(nil), update.hash[:]) {
@@ -220,15 +276,33 @@ func download(location, path string, update *UpdateFound, progress chan Download
 	return nil
 }
 
-func downloadDir() string { return filepath.Join(config.GetProgramDataDir(), "updates") }
-
-// RemoveDownloads deletes downloaded update packages. The daemon calls it at
-// start, since the package usually restarts it before it can clean up.
-func RemoveDownloads() {
-	old, _ := filepath.Glob(filepath.Join(downloadDir(), "*"))
-	for _, f := range old {
-		os.Remove(f)
+// installStaged verifies the staged package and installs it. A staged update
+// that fails to install is discarded so it isn't retried on every quit; the
+// next check downloads it again. One that can't start because the system is
+// shutting down is kept for the next boot.
+func installStaged() error {
+	if systemStopping() {
+		return errors.New("not installing the update while the system shuts down")
 	}
+	path, err := verifyStagedPackage()
+	if err != nil {
+		logger.Error("Updater: unable to use staged update: %v", err)
+		discardStagedFiles()
+		return err
+	}
+	if err := install(path); err != nil {
+		discardStagedFiles()
+		return err
+	}
+	discardStagedFiles()
+	return nil
+}
+
+// systemStopping reports whether systemd is shutting down or rebooting, when
+// a package install could be killed partway through.
+func systemStopping() bool {
+	out, _ := exec.Command("systemctl", "is-system-running").Output()
+	return strings.TrimSpace(string(out)) == "stopping"
 }
 
 // install installs a verified package with the system package manager, in a
@@ -239,11 +313,16 @@ func install(path string) error {
 	if err != nil {
 		return err
 	}
+	if packageFormat() == formatArch {
+		waitForPacmanLock()
+	}
 	unit := "pangolin-client-update-" + strconv.FormatInt(time.Now().Unix(), 10)
 	args := append([]string{
 		"--unit=" + unit, "--collect", "--wait", "--quiet",
 		"--description=Pangolin client update",
 		"--setenv=DEBIAN_FRONTEND=noninteractive",
+		// zypper otherwise gives up at once if another zypper holds its lock.
+		"--setenv=ZYPP_LOCK_TIMEOUT=" + strconv.Itoa(int(packageLockTimeout/time.Second)),
 		"--",
 	}, cmd...)
 	logger.Info("Updater: running %s in %s", strings.Join(cmd, " "), unit)
@@ -255,13 +334,34 @@ func install(path string) error {
 	return nil
 }
 
+// packageLockTimeout is how long an install waits for another package
+// manager, such as unattended-upgrades or PackageKit, to finish.
+const packageLockTimeout = 5 * time.Minute
+
+const pacmanLock = "/var/lib/pacman/db.lck"
+
+// waitForPacmanLock waits for another pacman to finish, since pacman fails at
+// once if its database is locked.
+func waitForPacmanLock() {
+	deadline := time.Now().Add(packageLockTimeout)
+	for time.Now().Before(deadline) {
+		if _, err := os.Stat(pacmanLock); os.IsNotExist(err) {
+			return
+		}
+		time.Sleep(2 * time.Second)
+	}
+}
+
 func installCommand(path string) ([]string, error) {
 	have := func(name string) bool { _, err := exec.LookPath(name); return err == nil }
 	switch packageFormat() {
 	case formatDeb:
 		if have("apt-get") {
 			// apt resolves new dependencies; keep changed config files.
-			return []string{"apt-get", "install", "-y", "-o", "Dpkg::Options::=--force-confold", path}, nil
+			return []string{"apt-get", "install", "-y",
+				"-o", "Dpkg::Options::=--force-confold",
+				"-o", "DPkg::Lock::Timeout=" + strconv.Itoa(int(packageLockTimeout/time.Second)),
+				path}, nil
 		}
 		return []string{"dpkg", "-i", "--force-confold", path}, nil
 	case formatRPM:

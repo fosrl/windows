@@ -12,10 +12,14 @@ import (
 // registerIPCCallbacks subscribes to manager and tunnel notifications.
 func registerIPCCallbacks() {
 	managers.IPCClientRegisterUpdateFound(func(updateState managers.UpdateState) {
-		setHasUpdate(updateState == managers.UpdateStateFoundUpdate)
-		if updateState == managers.UpdateStateFoundUpdate {
+		setHasUpdate(updateState.HasUpdate())
+		switch userUpdateState(updateState) {
+		case managers.UpdateStateFoundUpdate:
 			go notifyUpdateAvailableOnce()
+		case managers.UpdateStateInstallReminder:
+			go remindToInstallUpdate()
 		}
+		// UpdateStateUpdateDownloaded is silent: it installs when the user quits.
 	})
 
 	managers.IPCClientRegisterManagerStopping(func() {
@@ -57,15 +61,31 @@ func registerIPCCallbacks() {
 	})
 }
 
-// checkStartupUpdate shows the update toast at startup when the manager already found an update.
+// userUpdateState is updateState as it applies to this user. The manager downloads
+// updates in the background when any user has automatic downloads on, but for a
+// user without it an update is only found: it installs when they choose to.
+func userUpdateState(updateState managers.UpdateState) managers.UpdateState {
+	if updateState.HasUpdate() && (configManager == nil || !configManager.GetAutoDownloadUpdates()) {
+		return managers.UpdateStateFoundUpdate
+	}
+	return updateState
+}
+
+// checkStartupUpdate shows the update toast at startup when the manager already found an update,
+// or the update window when a silently downloaded update is overdue.
 func checkStartupUpdate() {
 	promptIfFound := func() bool {
 		updateState, err := managers.IPCClientUpdateState()
-		if err != nil || updateState != managers.UpdateStateFoundUpdate {
+		if err != nil || !updateState.HasUpdate() {
 			return false
 		}
 		setHasUpdate(true)
-		notifyUpdateAvailableOnce()
+		switch userUpdateState(updateState) {
+		case managers.UpdateStateFoundUpdate:
+			notifyUpdateAvailableOnce()
+		case managers.UpdateStateInstallReminder:
+			remindToInstallUpdate()
+		}
 		return true
 	}
 	if promptIfFound() {

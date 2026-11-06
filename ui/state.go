@@ -310,10 +310,12 @@ func handleMenuOpen() {
 
 		user, err := apiClient.GetUser()
 		if err != nil {
-			// 401/403: the API callback already set sessionExpired. Leave isLoggedOut
-			// alone so the menu shows "Account Locked" and "Log In".
 			var apiErr *api.APIError
-			if !(errors.As(err, &apiErr) && (apiErr.Status == 401 || apiErr.Status == 403)) {
+			if errors.As(err, &apiErr) && (apiErr.Status == 401 || apiErr.Status == 403) {
+				if apiErr.Status == 403 {
+					authManager.MarkSessionExpired()
+				}
+			} else {
 				setLoggedOut(true)
 			}
 			publish()

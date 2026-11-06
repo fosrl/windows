@@ -7,7 +7,6 @@ import (
 	"io"
 	"net/url"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -18,7 +17,6 @@ import (
 
 	"github.com/fosrl/newt/logger"
 	"github.com/fosrl/windows-linux/elevate"
-	"github.com/fosrl/windows-linux/config"
 	"github.com/fosrl/windows-linux/updater/winhttp"
 	"github.com/fosrl/windows-linux/version"
 )
@@ -118,6 +116,7 @@ func checkForUpdate(keepSession bool) (*UpdateFound, *winhttp.Session, *winhttp.
 		logger.Debug("Updater: No update candidate found")
 	} else {
 		logger.Debug("Updater: Update candidate found: %s", updateFound.name)
+		updateFound.manifest = append([]byte(nil), fileList[:bytesRead]...)
 	}
 
 	if keepSession {
@@ -129,7 +128,274 @@ func checkForUpdate(keepSession bool) (*UpdateFound, *winhttp.Session, *winhttp.
 
 var updateInProgress = uint32(0)
 
-func DownloadVerifyAndExecute(userToken uintptr) (progress chan DownloadProgress) {
+// downloadAndVerify checks for an update, downloads its MSI, verifies it against the
+// signed manifest and stages it on disk. progress may be nil when nobody is watching.
+func downloadAndVerify(progress chan DownloadProgress) (*StagedUpdate, error) {
+	send := func(dp DownloadProgress) {
+		if progress != nil {
+			progress <- dp
+		}
+	}
+
+	send(DownloadProgress{Activity: "Checking for update"})
+	logger.Info("Updater: Checking for update...")
+	update, session, connection, err := checkForUpdate(true)
+	if err != nil {
+		logger.Info("Updater: Update check failed: %v", err)
+		return nil, err
+	}
+	defer connection.Close()
+	defer session.Close()
+	if update == nil {
+		logger.Info("Updater: No update was found")
+		return nil, errors.New("No update was found")
+	}
+	logger.Info("Updater: Update found: %s", update.name)
+
+	send(DownloadProgress{Activity: "Creating temporary file"})
+	logger.Debug("Updater: Creating staging file for MSI")
+	file, err := createStagingFile()
+	if err != nil {
+		logger.Debug("Updater: Failed to create staging file: %v", err)
+		return nil, err
+	}
+	logger.Debug("Updater: Staging file created: %s", file.Name())
+	defer func() {
+		file.Close()
+		os.Remove(file.Name()) // no-op once committed
+	}()
+
+	dp := DownloadProgress{Activity: "Downloading update"}
+	send(dp)
+
+	var response *winhttp.Response
+	var downloadConnection *winhttp.Connection
+	var downloadSession *winhttp.Session
+
+	// Get download location from manifest (required)
+	downloadLocation := update.downloadLocation
+	if downloadLocation == "" {
+		logger.Debug("Updater: Download location not specified in manifest for file: %s", update.name)
+		return nil, errors.New("download location not specified in manifest")
+	}
+
+	// Check if downloadLocation is a full URL (http:// or https://)
+	if strings.HasPrefix(downloadLocation, "http://") || strings.HasPrefix(downloadLocation, "https://") {
+		// Full URL - download from external source
+		logger.Debug("Updater: Downloading MSI from external URL: %s", downloadLocation)
+
+		// Parse the URL to extract host, port, and path
+		parsedURL, err := url.Parse(downloadLocation)
+		if err != nil {
+			logger.Debug("Updater: Failed to parse download URL: %v", err)
+			return nil, fmt.Errorf("invalid download URL: %w", err)
+		}
+
+		// Determine if HTTPS
+		isHTTPS := parsedURL.Scheme == "https"
+		if parsedURL.Scheme != "http" && parsedURL.Scheme != "https" {
+			logger.Debug("Updater: Unsupported URL scheme: %s", parsedURL.Scheme)
+			return nil, fmt.Errorf("unsupported URL scheme: %s", parsedURL.Scheme)
+		}
+
+		// Extract host and port
+		host := parsedURL.Hostname()
+		if host == "" {
+			logger.Debug("Updater: Missing host in download URL")
+			return nil, errors.New("missing host in download URL")
+		}
+
+		portStr := parsedURL.Port()
+		var port uint16
+		if portStr == "" {
+			// Use default port based on scheme
+			if isHTTPS {
+				port = 443
+			} else {
+				port = 80
+			}
+		} else {
+			portNum, err := strconv.ParseUint(portStr, 10, 16)
+			if err != nil {
+				logger.Debug("Updater: Invalid port in download URL: %v", err)
+				return nil, fmt.Errorf("invalid port in download URL: %w", err)
+			}
+			port = uint16(portNum)
+		}
+
+		// Build the path (include query and fragment if present)
+		downloadPath := parsedURL.Path
+		if parsedURL.RawQuery != "" {
+			downloadPath += "?" + parsedURL.RawQuery
+		}
+		if parsedURL.Fragment != "" {
+			downloadPath += "#" + parsedURL.Fragment
+		}
+		if downloadPath == "" {
+			downloadPath = "/"
+		}
+
+		logger.Debug("Updater: Connecting to external download server: %s:%d (HTTPS=%v)", host, port, isHTTPS)
+
+		// Create a new session for the external download
+		downloadSession, err = winhttp.NewSession(version.UserAgent())
+		if err != nil {
+			logger.Debug("Updater: Failed to create WinHTTP session for external download: %v", err)
+			return nil, err
+		}
+		defer downloadSession.Close()
+
+		// Connect to the external host
+		downloadConnection, err = downloadSession.Connect(host, port, isHTTPS)
+		if err != nil {
+			logger.Debug("Updater: Failed to connect to external download server: %v", err)
+			return nil, err
+		}
+		defer downloadConnection.Close()
+
+		logger.Debug("Updater: Downloading MSI from path: %s", downloadPath)
+		response, err = downloadConnection.Get(downloadPath, false)
+		if err != nil {
+			logger.Debug("Updater: Failed to download MSI from external URL: %v", err)
+			return nil, err
+		}
+	} else {
+		// Relative path - download from update server
+		logger.Debug("Updater: Downloading MSI from update server: %s", downloadLocation)
+		response, err = connection.Get(downloadLocation, false)
+		if err != nil {
+			logger.Debug("Updater: Failed to download MSI: %v", err)
+			return nil, err
+		}
+	}
+	defer response.Close()
+	defer response.Close()
+	logger.Debug("Updater: MSI download response received")
+
+	length, err := response.Length()
+	if err == nil {
+		logger.Debug("Updater: MSI file size: %d bytes", length)
+		dp.BytesTotal = length
+		send(dp)
+	} else {
+		logger.Debug("Updater: Could not determine MSI file size: %v", err)
+	}
+
+	logger.Debug("Updater: Initializing BLAKE2b-256 hasher for verification")
+	hasher, err := blake2b.New256(nil)
+	if err != nil {
+		logger.Debug("Updater: Failed to create hasher: %v", err)
+		return nil, err
+	}
+	pm := &progressHashWatcher{&dp, progress, hasher}
+	logger.Debug("Updater: Starting download (max 100 MiB)")
+	bytesWritten, err := io.Copy(file, io.TeeReader(io.LimitReader(response, maxMsiSize), pm))
+	if err != nil {
+		logger.Debug("Updater: Download failed: %v (bytes written: %d)", err, bytesWritten)
+		return nil, err
+	}
+	logger.Debug("Updater: Download completed: %d bytes written", bytesWritten)
+
+	calculatedHash := hasher.Sum(nil)
+	logger.Debug("Updater: Verifying hash - calculated: %x, expected: %x", calculatedHash, update.hash)
+	if !hmac.Equal(calculatedHash, update.hash[:]) {
+		logger.Debug("Updater: Hash verification failed!")
+		return nil, errors.New("The downloaded update has the wrong hash")
+	}
+	logger.Debug("Updater: Hash verification passed")
+
+	// // Skip authenticode verification in development mode
+	// devMode := os.Getenv("PANGOLIN_ALLOW_DEV_UPDATES") == "1"
+	// if !devMode {
+	// 	logger.Info("Updater: Verifying Authenticode signature")
+	// 	send(DownloadProgress{Activity: "Verifying authenticode signature"})
+	// 	if !verifyAuthenticode(file.Name()) {
+	// 		logger.Error("Updater: Authenticode verification failed")
+	// 		return nil, errors.New("The downloaded update does not have an authentic authenticode signature")
+	// 	}
+	// 	logger.Info("Updater: Authenticode verification passed")
+	// } else {
+	// 	logger.Info("Updater: Skipping Authenticode verification (dev mode)")
+	// }
+
+	if err := file.Close(); err != nil {
+		return nil, err
+	}
+	if err := commitStagedFiles(update.manifest); err != nil {
+		logger.Debug("Updater: Failed to stage update: %v", err)
+		return nil, err
+	}
+	logger.Info("Updater: Update %s staged", update.version)
+	return &StagedUpdate{version: update.version, StagedAt: time.Now()}, nil
+}
+
+// installStaged verifies the staged MSI and installs it with run. When restartUI is
+// set, the new manager relaunches the UI in the console session after the upgrade.
+// A staged update that fails to install is discarded so it is not retried on every
+// launch; the next check downloads it again.
+func installStaged(restartUI bool, run func(msi *tempFile) error) error {
+	msi, err := prepareStagedMsi()
+	if err != nil {
+		logger.Error("Updater: Unable to use staged update: %v", err)
+		discardStagedFiles()
+		return err
+	}
+	defer msi.Delete()
+
+	logger.Info("Updater: Starting MSI installation")
+	if restartUI {
+		if err := RelaunchUIAfterUpdate(0); err != nil {
+			logger.Debug("Updater: Failed to write restart-ui flag file: %v", err)
+		}
+	}
+
+	err = run(msi)
+	if err != nil {
+		logger.Info("Updater: MSI installation failed: %v", err)
+		if restartUI {
+			CancelUIRelaunchAfterUpdate()
+		}
+		discardStagedFiles()
+		return err
+	}
+	// Flag file left in place so next start can start the UI automatically, then delete the file
+	logger.Info("Updater: MSI installation completed successfully")
+	discardStagedFiles()
+	return nil
+}
+
+// DownloadInBackground downloads, verifies and stages the latest update without installing it.
+func DownloadInBackground() (*StagedUpdate, error) {
+	if !atomic.CompareAndSwapUint32(&updateInProgress, 0, 1) {
+		return nil, errors.New("An update is already in progress")
+	}
+	defer atomic.StoreUint32(&updateInProgress, 0)
+	logger.Info("Updater: Downloading update in background")
+	return downloadAndVerify(nil)
+}
+
+// InstallStagedInBackground installs the staged update using the calling process's
+// token (the manager service runs as SYSTEM). With session 0 it shows no UI at all;
+// otherwise the user in session is waiting for Pangolin to launch, so msiexec's
+// progress bar is shown on their desktop. Any UI relaunch is requested separately
+// with RelaunchUIAfterUpdate.
+func InstallStagedInBackground(session uint32) error {
+	if !atomic.CompareAndSwapUint32(&updateInProgress, 0, 1) {
+		return errors.New("An update is already in progress")
+	}
+	defer atomic.StoreUint32(&updateInProgress, 0)
+	return installStaged(false, func(msi *tempFile) error {
+		if session == 0 {
+			return runMsi(msi, 0, true)
+		}
+		return runMsiInSession(msi, session)
+	})
+}
+
+// DownloadVerifyAndExecute installs the latest update, reporting progress on the
+// returned channel. With useStaged set, the staged update is installed instead of
+// downloading again.
+func DownloadVerifyAndExecute(userToken uintptr, useStaged bool) (progress chan DownloadProgress) {
 	progress = make(chan DownloadProgress, 128)
 	progress <- DownloadProgress{Activity: "Initializing"}
 
@@ -140,229 +406,22 @@ func DownloadVerifyAndExecute(userToken uintptr) (progress chan DownloadProgress
 
 	doIt := func() {
 		defer atomic.StoreUint32(&updateInProgress, 0)
-		logger.Info("Updater: DownloadVerifyAndExecute started (userToken=%v)", userToken != 0)
+		logger.Info("Updater: DownloadVerifyAndExecute started (userToken=%v, useStaged=%v)", userToken != 0, useStaged)
 
-		progress <- DownloadProgress{Activity: "Checking for update"}
-		logger.Info("Updater: Checking for update...")
-		update, session, connection, err := checkForUpdate(true)
-		if err != nil {
-			logger.Info("Updater: Update check failed: %v", err)
-			progress <- DownloadProgress{Error: err}
-			return
-		}
-		defer connection.Close()
-		defer session.Close()
-		if update == nil {
-			logger.Info("Updater: No update was found")
-			progress <- DownloadProgress{Error: errors.New("No update was found")}
-			return
-		}
-		logger.Info("Updater: Update found: %s", update.name)
-
-		progress <- DownloadProgress{Activity: "Creating temporary file"}
-		logger.Debug("Updater: Creating temporary file for MSI")
-		file, err := msiTempFile()
-		if err != nil {
-			logger.Debug("Updater: Failed to create temporary file: %v", err)
-			progress <- DownloadProgress{Error: err}
-			return
-		}
-		logger.Debug("Updater: Temporary file created: %s", file.Name())
-		defer func() {
-			if file != nil {
-				logger.Debug("Updater: Cleaning up temporary file: %s", file.Name())
-				file.Delete()
-			}
-		}()
-
-		dp := DownloadProgress{Activity: "Downloading update"}
-		progress <- dp
-
-		var response *winhttp.Response
-		var downloadConnection *winhttp.Connection
-		var downloadSession *winhttp.Session
-
-		// Get download location from manifest (required)
-		downloadLocation := update.downloadLocation
-		if downloadLocation == "" {
-			logger.Debug("Updater: Download location not specified in manifest for file: %s", update.name)
-			progress <- DownloadProgress{Error: errors.New("download location not specified in manifest")}
-			return
-		}
-
-		// Check if downloadLocation is a full URL (http:// or https://)
-		if strings.HasPrefix(downloadLocation, "http://") || strings.HasPrefix(downloadLocation, "https://") {
-			// Full URL - download from external source
-			logger.Debug("Updater: Downloading MSI from external URL: %s", downloadLocation)
-
-			// Parse the URL to extract host, port, and path
-			parsedURL, err := url.Parse(downloadLocation)
-			if err != nil {
-				logger.Debug("Updater: Failed to parse download URL: %v", err)
-				progress <- DownloadProgress{Error: fmt.Errorf("invalid download URL: %w", err)}
-				return
-			}
-
-			// Determine if HTTPS
-			isHTTPS := parsedURL.Scheme == "https"
-			if parsedURL.Scheme != "http" && parsedURL.Scheme != "https" {
-				logger.Debug("Updater: Unsupported URL scheme: %s", parsedURL.Scheme)
-				progress <- DownloadProgress{Error: fmt.Errorf("unsupported URL scheme: %s", parsedURL.Scheme)}
-				return
-			}
-
-			// Extract host and port
-			host := parsedURL.Hostname()
-			if host == "" {
-				logger.Debug("Updater: Missing host in download URL")
-				progress <- DownloadProgress{Error: errors.New("missing host in download URL")}
-				return
-			}
-
-			portStr := parsedURL.Port()
-			var port uint16
-			if portStr == "" {
-				// Use default port based on scheme
-				if isHTTPS {
-					port = 443
-				} else {
-					port = 80
-				}
-			} else {
-				portNum, err := strconv.ParseUint(portStr, 10, 16)
-				if err != nil {
-					logger.Debug("Updater: Invalid port in download URL: %v", err)
-					progress <- DownloadProgress{Error: fmt.Errorf("invalid port in download URL: %w", err)}
-					return
-				}
-				port = uint16(portNum)
-			}
-
-			// Build the path (include query and fragment if present)
-			downloadPath := parsedURL.Path
-			if parsedURL.RawQuery != "" {
-				downloadPath += "?" + parsedURL.RawQuery
-			}
-			if parsedURL.Fragment != "" {
-				downloadPath += "#" + parsedURL.Fragment
-			}
-			if downloadPath == "" {
-				downloadPath = "/"
-			}
-
-			logger.Debug("Updater: Connecting to external download server: %s:%d (HTTPS=%v)", host, port, isHTTPS)
-
-			// Create a new session for the external download
-			downloadSession, err = winhttp.NewSession(version.UserAgent())
-			if err != nil {
-				logger.Debug("Updater: Failed to create WinHTTP session for external download: %v", err)
-				progress <- DownloadProgress{Error: err}
-				return
-			}
-			defer downloadSession.Close()
-
-			// Connect to the external host
-			downloadConnection, err = downloadSession.Connect(host, port, isHTTPS)
-			if err != nil {
-				logger.Debug("Updater: Failed to connect to external download server: %v", err)
-				progress <- DownloadProgress{Error: err}
-				return
-			}
-			defer downloadConnection.Close()
-
-			logger.Debug("Updater: Downloading MSI from path: %s", downloadPath)
-			response, err = downloadConnection.Get(downloadPath, false)
-			if err != nil {
-				logger.Debug("Updater: Failed to download MSI from external URL: %v", err)
+		if !useStaged {
+			if _, err := downloadAndVerify(progress); err != nil {
 				progress <- DownloadProgress{Error: err}
 				return
 			}
 		} else {
-			// Relative path - download from update server
-			logger.Debug("Updater: Downloading MSI from update server: %s", downloadLocation)
-			response, err = connection.Get(downloadLocation, false)
-			if err != nil {
-				logger.Debug("Updater: Failed to download MSI: %v", err)
-				progress <- DownloadProgress{Error: err}
-				return
-			}
-		}
-		defer response.Close()
-		logger.Debug("Updater: MSI download response received")
-
-		length, err := response.Length()
-		if err == nil {
-			logger.Debug("Updater: MSI file size: %d bytes", length)
-			dp.BytesTotal = length
-			progress <- dp
-		} else {
-			logger.Debug("Updater: Could not determine MSI file size: %v", err)
+			logger.Info("Updater: Using previously downloaded update")
 		}
 
-		logger.Debug("Updater: Initializing BLAKE2b-256 hasher for verification")
-		hasher, err := blake2b.New256(nil)
-		if err != nil {
-			logger.Debug("Updater: Failed to create hasher: %v", err)
-			progress <- DownloadProgress{Error: err}
-			return
-		}
-		pm := &progressHashWatcher{&dp, progress, hasher}
-		logger.Debug("Updater: Starting download (max 100 MiB)")
-		bytesWritten, err := io.Copy(file, io.TeeReader(io.LimitReader(response, 1024*1024*100 /* 100 MiB */), pm))
-		if err != nil {
-			logger.Debug("Updater: Download failed: %v (bytes written: %d)", err, bytesWritten)
-			progress <- DownloadProgress{Error: err}
-			return
-		}
-		logger.Debug("Updater: Download completed: %d bytes written", bytesWritten)
-
-		calculatedHash := hasher.Sum(nil)
-		logger.Debug("Updater: Verifying hash - calculated: %x, expected: %x", calculatedHash, update.hash)
-		if !hmac.Equal(calculatedHash, update.hash[:]) {
-			logger.Debug("Updater: Hash verification failed!")
-			progress <- DownloadProgress{Error: errors.New("The downloaded update has the wrong hash")}
-			return
-		}
-		logger.Debug("Updater: Hash verification passed")
-
-		// // Skip authenticode verification in development mode
-		// devMode := os.Getenv("PANGOLIN_ALLOW_DEV_UPDATES") == "1"
-		// if !devMode {
-		// 	logger.Info("Updater: Verifying Authenticode signature")
-		// 	progress <- DownloadProgress{Activity: "Verifying authenticode signature"}
-		// 	if !verifyAuthenticode(file.ExclusivePath()) {
-		// 		logger.Error("Updater: Authenticode verification failed")
-		// 		progress <- DownloadProgress{Error: errors.New("The downloaded update does not have an authentic authenticode signature")}
-		// 		return
-		// 	}
-		// 	logger.Info("Updater: Authenticode verification passed")
-		// } else {
-		// 	logger.Info("Updater: Skipping Authenticode verification (dev mode)")
-		// }
-
-		logger.Info("Updater: Starting MSI installation")
 		progress <- DownloadProgress{Activity: "Installing update"}
-
-		restartUIFlagPath := filepath.Join(config.GetProgramDataDir(), "restart-ui-after-update.flag")
-		if err := os.MkdirAll(config.GetProgramDataDir(), 0o755); err != nil {
-			logger.Debug("Updater: Failed to create ProgramData dir for restart flag: %v", err)
-		} else if err := os.WriteFile(restartUIFlagPath, nil, 0o644); err != nil {
-			logger.Debug("Updater: Failed to write restart-ui flag file: %v", err)
-		} else {
-			logger.Debug("Updater: Wrote restart-ui flag at %s", restartUIFlagPath)
-		}
-
-		err = runMsi(file, userToken)
-		if err != nil {
-			logger.Info("Updater: MSI installation failed: %v", err)
-			if removeErr := os.Remove(restartUIFlagPath); removeErr != nil && !os.IsNotExist(removeErr) {
-				logger.Debug("Updater: Failed to remove restart-ui flag after MSI failure: %v", removeErr)
-			}
+		if err := installStaged(true, func(msi *tempFile) error { return runMsi(msi, userToken, false) }); err != nil {
 			progress <- DownloadProgress{Error: err}
 			return
 		}
-		// Flag file left in place so next start can start the UI automatically, then delete the file
-		logger.Info("Updater: MSI installation completed successfully")
 
 		logger.Info("Updater: Update process complete")
 		progress <- DownloadProgress{Complete: true}
@@ -378,6 +437,7 @@ func DownloadVerifyAndExecute(userToken uintptr) (progress chan DownloadProgress
 			processToken.Close()
 			if !isElevated {
 				logger.Info("Updater: Process is not running with admin privileges")
+				atomic.StoreUint32(&updateInProgress, 0)
 				progress <- DownloadProgress{Error: errors.New("update requires administrator privileges. Please run the application as administrator")}
 				return progress
 			}
@@ -401,42 +461,4 @@ func DownloadVerifyAndExecute(userToken uintptr) (progress chan DownloadProgress
 	}
 
 	return progress
-}
-
-// UpdateFoundCallback is a function type that gets called when an update is found
-type UpdateFoundCallback func(update *UpdateFound)
-
-// StartBackgroundUpdateChecker starts a background goroutine that checks for updates
-// at the specified interval. When an update is found, it calls the provided callback.
-// The function performs an initial check after a 30 second delay, then checks at
-// the specified interval thereafter.
-func StartBackgroundUpdateChecker(interval time.Duration, callback UpdateFoundCallback) {
-	go func() {
-		ticker := time.NewTicker(interval)
-		defer ticker.Stop()
-
-		// Perform initial check after a short delay
-		time.Sleep(30 * time.Second)
-
-		for {
-			// Check for updates
-			logger.Debug("Background update check: checking for updates...")
-			update, err := CheckForUpdate()
-			if err != nil {
-				logger.Debug("Background update check failed: %v", err)
-				// Don't call callback for errors, just log
-			} else if update != nil {
-				logger.Debug("Background update check: update found: %s", update.Name())
-				// Call the callback to notify about the update
-				if callback != nil {
-					callback(update)
-				}
-			} else {
-				logger.Debug("Background update check: no update available")
-			}
-
-			// Wait for next tick
-			<-ticker.C
-		}
-	}()
 }

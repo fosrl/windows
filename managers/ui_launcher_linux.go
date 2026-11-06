@@ -15,6 +15,11 @@ import (
 // ErrUIAlreadyRunning is returned by AttachUI when this user already has a UI.
 var ErrUIAlreadyRunning = errors.New("the Pangolin UI is already running")
 
+// ErrUpdateInstalling is returned by AttachUI while the daemon installs an
+// update. The UI shows that it is updating, waits with WaitForUpdateInstall,
+// then starts again so the new version runs.
+var ErrUpdateInstalling = errors.New("Pangolin is installing an update")
+
 // currentSessionID identifies this UI to the daemon. Linux runs one UI per
 // user, so the UID plays the part of the Windows session ID.
 func currentSessionID() uint32 {
@@ -74,6 +79,9 @@ func AttachUI() (reader, writer, events *os.File, err error) {
 	case attachAlreadyRunning:
 		closeFDs()
 		return nil, nil, nil, ErrUIAlreadyRunning
+	case attachUpdating:
+		closeFDs()
+		return nil, nil, nil, ErrUpdateInstalling
 	default:
 		closeFDs()
 		return nil, nil, nil, errors.New("the daemon refused the connection")
@@ -110,4 +118,38 @@ func RequestUIAction(action UIAction) bool {
 		return false
 	}
 	return reply[0] == 0
+}
+
+// updatePollInterval is how often WaitForUpdateInstall asks the daemon.
+const updatePollInterval = 2 * time.Second
+
+// WaitForUpdateInstall waits until the daemon has finished installing an
+// update: the new daemon is up, or a failed install left the old one ready.
+// While the package restarts the daemon it can't be reached, so that counts
+// as still installing. It gives up after timeout.
+func WaitForUpdateInstall(timeout time.Duration) bool {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		time.Sleep(updatePollInterval)
+		if installing, err := updateInstalling(); err == nil && !installing {
+			return true
+		}
+	}
+	return false
+}
+
+func updateInstalling() (bool, error) {
+	conn, err := dialDaemon()
+	if err != nil {
+		return false, err
+	}
+	defer conn.Close()
+	if _, err := conn.Write([]byte{daemonRequestUpdateStatus}); err != nil {
+		return false, err
+	}
+	var reply [1]byte
+	if _, err := conn.Read(reply[:]); err != nil {
+		return false, err
+	}
+	return reply[0] != 0, nil
 }

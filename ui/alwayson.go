@@ -99,6 +99,23 @@ func waitForServer(am *auth.AuthManager, label string, keepWaiting func() bool) 
 	}
 }
 
+// adoptRunningTunnel shows a tunnel that is already running when the UI starts
+// (for example after signing back in), so auto-connect and Always-On resume
+// see it as active instead of replacing it. Only the signed-in user's
+// organization's tunnel is adopted.
+func adoptRunningTunnel(am *auth.AuthManager) {
+	if tunnelManager == nil || am == nil || !am.IsAuthenticated() {
+		return
+	}
+	orgID := ""
+	if org := am.CurrentOrg(); org != nil {
+		orgID = org.Id
+	}
+	if tunnelManager.AdoptRunningTunnel(orgID) {
+		publish()
+	}
+}
+
 // resumeAlwaysOn reconnects after the UI restarts while Always-On is set.
 func resumeAlwaysOn(am *auth.AuthManager) {
 	setAlwaysOn(true)
