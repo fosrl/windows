@@ -11,7 +11,7 @@
 # Optional environment variables:
 #   DOWNLOAD_LOCATION_TEMPLATE: as in generate-manifest.sh, with %s for the
 #     version and %s for the file name, or just %s for the file name.
-#     Default: https://github.com/fosrl/windows-linux/releases/download/%s/%s
+#     Default: https://github.com/fosrl/windows-linux/releases/download/linux-%s/%s
 
 set -euo pipefail
 
@@ -19,7 +19,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BUILD_DIR="${SCRIPT_DIR}/../build"
 OUT_DIR="${BUILD_DIR}/linux"
 MANIFEST_FILE="${OUT_DIR}/filelist.txt"
-TEMPLATE="${DOWNLOAD_LOCATION_TEMPLATE:-https://github.com/fosrl/windows-linux/releases/download/%s/%s}"
+TEMPLATE="${DOWNLOAD_LOCATION_TEMPLATE:-https://github.com/fosrl/windows-linux/releases/download/linux-%s/%s}"
 
 command -v b2sum >/dev/null || { echo "Error: b2sum is not installed." >&2; exit 1; }
 
