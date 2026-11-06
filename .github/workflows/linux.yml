@@ -94,7 +94,9 @@ jobs:
 
       - name: Build packages
         run: |
-          go install github.com/goreleaser/nfpm/v2/cmd/nfpm@v2.48.0
+          # nfpm needs a newer Go than go.mod pins; let just this install
+          # fetch the toolchain it asks for (setup-go sets GOTOOLCHAIN=local).
+          GOTOOLCHAIN=auto go install github.com/goreleaser/nfpm/v2/cmd/nfpm@v2.48.0
           make package-linux VERSION="$VERSION" LINUX_GOARCH=${{ matrix.arch }} NFPM="$(go env GOPATH)/bin/nfpm"
           ls -la build
 
