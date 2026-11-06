@@ -18,7 +18,7 @@ export const urls = {
   howItWorks: "https://docs.pangolin.net/about/how-pangolin-works",
   terms: "https://pangolin.net/tos",
   privacy: "https://pangolin.net/privacy",
-  configureClient: "https://docs.pangolin.net/manage/clients/configure-client",
+  configureClient: "https://docs.pangolin.net/manage/clients/platforms"
 };
 
 /** True in the Linux build (WebKitGTK), false on Windows (WebView2). */

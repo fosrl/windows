@@ -221,14 +221,18 @@ function ScopeSheet({ orgName, onChoose }: { orgName: string; onChoose: (scope: 
         <>
           <Button onClick={() => onChoose(null)}>Cancel</Button>
           <div className="flex-1" />
-          <Button onClick={() => onChoose("org")}>Only {orgName}</Button>
+          {/* Long org names would push the default button out of the sheet, so
+              this button shrinks and truncates instead (Button is shrink-0). */}
+          <Button onClick={() => onChoose("org")} title={`Only ${orgName}`} style={{ flexShrink: 1, minWidth: 0 }}>
+            <span className="min-w-0 truncate leading-normal">Only {orgName}</span>
+          </Button>
           <Button type="submit" variant="prominent">
             All Organizations
           </Button>
         </>
       }
     >
-      <div className="text-[13px]">Apply this change to all organizations, or only to {orgName}?</div>
+      <div className="text-[13px] break-words">Apply this change to all organizations, or only to {orgName}?</div>
     </Sheet>
   );
 }
