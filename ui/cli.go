@@ -1,12 +1,10 @@
-//go:build windows
-
 package ui
 
 import (
 	"sync"
 
 	"github.com/fosrl/newt/logger"
-	"github.com/fosrl/windows/managers"
+	"github.com/fosrl/windows-linux/managers"
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
@@ -55,7 +53,7 @@ func showCLIWindow() {
 	}
 	cliWindow.EmitEvent(eventCLIState, cliInfo)
 	cliWindow.Show()
-	cliWindow.Focus()
+	focusWindow(cliWindow)
 	cliMu.Unlock()
 }
 
@@ -105,7 +103,7 @@ func installCLI() {
 	cliMu.Lock()
 	if cliWindow != nil {
 		cliWindow.Show()
-		cliWindow.Focus()
+		focusWindow(cliWindow)
 	}
 	cliMu.Unlock()
 }

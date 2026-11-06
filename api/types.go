@@ -1,6 +1,6 @@
-//go:build windows
-
 package api
+
+import "github.com/fosrl/windows-linux/config"
 
 // APIResponse is the wrapper structure for all API responses
 type APIResponse[T any] struct {
@@ -193,4 +193,10 @@ type SiteResource struct {
 // ListSiteResourcesResponse is the inner `data` of GET /org/:orgId/site-resources.
 type ListSiteResourcesResponse struct {
 	SiteResources []SiteResource `json:"siteResources"`
+}
+
+// MyClientSettingsResponse represents the response for getting the settings an
+// org manages for the current user
+type MyClientSettingsResponse struct {
+	Settings *config.ClientSettings `json:"settings"`
 }

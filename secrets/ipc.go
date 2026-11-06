@@ -1,8 +1,6 @@
-//go:build windows
-
 package secrets
 
-import "github.com/fosrl/windows/managers/secretstore"
+import "github.com/fosrl/windows-linux/managers/secretstore"
 
 // IPCAPI is implemented by the manager IPC client and registered at UI startup.
 type IPCAPI interface {

@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Pangolin
+Comment=Opens Pangolin at sign-in when that is turned on in its settings
+Exec=pangolin-client --autostart
+Icon=pangolin-client
+Terminal=false
+NoDisplay=true
+X-GNOME-Autostart-enabled=true

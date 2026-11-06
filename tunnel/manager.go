@@ -1,5 +1,3 @@
-//go:build windows
-
 package tunnel
 
 import (
@@ -14,10 +12,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Microsoft/go-winio"
-	"github.com/fosrl/windows/auth"
-	"github.com/fosrl/windows/config"
-	"github.com/fosrl/windows/secrets"
+	"github.com/fosrl/windows-linux/config"
+	"github.com/fosrl/windows-linux/auth"
+	"github.com/fosrl/windows-linux/secrets"
 
 	"github.com/fosrl/newt/logger"
 )
@@ -58,6 +55,8 @@ type Manager struct {
 	// gatewayResolver looks up the exit node (gateway) to establish when the
 	// tunnel connects; nil or a 0 resource ID means connect without one.
 	gatewayResolver func(orgID string) (siteResourceID int, siteIDs []int)
+	// serverSettingsFetcher fetches the settings the org's server manages.
+	serverSettingsFetcher func(orgID string) *config.ClientSettings
 	// Status polling fields
 	pollCtx       context.Context
 	pollCancel    context.CancelFunc
@@ -116,6 +115,14 @@ func (tm *Manager) SetGatewayResolver(fn func(orgID string) (siteResourceID int,
 	tm.mu.Lock()
 	defer tm.mu.Unlock()
 	tm.gatewayResolver = fn
+}
+
+// SetServerSettingsFetcher sets the function used at connect time to fetch the
+// settings the org's server manages.
+func (tm *Manager) SetServerSettingsFetcher(fn func(orgID string) *config.ClientSettings) {
+	tm.mu.Lock()
+	defer tm.mu.Unlock()
+	tm.serverSettingsFetcher = fn
 }
 
 // Close cleans up resources used by the Manager
@@ -229,13 +236,23 @@ func (tm *Manager) buildConfig() (Config, error) {
 		return Config{}, fmt.Errorf("OLM secret not found")
 	}
 
-	// Get DNS settings from config manager
-	primaryDNS := tm.configManager.GetPrimaryDNS()
-	secondaryDNS := tm.configManager.GetSecondaryDNS()
-	dnsOverride := tm.configManager.GetDNSOverride()
-	dnsTunnel := tm.configManager.GetDNSTunnel()
-	preferLocalRoutes := tm.configManager.GetPreferLocalRoutes()
-	exitNodeTakesPrecedence := tm.configManager.GetExitNodeTakesPrecedence()
+	// The server's settings are fetched on every connect; the gateway resolver
+	// below relies on them being recorded by now.
+	tm.mu.RLock()
+	fetchServerSettings := tm.serverSettingsFetcher
+	tm.mu.RUnlock()
+	var serverSettings *config.ClientSettings
+	if fetchServerSettings != nil {
+		serverSettings = fetchServerSettings(currentOrg.Id)
+	}
+
+	settings := tm.configManager.EffectiveSettings(currentOrg.Id, serverSettings)
+	primaryDNS := settings.PrimaryDNS
+	secondaryDNS := settings.SecondaryDNS
+	dnsOverride := settings.DNSOverride
+	dnsTunnel := settings.DNSTunnel
+	preferLocalRoutes := settings.PreferLocalRoutes
+	exitNodeTakesPrecedence := settings.ExitNodeTakesPrecedence
 
 	// Build UpstreamDNS array with :53 appended to each. If no DNS servers are
 	// configured, this stays empty, telling olm to use the system DNS.
@@ -252,7 +269,7 @@ func (tm *Manager) buildConfig() (Config, error) {
 		ID:                  olmId,
 		Secret:              olmSecret,
 		UserToken:           userToken,
-		MTU:                 tm.configManager.GetMTU(),
+		MTU:                 settings.MTU,
 		Holepunch:           true,
 		PingIntervalSeconds: 5,
 		PingTimeoutSeconds:  5,
@@ -261,7 +278,7 @@ func (tm *Manager) buildConfig() (Config, error) {
 		OrgID:                   currentOrg.Id,
 		InterfaceName:           "Pangolin",
 		UpstreamDNS:             upstreamDNS, // Each value has :53 appended
-		MatchDomains:            tm.configManager.GetMatchDomains(),
+		MatchDomains:            settings.MatchDomains,
 		OverrideDNS:             dnsOverride,
 		TunnelDNS:               dnsTunnel,
 		PreferLocalRoutes:       preferLocalRoutes,
@@ -565,20 +582,13 @@ type SelectGatewayRequest struct {
 	SiteIDs        []int `json:"siteIds"`
 }
 
-// getOLMPipePath returns the Windows named pipe path for OLM
-func getOLMPipePath() string {
-	return OLMNamedPipePath
-}
-
-// createOLMHTTPClient creates an HTTP client that can connect to OLM via named pipe
+// createOLMHTTPClient creates an HTTP client that talks to the OLM API over
+// its local socket (a named pipe on Windows, a Unix socket on Linux).
 func createOLMHTTPClient() (*http.Client, error) {
-	pipePath := getOLMPipePath()
-
-	// Create a custom transport that dials the named pipe
 	transport := &http.Transport{
 		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
-			// Ignore network and addr, we're connecting to a named pipe
-			return winio.DialPipe(pipePath, nil)
+			// Ignore network and addr, we're connecting to the local socket
+			return dialOLM(ctx)
 		},
 		DisableKeepAlives: false,
 		MaxIdleConns:      1,

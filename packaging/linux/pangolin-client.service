@@ -1,0 +1,24 @@
+[Unit]
+Description=Pangolin client background service
+Documentation=https://docs.pangolin.net
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/pangolin-client --daemon
+Restart=on-failure
+RestartSec=2
+# SIGTERM goes to the daemon only, which stops each tunnel cleanly so DNS and
+# routes are restored; anything left is killed when the timeout runs out.
+KillMode=mixed
+TimeoutStopSec=45
+RuntimeDirectory=pangolin-client
+RuntimeDirectoryMode=0755
+StateDirectory=pangolin-client
+StateDirectoryMode=0700
+LogsDirectory=pangolin-client
+LogsDirectoryMode=0755
+
+[Install]
+WantedBy=multi-user.target

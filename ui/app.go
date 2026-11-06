@@ -1,5 +1,3 @@
-//go:build windows
-
 package ui
 
 import (
@@ -9,22 +7,20 @@ import (
 	"fmt"
 	"io/fs"
 	"log/slog"
-	"os"
-	"path/filepath"
 	"runtime/debug"
 
 	"github.com/fosrl/newt/logger"
-	"github.com/fosrl/windows/api"
-	"github.com/fosrl/windows/auth"
-	"github.com/fosrl/windows/config"
-	"github.com/fosrl/windows/icons"
-	"github.com/fosrl/windows/managers"
-	"github.com/fosrl/windows/secrets"
-	"github.com/fosrl/windows/tunnel"
+	"github.com/fosrl/windows-linux/auth"
+	"github.com/fosrl/windows-linux/config"
+	"github.com/fosrl/windows-linux/icons"
+	"github.com/fosrl/windows-linux/api"
+	"github.com/fosrl/windows-linux/managers"
+	"github.com/fosrl/windows-linux/secrets"
+	"github.com/fosrl/windows-linux/tunnel"
+	"github.com/fosrl/windows-linux/version"
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/events"
 	"github.com/wailsapp/wails/v3/pkg/services/notifications"
-	"github.com/wailsapp/wails/v3/pkg/w32"
 )
 
 //go:embed all:frontend/dist
@@ -35,8 +31,6 @@ var ErrWebView2Missing = errors.New("the Microsoft Edge WebView2 Runtime is not 
 
 var app *application.App
 
-var procChangeWindowMessageFilter = user32.NewProc("ChangeWindowMessageFilter")
-
 // Deps are the managers the UI works with.
 type Deps struct {
 	Auth     *auth.AuthManager
@@ -44,20 +38,28 @@ type Deps struct {
 	Accounts *config.AccountManager
 	API      *api.APIClient
 	Secrets  *secrets.SecretManager
+
+	// StartupWarning, if set, is shown once the UI has started; for example
+	// when the background service can't be reached.
+	StartupWarning string
 }
+
+var startupWarning string
 
 // Run starts the tray UI and blocks until the UI quits.
 func Run(d Deps) error {
-	if !webView2Installed() {
-		return ErrWebView2Missing
+	if err := checkWebView(); err != nil {
+		return err
 	}
 
 	authManager = d.Auth
 	configManager = d.Config
+	startupWarning = d.StartupWarning
 	accountManager = d.Accounts
 	apiClient = d.API
 	tunnelManager = tunnel.NewManager(d.Auth, d.Config, d.Accounts, d.Secrets, managers.NewIPCAdapter())
 	tunnelManager.SetGatewayResolver(resolveSavedExitNode)
+	tunnelManager.SetServerSettingsFetcher(fetchServerSettings)
 	skipOnboardingForUsedInstall()
 
 	assets, err := fs.Sub(frontendDist, "frontend/dist")
@@ -65,14 +67,10 @@ func Run(d Deps) error {
 		return fmt.Errorf("frontend assets: %w", err)
 	}
 
-	allowTaskbarCreated()
+	beforeAppStart()
 
 	notifier = notifications.New()
-	app = application.New(application.Options{
-		Name:        config.AppName,
-		Description: "Pangolin client",
-		Icon:        icons.Orange,
-		Services: []application.Service{
+	opts := appOptions(assets, []application.Service{
 			application.NewService(&MenuService{}),
 			application.NewService(&PreferencesService{}),
 			application.NewService(&StatusService{}),
@@ -84,7 +82,26 @@ func Run(d Deps) error {
 			application.NewService(&UpdateService{}),
 			application.NewService(&CLIService{}),
 			application.NewService(&notifierService{}),
-		},
+	})
+	app = application.New(opts)
+
+	setupSystemTray()
+	registerIPCCallbacks()
+
+	app.Event.OnApplicationEvent(events.Common.ApplicationStarted, func(*application.ApplicationEvent) {
+		go onStarted()
+	})
+
+	return app.Run()
+}
+
+// appOptions are the Wails options shared by Run and RunInstallingUpdate.
+func appOptions(assets fs.FS, services []application.Service) application.Options {
+	opts := application.Options{
+		Name:        config.AppName,
+		Description: "Pangolin client",
+		Icon:        icons.Orange,
+		Services:    services,
 		Assets: application.AssetOptions{
 			Handler:        application.BundledAssetFileServer(assets),
 			DisableLogging: true,
@@ -97,19 +114,33 @@ func Run(d Deps) error {
 		PanicHandler: func(p *application.PanicDetails) {
 			logger.Error("UI panic: %v\n%s", p.Error, p.StackTrace)
 		},
-		Windows: application.WindowsOptions{
-			DisableQuitOnLastWindowClosed: true,
-			WebviewUserDataPath:           webviewUserDataPath(),
-		},
-	})
+	}
+	setPlatformOptions(&opts)
+	return opts
+}
 
-	setupSystemTray()
-	registerIPCCallbacks()
-
+// RunInstallingUpdate shows only the update window, saying that Pangolin is
+// being updated, and runs wait. It is for a UI that starts while the Linux
+// daemon installs an update: wait returns once the install is over, normally
+// by starting the new version in place of this process.
+func RunInstallingUpdate(wait func()) error {
+	assets, err := fs.Sub(frontendDist, "frontend/dist")
+	if err != nil {
+		return fmt.Errorf("frontend assets: %w", err)
+	}
+	beforeAppStart()
+	updateInfo = UpdateInfo{Phase: updatePhaseInstalling, CurrentVersion: version.Number}
+	app = application.New(appOptions(assets, []application.Service{
+		application.NewService(&UpdateService{}),
+		application.NewService(&AppService{}),
+	}))
 	app.Event.OnApplicationEvent(events.Common.ApplicationStarted, func(*application.ApplicationEvent) {
-		go onStarted()
+		go func() {
+			presentUpdateWindow()
+			wait()
+			app.Quit()
+		}()
 	})
-
 	return app.Run()
 }
 
@@ -120,6 +151,9 @@ func onStarted() {
 		}
 	}()
 
+	if startupWarning != "" {
+		go showWarning(nil, config.AppName, startupWarning)
+	}
 	updateTrayForState(currentTunnelState())
 	refreshCLIInstallState()
 	go checkStartupUpdate()
@@ -136,27 +170,6 @@ func onStarted() {
 		go autoConnect(authManager)
 	}
 	publish()
-}
-
-func allowTaskbarCreated() {
-	const msgfltAdd = 1
-	msg := w32.RegisterWindowMessage(w32.MustStringToUTF16Ptr("TaskbarCreated"))
-	if r, _, err := procChangeWindowMessageFilter.Call(uintptr(msg), msgfltAdd); r == 0 {
-		logger.Error("Failed to allow TaskbarCreated message: %v", err)
-	}
-}
-
-// webviewUserDataPath keeps WebView2's profile in the user's local app data;
-// the default next to the exe is not writable under Program Files.
-func webviewUserDataPath() string {
-	base := os.Getenv("LOCALAPPDATA")
-	if base == "" {
-		base = os.Getenv("APPDATA")
-	}
-	if base == "" {
-		return ""
-	}
-	return filepath.Join(base, config.AppName, "WebView2")
 }
 
 // newtLogHandler forwards Wails' slog output to the shared Pangolin log.

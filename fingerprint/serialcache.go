@@ -1,5 +1,3 @@
-//go:build windows
-
 package fingerprint
 
 import (
@@ -10,11 +8,10 @@ import (
 	"sync"
 
 	"github.com/fosrl/newt/logger"
-	"github.com/fosrl/windows/config"
 )
 
 // serialCacheFileName holds the last successfully-resolved hardware serial
-// number under %LOCALAPPDATA%\Pangolin, so that a transient failure to read
+// number in config.UserDataDir(), so that a transient failure to read
 // it from WMI/registry on a given run can fall back to a known-good value
 // instead of destabilizing the platform fingerprint hash.
 const serialCacheFileName = "fingerprint_cache.json"
@@ -24,14 +21,6 @@ type serialCacheFile struct {
 }
 
 var serialCacheMu sync.Mutex
-
-func serialCachePath() string {
-	appData := os.Getenv("LOCALAPPDATA")
-	if appData == "" {
-		appData = os.Getenv("APPDATA")
-	}
-	return filepath.Join(appData, config.AppName, serialCacheFileName)
-}
 
 func loadCachedSerial() string {
 	serialCacheMu.Lock()

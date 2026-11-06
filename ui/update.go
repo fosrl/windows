@@ -1,5 +1,3 @@
-//go:build windows
-
 package ui
 
 import (
@@ -8,9 +6,9 @@ import (
 	"sync/atomic"
 
 	"github.com/fosrl/newt/logger"
-	"github.com/fosrl/windows/managers"
-	"github.com/fosrl/windows/updater"
-	"github.com/fosrl/windows/version"
+	"github.com/fosrl/windows-linux/version"
+	"github.com/fosrl/windows-linux/managers"
+	"github.com/fosrl/windows-linux/updater"
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
@@ -24,6 +22,9 @@ const (
 	updatePhaseDownloading = "downloading"
 	updatePhaseError       = "error"
 	updatePhaseComplete    = "complete"
+	// updatePhaseInstalling is a UI started while the Linux daemon installs a
+	// silently downloaded update; Pangolin opens once it is installed.
+	updatePhaseInstalling = "installing"
 )
 
 // UpdateInfo is what the update window shows.
@@ -35,6 +36,10 @@ type UpdateInfo struct {
 	Error           string `json:"error"`
 	BytesDownloaded uint64 `json:"bytesDownloaded"`
 	BytesTotal      uint64 `json:"bytesTotal"`
+	// Manual, when set, says how to update instead of installing in the app
+	// (Linux AUR and hand-installed builds), with ManualCommand to copy.
+	Manual        string `json:"manual"`
+	ManualCommand string `json:"manualCommand"`
 }
 
 var (
@@ -60,6 +65,15 @@ func (UpdateService) State() UpdateInfo {
 func (UpdateService) Check()   { checkForUpdates() }
 func (UpdateService) Install() { startUpdate() }
 func (UpdateService) Close()   { hideUpdateWindow() }
+
+// autoDownloadUpdatesUnavailable explains why this copy can't download and
+// install updates itself (Linux AUR and hand-installed builds), or is empty.
+func autoDownloadUpdatesUnavailable() string {
+	if manual, command := updater.ManualUpdate(); manual != "" {
+		return manual + " " + command
+	}
+	return ""
+}
 
 // notifyUpdateAvailableOnce shows the update toast the first time an update is found.
 func notifyUpdateAvailableOnce() {
@@ -135,7 +149,11 @@ func checkForUpdates() {
 func updateInProgress() bool {
 	updateMu.Lock()
 	defer updateMu.Unlock()
-	return updateInfo.Phase == updatePhaseDownloading || updateInfo.Phase == updatePhaseComplete
+	switch updateInfo.Phase {
+	case updatePhaseDownloading, updatePhaseComplete, updatePhaseInstalling:
+		return true
+	}
+	return false
 }
 
 // offerUpdate puts the window in the "available" phase with the found version.
@@ -144,8 +162,10 @@ func offerUpdate() {
 	if err != nil {
 		logger.Error("Failed to get update version: %v", err)
 	}
+	manual, command := updater.ManualUpdate()
 	setUpdateInfo(func(info *UpdateInfo) {
-		*info = UpdateInfo{Phase: updatePhaseAvailable, Version: v, CurrentVersion: version.Number}
+		*info = UpdateInfo{Phase: updatePhaseAvailable, Version: v, CurrentVersion: version.Number,
+			Manual: manual, ManualCommand: command}
 	})
 }
 
@@ -155,11 +175,11 @@ func presentUpdateWindow() {
 	defer updateMu.Unlock()
 	if updateWindow == nil {
 		// Closing only hides the window, so a running download can be shown again.
-		updateWindow = newDialogWindow("update", "Software Update", "update", 200, hideUpdateWindow)
+		updateWindow = newDialogWindow("update", "Software Update", "update", 230, hideUpdateWindow)
 	}
 	updateWindow.EmitEvent(eventUpdateState, updateInfo)
 	updateWindow.Show()
-	updateWindow.Focus()
+	focusWindow(updateWindow)
 }
 
 func hideUpdateWindow() {

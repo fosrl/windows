@@ -1,243 +1,17 @@
-//go:build windows
-
 package main
 
 import (
-	"errors"
-	"fmt"
-	"os"
-	"strconv"
-	"syscall"
-	"time"
-	"unsafe"
-
-	"github.com/fosrl/windows/api"
-	"github.com/fosrl/windows/auth"
-	"github.com/fosrl/windows/config"
-	"github.com/fosrl/windows/elevate"
-	"github.com/fosrl/windows/managers"
-	"github.com/fosrl/windows/secrets"
-	"github.com/fosrl/windows/ui"
-	"github.com/fosrl/windows/version"
-
 	"github.com/fosrl/newt/logger"
-	"golang.org/x/sys/windows"
-	"golang.org/x/sys/windows/svc"
-	"golang.org/x/sys/windows/svc/mgr"
+	"github.com/fosrl/windows-linux/api"
+	"github.com/fosrl/windows-linux/auth"
+	"github.com/fosrl/windows-linux/config"
+	"github.com/fosrl/windows-linux/secrets"
+	"github.com/fosrl/windows-linux/ui"
 )
 
-var (
-	user32          = syscall.NewLazyDLL("user32.dll")
-	procMessageBoxW = user32.NewProc("MessageBoxW")
-)
-
-const mbOK = 0x00000000
-
-// showMessageBox displays a message box (used when run without UI, e.g. RequestUILaunch failed).
-func showMessageBox(text, caption string) {
-	textPtr, _ := windows.UTF16PtrFromString(text)
-	captionPtr, _ := windows.UTF16PtrFromString(caption)
-	procMessageBoxW.Call(0, uintptr(unsafe.Pointer(textPtr)), uintptr(unsafe.Pointer(captionPtr)), mbOK)
-}
-
-// waitForServiceRunning polls service state until Running or timeout. Returns true if Running.
-func waitForServiceRunning(service *mgr.Service, timeout time.Duration) bool {
-	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
-		status, err := service.Query()
-		if err != nil {
-			return false
-		}
-		if status.State == svc.Running {
-			return true
-		}
-		time.Sleep(300 * time.Millisecond)
-	}
-	return false
-}
-
-func execElevatedManagerServiceInstaller() error {
-	path, err := os.Executable()
-	if err != nil {
-		return err
-	}
-	err = elevate.ShellExecute(path, "/installmanagerservice", "", windows.SW_SHOW)
-	if err != nil && err != windows.ERROR_CANCELLED {
-		return err
-	}
-	os.Exit(0)
-	return windows.ERROR_UNHANDLED_EXCEPTION // Not reached
-}
-
-func main() {
-	// Setup logging first
-	setupLogging()
-
-	// Log version on startup
-	logger.Info("Pangolin version %s starting", version.Number)
-
-	// COM starts a new process to deliver a toast click (see ui.HandleToastActivation).
-	if ui.IsToastActivation(os.Args) {
-		ui.HandleToastActivation()
-		return
-	}
-
-	// Check if we're being run as the manager service
-	if len(os.Args) >= 2 && os.Args[1] == "/managerservice" {
-		// Run as Windows service
-		logger.Info("Starting as manager service")
-		if err := managers.Run(); err != nil {
-			logger.Fatal("Manager service failed: %v", err)
-		}
-		return
-	}
-
-	// Check if we're being run as a tunnel service
-	if len(os.Args) >= 3 && os.Args[1] == "/tunnelservice" {
-		// Run as tunnel service
-		configPath := os.Args[2]
-		logger.Info("Starting as tunnel service with config: %s", configPath)
-
-		// Read config from file
-		configJSON, err := os.ReadFile(configPath)
-		if err != nil {
-			logger.Fatal("Failed to read tunnel config: %v", err)
-		}
-
-		// Run the tunnel service
-		if err := managers.RunTunnelService(string(configJSON)); err != nil {
-			logger.Fatal("Tunnel service failed: %v", err)
-		}
-		return
-	}
-
-	// Handle /installmanagerservice flag (called after elevation)
-	if len(os.Args) >= 2 && os.Args[1] == "/installmanagerservice" {
-		err := managers.InstallManager()
-		if err != nil {
-			if err == managers.ErrManagerAlreadyRunning {
-				logger.Info("Manager service is already running")
-				managers.RequestUILaunchWithRetry(15 * time.Second)
-				return
-			}
-			logger.Fatal("Failed to install manager service: %v", err)
-		}
-		logger.Info("Manager service installed successfully")
-		if managers.RequestUILaunchWithRetry(15 * time.Second) {
-			logger.Debug("UI launch requested successfully")
-		}
-		return
-	}
-
-	// Check if we're being launched by the manager service with /ui flag
-	if len(os.Args) >= 5 && os.Args[1] == "/ui" {
-		// We're being launched by the manager service
-		// Args: [exe, "/ui", readerFd, writerFd, eventsFd]
-		readerFd, err1 := strconv.ParseUint(os.Args[2], 10, 64)
-		writerFd, err2 := strconv.ParseUint(os.Args[3], 10, 64)
-		eventsFd, err3 := strconv.ParseUint(os.Args[4], 10, 64)
-		if err1 != nil || err2 != nil || err3 != nil {
-			logger.Fatal("Invalid file descriptors from manager service")
-		}
-
-		// Open the file descriptors as files
-		reader := os.NewFile(uintptr(readerFd), "reader")
-		writer := os.NewFile(uintptr(writerFd), "writer")
-		events := os.NewFile(uintptr(eventsFd), "events")
-
-		// Initialize IPC client to connect to manager service
-		managers.InitializeIPCClient(reader, writer, events)
-
-		logger.Info("Connected to manager service via IPC")
-		// Fall through to run UI
-	} else {
-		// No arguments - normal entry when user double-clicks the .exe.
-		// Try the named pipe first so standard users never need SCM or UAC when the manager is running.
-		if managers.RequestUILaunch() {
-			return
-		}
-
-		// Pipe connect failed (manager not running or not installed). Use SCM to install/start; may require UAC.
-		serviceName := config.AppName + "Manager"
-		m, err := mgr.Connect()
-		if err != nil {
-			if err == windows.ERROR_ACCESS_DENIED {
-				logger.Info("Cannot access service manager without admin privileges")
-				logger.Info("Attempting to install/start manager service (will show UAC prompt)...")
-				err = execElevatedManagerServiceInstaller()
-				if err != nil {
-					logger.Fatal("Failed to install/start manager service: %v\nPlease run as administrator to install the service.", err)
-				}
-				return
-			}
-			logger.Fatal("Failed to connect to service manager: %v", err)
-		}
-		defer m.Disconnect()
-
-		service, err := m.OpenService(serviceName)
-		if err != nil {
-			logger.Info("Manager service not found, installing...")
-			err = execElevatedManagerServiceInstaller()
-			if err != nil {
-				logger.Fatal("Failed to install manager service: %v", err)
-			}
-			return
-		}
-		defer service.Close()
-
-		status, err := service.Query()
-		if err != nil {
-			logger.Fatal("Failed to query service status: %v", err)
-		}
-
-		if status.State == svc.Running || status.State == svc.StartPending {
-			if managers.RequestUILaunchWithRetry(15 * time.Second) {
-				return
-			}
-			logger.Error("Could not start Pangolin. Please try again or contact your administrator.")
-			showMessageBox("Could not start Pangolin. Please try again or contact your administrator.", "Pangolin")
-			return
-		}
-
-		if status.State == svc.Stopped {
-			logger.Info("Manager service is stopped, starting...")
-			err = service.Start()
-			if err != nil {
-				if err == windows.ERROR_ACCESS_DENIED {
-					logger.Info("Need admin privileges to start service, requesting elevation...")
-					err = elevate.ShellExecute("cmd.exe", fmt.Sprintf("/c net start \"%s\"", serviceName), "", windows.SW_HIDE)
-					if err != nil && err != windows.ERROR_CANCELLED {
-						logger.Fatal("Failed to start manager service (access denied): %v\nPlease start the service manually or run as administrator.", err)
-					}
-					if err == windows.ERROR_CANCELLED {
-						logger.Info("User cancelled elevation, cannot start service")
-						return
-					}
-					if !waitForServiceRunning(service, 30*time.Second) {
-						status, err = service.Query()
-						if err != nil {
-							logger.Fatal("Failed to query service status after start: %v", err)
-						}
-						if status.State == svc.Stopped {
-							logger.Fatal("Service failed to start. Please start it manually or run as administrator.")
-						}
-					}
-					logger.Info("Manager service started via elevation, UI should appear shortly")
-				} else {
-					logger.Fatal("Failed to start manager service: %v", err)
-				}
-			} else {
-				logger.Info("Manager service started, UI should appear shortly")
-				waitForServiceRunning(service, 30*time.Second)
-			}
-		}
-
-		if managers.RequestUILaunchWithRetry(15 * time.Second) {
-			return
-		}
-		return
-	}
-
+// runUI creates the managers the UI works with and runs the tray UI until it
+// quits. startupWarning, if set, is shown once the UI is up.
+func runUI(startupWarning string) error {
 	// Initialize managers
 	accountManager := config.NewAccountManager()
 	configManager := config.NewConfigManager()
@@ -266,30 +40,13 @@ func main() {
 		logger.Error("Failed to initialize auth manager: %v", err)
 	}
 
-	// Manager service handles all update checking
-	// If we're launched with /ui flag, we're connected to manager via IPC
-	if len(os.Args) >= 5 && os.Args[1] == "/ui" {
-		logger.Info("Connected to manager service - update checking handled by manager")
-	} else {
-		logger.Info("Running standalone - manager service should be running separately")
-		// Note: In production, the UI should always be launched by the manager service
-		// This standalone mode is mainly for development/testing
-	}
-
-	// Run the application
-	err := ui.Run(ui.Deps{
+	return ui.Run(ui.Deps{
 		Auth:     authManager,
 		Config:   configManager,
 		Accounts: accountManager,
 		API:      apiClient,
 		Secrets:  secretManager,
+
+		StartupWarning: startupWarning,
 	})
-	if errors.Is(err, ui.ErrWebView2Missing) {
-		showMessageBox("Pangolin needs the Microsoft Edge WebView2 Runtime, which is not installed.\n\n"+
-			"Download it from https://go.microsoft.com/fwlink/p/?LinkId=2124703 and then start Pangolin again.", config.AppName)
-		os.Exit(1)
-	}
-	if err != nil {
-		logger.Fatal("Failed to run UI: %v", err)
-	}
 }

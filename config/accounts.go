@@ -1,5 +1,3 @@
-//go:build windows
-
 package config
 
 import (
@@ -38,21 +36,19 @@ type Account struct {
 
 type OrgSettings struct {
 	ExitNodeResourceID int `json:"exitNodeResourceId,omitempty"`
+
+	// The settings the org's server manages for this user, as last fetched
+	// from it. Refreshed on every connect and whenever Preferences opens; only
+	// kept here so they still apply if the server can't be reached.
+	ServerSettings *ClientSettings `json:"serverSettings,omitempty"`
 }
 
 func (s OrgSettings) IsEmpty() bool {
-	return s.ExitNodeResourceID == 0
+	return s.ExitNodeResourceID == 0 && s.ServerSettings == nil
 }
 
 func NewAccountManager() *AccountManager {
-	// Get Local AppData directory (equivalent to Application Support on macOS)
-	appData := os.Getenv("LOCALAPPDATA")
-	if appData == "" {
-		// Fallback to APPDATA if LOCALAPPDATA is not set
-		appData = os.Getenv("APPDATA")
-	}
-
-	pangolinDir := filepath.Join(appData, AppName)
+	pangolinDir := UserDataDir()
 	accountsPath := filepath.Join(pangolinDir, AccountsFileName)
 
 	mgr := &AccountManager{
@@ -207,6 +203,20 @@ func (m *AccountManager) UpdateOrgSettings(userID, orgID string, update func(*Or
 	account.OrgSettings = settings
 	m.Accounts[userID] = account
 	return m.saveLocked()
+}
+
+// GetServerSettings returns the settings last fetched from the server for orgID
+// under userID, or nil if it manages none.
+func (m *AccountManager) GetServerSettings(userID, orgID string) *ClientSettings {
+	return m.GetOrgSettings(userID, orgID).ServerSettings
+}
+
+// SetServerSettings records the settings fetched from the server for orgID
+// under userID.
+func (m *AccountManager) SetServerSettings(userID, orgID string, settings *ClientSettings) error {
+	return m.UpdateOrgSettings(userID, orgID, func(s *OrgSettings) {
+		s.ServerSettings = settings
+	})
 }
 
 // GetExitNode returns the resource ID of the exit node selected for orgID under

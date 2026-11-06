@@ -1,5 +1,3 @@
-//go:build windows
-
 package version
 
 import (
@@ -19,5 +17,6 @@ func Arch() string {
 }
 
 func UserAgent() string {
-	return fmt.Sprintf("pangolin-windows-%s", Number)
+	// pangolin-windows-<version> on Windows, pangolin-linux-<version> on Linux.
+	return fmt.Sprintf("pangolin-%s-%s", runtime.GOOS, Number)
 }

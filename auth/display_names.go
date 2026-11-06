@@ -1,10 +1,8 @@
-//go:build windows
-
 package auth
 
 import (
-	"github.com/fosrl/windows/api"
-	"github.com/fosrl/windows/config"
+	"github.com/fosrl/windows-linux/api"
+	"github.com/fosrl/windows-linux/config"
 )
 
 // UserDisplayName returns a display name for a user with precedence:

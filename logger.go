@@ -1,5 +1,3 @@
-//go:build windows
-
 package main
 
 import (
@@ -9,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/fosrl/windows/config"
+	"github.com/fosrl/windows-linux/config"
 
 	"github.com/fosrl/newt/logger"
 )

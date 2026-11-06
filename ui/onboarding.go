@@ -1,5 +1,3 @@
-//go:build windows
-
 package ui
 
 import (
@@ -10,7 +8,6 @@ import (
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/events"
-	"github.com/wailsapp/wails/v3/pkg/w32"
 )
 
 // Setup (onboarding), as in the macOS app's MacOnboardingFlowView: welcome,
@@ -105,7 +102,7 @@ func autoOpenOnboarding() {
 
 // onboardingBackground is the setup window color from the macOS app.
 func onboardingBackground() application.RGBA {
-	if w32.IsCurrentlyDarkMode() {
+	if systemDarkMode() {
 		return application.NewRGB(0x16, 0x16, 0x18)
 	}
 	return application.NewRGB(0xfd, 0xfd, 0xfd)
@@ -118,7 +115,7 @@ func showOnboardingWindow() {
 
 	onboardingAutoOpened = true
 	if onboardingWindow == nil {
-		onboardingWindow = app.Window.NewWithOptions(application.WebviewWindowOptions{
+		opts := application.WebviewWindowOptions{
 			Name:                "onboarding",
 			Title:               "Pangolin Setup",
 			URL:                 "/#/onboarding",
@@ -129,7 +126,9 @@ func showOnboardingWindow() {
 			MinimiseButtonState: application.ButtonHidden,
 			MaximiseButtonState: application.ButtonHidden,
 			BackgroundColour:    onboardingBackground(),
-		})
+		}
+		scaleWindowOptions(&opts)
+		onboardingWindow = app.Window.NewWithOptions(opts)
 		// Closing only hides the window; finished steps are kept and setup
 		// resumes at the first unfinished one.
 		onboardingWindow.RegisterHook(events.Common.WindowClosing, func(e *application.WindowEvent) {
@@ -147,7 +146,7 @@ func showOnboardingWindow() {
 	if onboardingWindow.IsMinimised() {
 		onboardingWindow.Restore()
 	}
-	onboardingWindow.Focus()
+	focusWindow(onboardingWindow)
 }
 
 func closeOnboardingWindow() {

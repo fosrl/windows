@@ -1,5 +1,3 @@
-//go:build windows
-
 package tunnel
 
 import (
@@ -37,9 +35,6 @@ func notifyStateChange(state State) {
 // DefaultTunnelName is the name of the tunnel the UI starts. Its Windows
 // service is PangolinTunnel$olm.
 const DefaultTunnelName = "olm"
-
-// OLMNamedPipePath is the Windows named pipe path for OLM API communication
-const OLMNamedPipePath = `\\.\pipe\pangolin-olm`
 
 // State represents the state of a tunnel
 type State int

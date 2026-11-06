@@ -1,5 +1,3 @@
-//go:build windows
-
 package managers
 
 import (
@@ -9,10 +7,10 @@ import (
 	"sync"
 
 	"github.com/fosrl/newt/logger"
-	"github.com/fosrl/windows/fingerprint"
-	"github.com/fosrl/windows/managers/secretstore"
-	"github.com/fosrl/windows/tunnel"
-	"github.com/fosrl/windows/updater"
+	"github.com/fosrl/windows-linux/fingerprint"
+	"github.com/fosrl/windows-linux/updater"
+	"github.com/fosrl/windows-linux/managers/secretstore"
+	"github.com/fosrl/windows-linux/tunnel"
 )
 
 // TunnelConfig is exported for use in UI
@@ -168,6 +166,10 @@ func InitializeIPCClient(reader, writer, events *os.File) {
 	}()
 }
 
+// errIPCNotConnected is returned when the UI has no connection to the manager,
+// for example when it was started on its own for development.
+var errIPCNotConnected = errors.New("not connected to the Pangolin manager service")
+
 func rpcDecodeError() error {
 	var str string
 	err := rpcDecoder.Decode(&str)
@@ -183,6 +185,9 @@ func rpcDecodeError() error {
 func IPCClientQuit(stopTunnelsOnQuit bool) (alreadyQuit bool, err error) {
 	rpcMutex.Lock()
 	defer rpcMutex.Unlock()
+	if rpcEncoder == nil {
+		return false, errIPCNotConnected
+	}
 
 	err = rpcEncoder.Encode(QuitMethodType)
 	if err != nil {
@@ -203,6 +208,9 @@ func IPCClientQuit(stopTunnelsOnQuit bool) (alreadyQuit bool, err error) {
 func IPCClientUpdateState() (updateState UpdateState, err error) {
 	rpcMutex.Lock()
 	defer rpcMutex.Unlock()
+	if rpcEncoder == nil {
+		return UpdateStateUnknown, errIPCNotConnected
+	}
 
 	err = rpcEncoder.Encode(UpdateStateMethodType)
 	if err != nil {
@@ -219,6 +227,9 @@ func IPCClientUpdateState() (updateState UpdateState, err error) {
 func IPCClientUpdateVersion() (version string, err error) {
 	rpcMutex.Lock()
 	defer rpcMutex.Unlock()
+	if rpcEncoder == nil {
+		return "", errIPCNotConnected
+	}
 
 	err = rpcEncoder.Encode(UpdateVersionMethodType)
 	if err != nil {
@@ -243,6 +254,9 @@ func IPCClientAutoDownloadUpdatesTurnedOn() error {
 func IPCClientCheckForUpdates() (updateState UpdateState, err error) {
 	rpcMutex.Lock()
 	defer rpcMutex.Unlock()
+	if rpcEncoder == nil {
+		return UpdateStateUnknown, errIPCNotConnected
+	}
 
 	err = rpcEncoder.Encode(CheckForUpdatesMethodType)
 	if err != nil {
@@ -300,6 +314,9 @@ func (cb *UpdateProgressCallback) Unregister() {
 func IPCClientStartTunnel(config TunnelConfig) error {
 	rpcMutex.Lock()
 	defer rpcMutex.Unlock()
+	if rpcEncoder == nil {
+		return errIPCNotConnected
+	}
 
 	err := rpcEncoder.Encode(StartTunnelMethodType)
 	if err != nil {
@@ -315,6 +332,9 @@ func IPCClientStartTunnel(config TunnelConfig) error {
 func IPCClientStopTunnel() error {
 	rpcMutex.Lock()
 	defer rpcMutex.Unlock()
+	if rpcEncoder == nil {
+		return errIPCNotConnected
+	}
 
 	err := rpcEncoder.Encode(StopTunnelMethodType)
 	if err != nil {
@@ -327,6 +347,9 @@ func IPCClientStopTunnel() error {
 func IPCClientStopAllTunnels() error {
 	rpcMutex.Lock()
 	defer rpcMutex.Unlock()
+	if rpcEncoder == nil {
+		return errIPCNotConnected
+	}
 
 	err := rpcEncoder.Encode(StopAllTunnelsMethodType)
 	if err != nil {
@@ -339,6 +362,9 @@ func IPCClientStopAllTunnels() error {
 func IPCClientIsCLIInstalled() (installed bool, err error) {
 	rpcMutex.Lock()
 	defer rpcMutex.Unlock()
+	if rpcEncoder == nil {
+		return false, errIPCNotConnected
+	}
 
 	err = rpcEncoder.Encode(IsCLIInstalledMethodType)
 	if err != nil {
@@ -354,6 +380,9 @@ func IPCClientIsCLIInstalled() (installed bool, err error) {
 func IPCClientInstallCLI() error {
 	rpcMutex.Lock()
 	defer rpcMutex.Unlock()
+	if rpcEncoder == nil {
+		return errIPCNotConnected
+	}
 
 	err := rpcEncoder.Encode(InstallCLIMethodType)
 	if err != nil {
@@ -392,6 +421,9 @@ func IPCClientReady() bool {
 func IPCClientGetUserSecrets(userID string) (secretstore.UserSecrets, error) {
 	rpcMutex.Lock()
 	defer rpcMutex.Unlock()
+	if rpcEncoder == nil {
+		return secretstore.UserSecrets{}, errIPCNotConnected
+	}
 
 	if rpcEncoder == nil {
 		return secretstore.UserSecrets{}, errors.New("manager IPC is not connected")
@@ -416,6 +448,9 @@ func IPCClientGetUserSecrets(userID string) (secretstore.UserSecrets, error) {
 func IPCClientSaveUserSecrets(userID string, update secretstore.SecretsUpdate) error {
 	rpcMutex.Lock()
 	defer rpcMutex.Unlock()
+	if rpcEncoder == nil {
+		return errIPCNotConnected
+	}
 
 	if rpcEncoder == nil {
 		return errors.New("manager IPC is not connected")
@@ -442,6 +477,9 @@ func IPCClientSaveUserSecrets(userID string, update secretstore.SecretsUpdate) e
 func IPCClientDeleteUserSecrets(userID string, flags secretstore.DeleteSecretsFlags) error {
 	rpcMutex.Lock()
 	defer rpcMutex.Unlock()
+	if rpcEncoder == nil {
+		return errIPCNotConnected
+	}
 
 	if rpcEncoder == nil {
 		return errors.New("manager IPC is not connected")
@@ -464,6 +502,9 @@ func IPCClientDeleteUserSecrets(userID string, flags secretstore.DeleteSecretsFl
 func IPCClientGetDevicePosture() (fingerprint.DevicePostureSnapshot, error) {
 	rpcMutex.Lock()
 	defer rpcMutex.Unlock()
+	if rpcEncoder == nil {
+		return fingerprint.DevicePostureSnapshot{}, errIPCNotConnected
+	}
 
 	if rpcEncoder == nil {
 		return fingerprint.DevicePostureSnapshot{}, errors.New("manager IPC is not connected")
@@ -487,6 +528,9 @@ func IPCClientGetDevicePosture() (fingerprint.DevicePostureSnapshot, error) {
 func IPCClientSetAlwaysOn(enabled bool) error {
 	rpcMutex.Lock()
 	defer rpcMutex.Unlock()
+	if rpcEncoder == nil {
+		return errIPCNotConnected
+	}
 
 	if rpcEncoder == nil {
 		return errors.New("manager IPC is not connected")

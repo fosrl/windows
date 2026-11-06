@@ -9,8 +9,8 @@ import (
 	"path/filepath"
 
 	"github.com/fosrl/newt/logger"
-	"github.com/fosrl/windows/config"
-	"github.com/fosrl/windows/managers/secretstore"
+	"github.com/fosrl/windows-linux/config"
+	"github.com/fosrl/windows-linux/managers/secretstore"
 	"github.com/zalando/go-keyring"
 )
 

@@ -179,6 +179,8 @@ type menuInputs struct {
 	ExitNodes []menuExitNode
 	// ActiveExitNodeID is the ID of the selected exit node, or 0 for none.
 	ActiveExitNodeID int
+	// ExitNodeLocked is set when the org's server forces the exit node.
+	ExitNodeLocked bool
 
 	// Account and organization switches and logouts in progress.
 	SwitchingAccountID string
@@ -540,7 +542,7 @@ func orgSubmenu(in menuInputs) MenuItem {
 }
 
 func exitNodeSubmenu(in menuInputs) MenuItem {
-	enabled := !in.TunnelPhase.transitional() && !in.switching()
+	enabled := !in.TunnelPhase.transitional() && !in.switching() && !in.ExitNodeLocked
 	sub := []MenuItem{
 		insetHeader("Route All Traffic Through"),
 		checkItem(menuIDExitNodeNone, "None", enabled, in.ActiveExitNodeID == 0),

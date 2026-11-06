@@ -1,14 +1,12 @@
-//go:build windows
-
 package ui
 
 import (
 	"time"
 
 	"github.com/fosrl/newt/logger"
-	"github.com/fosrl/windows/auth"
-	"github.com/fosrl/windows/managers"
-	"github.com/fosrl/windows/tunnel"
+	"github.com/fosrl/windows-linux/auth"
+	"github.com/fosrl/windows-linux/managers"
+	"github.com/fosrl/windows-linux/tunnel"
 )
 
 const (

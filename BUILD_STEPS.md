@@ -20,7 +20,7 @@ Install the required tools:
   - The UI is a Vite + React + TypeScript app rendered with [Wails v3](https://v3.wails.io/). `make build` builds it and embeds it into the exe.
 
 - **wails3 CLI** (only to regenerate the TypeScript bindings after changing a bound Go service in `ui/`)
-  - `go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0-beta.25`, then `make bindings`
+  - `go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0`, then `make bindings`. On Linux, install it with `-tags gtk3` unless you have WebKitGTK 6.0.
 
 - **WiX Toolset**: For building MSI installers (Windows only)
   - Download from: https://github.com/wixtoolset/wix/releases/
@@ -60,40 +60,41 @@ const (
 
 ## Production Release Workflow
 
-### 1. Set Version Number
+CI (`.github/workflows/cicd.yml`) does all of this when a release tag is pushed:
+it builds `Pangolin.exe`, signs it with the DigiCert certificate (jsign), builds
+and signs `pangolin-amd64-<version>.msi`, builds the Linux packages, makes and
+signs both update manifests, and attaches everything to a draft GitHub release.
+Push a tag named exactly the version (e.g. `1.0.3` or `1.0.3-rc.1`). Nothing in
+the repo holds the version: CI stamps the tag into the binaries with `-ldflags`
+(`make build VERSION=<tag>`) and passes it to WiX (`-d Version=...`, without any
+`-rc.N`). A build without `VERSION` reports itself as `dev`.
+
+After publishing the release, upload `windows-latest.sig` to the update server
+as `/windows-client/latest.sig` and `linux-latest.sig` as `/linux-client/latest.sig`.
+
+The steps below are the manual equivalent.
+
+### 1. Build the Application
 
 ```bash
-./scripts/set-version.sh 1.0.3
+make build VERSION=1.0.3
 ```
 
-This updates both `version/version.go` and `pangolin.wxs` with the new version.
-
-### 2. Build the Application
-
-```bash
-make build
-```
-
-This builds the frontend (`ui/frontend/dist`) and creates `build/Pangolin.exe`.
+This builds the frontend (`ui/frontend/dist`) and creates `build/Pangolin.exe`
+with the version set in `version.Number`.
 
 To preview the UI in a desktop browser without Windows, run `npm run mock` in `ui/frontend` and open `http://localhost:5173/#/tray`, `#/preferences`, `#/login` or `#/progress?kind=update`. Mock mode swaps the Go services for fake data.
 
-### 3. Build MSI Installers
+### 2. Build MSI Installers
 
 ```bash
 # Windows
-scripts\build-msi.bat
+scripts\build-msi.bat 1.0.3
 ```
 
-### 4. Add Version to File Name
+This creates `build\pangolin-amd64-1.0.3.msi`.
 
-Rename the generated MSI files to include the version number:
-
-```
-build\pangolin-amd64-<version>.msi
-```
-
-### 4. Generate Manifest
+### 3. Generate Manifest
 
 ```bash
 # Auto-detect all MSI files in build/
@@ -105,7 +106,7 @@ build\pangolin-amd64-<version>.msi
 
 This creates `build/filelist.txt` with BLAKE2b-256 hashes of all MSI files.
 
-### 5. Sign Manifest
+### 4. Sign Manifest
 
 ```bash
 ./scripts/sign-manifest.sh signing-keys/release.sec
@@ -113,7 +114,7 @@ This creates `build/filelist.txt` with BLAKE2b-256 hashes of all MSI files.
 
 This creates `build/latest.sig` (the signed manifest).
 
-### 6. Upload to Update Server
+### 5. Upload to Update Server
 
 Upload the following files to your update server:
 
@@ -122,3 +123,67 @@ Upload the following files to your update server:
 
 2. **MSI files** → Upload to path specified in `updater/constants.go` (`msiPath`)
    - Example: `/windows-client/pangolin-amd64-1.0.1.msi`
+
+## Linux Release Workflow
+
+Linux packages are built by CI (`.github/workflows/cicd.yml`) when a
+release tag is pushed. They can also be built by hand on a machine with Go, Node.js,
+`libgtk-3-dev` and `libwebkit2gtk-4.1-dev` (Arch: `gtk3`, `webkit2gtk-4.1`),
+plus [nfpm](https://nfpm.goreleaser.com).
+
+### 1. Tag the Release
+
+Push a tag named exactly the version (e.g. `1.0.3` or `1.0.3-rc.1`); CI passes
+it to the build as `VERSION`.
+
+### 2. Packages (CI or by hand)
+
+```bash
+make package-linux VERSION=1.0.3                     # this machine's architecture
+make package-linux VERSION=1.0.3 LINUX_GOARCH=arm64  # on an arm64 machine
+```
+
+This makes `build/pangolin-client-<arch>-<version>.deb`, `.rpm` and
+`.pkg.tar.zst`. Packages built for release should come from Ubuntu 22.04 (as CI
+does), so they run on Ubuntu 22.04+, Debian 12+, Fedora and Arch. RHEL 9 and its
+rebuilds don't ship WebKitGTK 4.1, so they can't install the package.
+
+Each package installs the binary, the `pangolin-client` systemd service (enabled
+and started on install), the app menu and autostart entries, and the GNOME Shell
+extension. Arch users install the `.pkg.tar.zst` from the release with
+`sudo pacman -U <file>`.
+
+### 3. Manifest
+
+CI makes and signs the Linux manifest when the `UPDATE_SIGNING_KEY` secret holds
+`release.sec`, and attaches it to the draft release as `linux-latest.sig`. By hand:
+
+```bash
+./scripts/generate-linux-manifest.sh
+./scripts/sign-manifest.sh signing-keys/release.sec build/linux
+```
+
+The manifest points at the packages on the GitHub release by default (set
+`DOWNLOAD_LOCATION_TEMPLATE` as for Windows to change that).
+
+### 4. Publish
+
+1. Publish the draft GitHub release (CI attaches the signed Windows MSI too).
+2. Upload `linux-latest.sig` to the update server as `/linux-client/latest.sig`
+   (`latestVersionPath` in `updater/constants_linux.go`).
+3. Publishing the release runs `.github/workflows/aur.yml`, which updates the
+   `pangolin-client-bin` AUR package when the `AUR_SSH_PRIVATE_KEY` secret is set
+   (not set up yet: there is no AUR account).
+
+### How Linux Updates Install
+
+The daemon checks the Linux manifest like the Windows manager does. On deb, rpm
+and Arch installs, an administrator (root or a member of `sudo`, `wheel` or `admin`) can
+install an update from the app: the daemon downloads the package, checks its
+hash against the signed manifest, and installs it with `apt-get`, `dnf`,
+`zypper`, `rpm` or `pacman -U` in a transient systemd unit (`pangolin-client-update-*`), so the
+install survives the package restarting the daemon. The new daemon reopens the
+UIs that were open. The AUR package (which marks itself `aur` in
+`/usr/share/pangolin-client/package-format`, as its AUR helper updates it) and
+hand-installed builds show the command or download link instead
+(`updater.ManualUpdate`).

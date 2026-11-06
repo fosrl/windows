@@ -1,5 +1,3 @@
-//go:build windows
-
 package fingerprint
 
 // DevicePostureSnapshot is fingerprint and posture data from the manager cache.

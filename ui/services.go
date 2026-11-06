@@ -1,12 +1,10 @@
-//go:build windows
-
 package ui
 
 import (
 	"strings"
 	"time"
 
-	"github.com/fosrl/windows/version"
+	"github.com/fosrl/windows-linux/version"
 )
 
 // Services bound to the frontend. Each method runs on its own goroutine, so
@@ -40,7 +38,14 @@ func (PreferencesService) Opened() PrefsOpened {
 	defer prefsMu.Unlock()
 	return currentPrefsOpened()
 }
-func (PreferencesService) Update(form Settings) SettingsResult { return applySettings(form) }
+
+// Update saves the form; scope says where its tunnel settings go.
+func (PreferencesService) Update(form Settings, scope string) SettingsResult {
+	return applySettings(form, scope)
+}
+
+// ResetOrg makes the current org use the global settings again.
+func (PreferencesService) ResetOrg() Settings { return resetOrgSettings() }
 
 // StatusService backs the Status tab.
 type StatusService struct{}

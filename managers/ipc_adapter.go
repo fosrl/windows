@@ -1,8 +1,6 @@
-//go:build windows
-
 package managers
 
-import "github.com/fosrl/windows/tunnel"
+import "github.com/fosrl/windows-linux/tunnel"
 
 // IPCAdapter implements tunnel.IPCClient interface to avoid circular dependencies
 type IPCAdapter struct{}

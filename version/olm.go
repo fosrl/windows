@@ -1,5 +1,3 @@
-//go:build windows
-
 package version
 
 // OlmVersionOverride is the version of the github.com/fosrl/olm module this

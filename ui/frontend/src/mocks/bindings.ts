@@ -11,9 +11,9 @@ import type {
   StatusView,
   TrayLayout,
   UpdateInfo,
-} from "../bindings/github.com/fosrl/windows/ui/models";
+} from "../bindings/github.com/fosrl/windows-linux/ui/models";
 
-export type * from "../bindings/github.com/fosrl/windows/ui/models";
+export type * from "../bindings/github.com/fosrl/windows-linux/ui/models";
 import { Events } from "./runtime";
 
 const params = new URLSearchParams(window.location.search);
@@ -124,7 +124,11 @@ const settings: Settings = {
   openAtLogin: true, autoConnect: false, dnsOverride: true, dnsTunnel: false,
   primaryDns: "", secondaryDns: "", mtu: "1280", exitNodeTakesPrecedence: false,
   autoDownloadUpdates: false,
+  autoDownloadUpdatesUnavailable: params.has("aur")
+    ? "Pangolin was installed from the AUR. Update the pangolin-client-bin package with your AUR helper, for example: yay -Syu pangolin-client-bin"
+    : "",
   disabled: params.has("disabled"),
+  orgName: "Fossorial", orgMode: params.has("orgMode"), managed: params.has("managed") ? ["dnsTunnel", "mtu"] : [],
 };
 
 const status: StatusView = {
@@ -190,6 +194,10 @@ export const PreferencesService = {
       return ok({ settings: { ...settings, mtu: "1280" }, field: "mtu", error: "Enter an integer between 576 and 9000 (e.g., 1280)" });
     return ok({ settings: { ...settings }, field: "", error: "" });
   },
+  ResetOrg: () => {
+    settings.orgMode = false;
+    return ok({ ...settings });
+  },
 };
 export const StatusService = { Current: () => ok(status) };
 export const LogsService = {
@@ -221,10 +229,15 @@ export const AppService = {
 
 // Update window: `?update=checking|upToDate|disabled|checkFailed|available|downloading|error|complete`
 // picks the phase; Check finds an update and Install runs through a fake download.
+// `?manualUpdate` shows the AUR instructions in place of Install.
 let update: UpdateInfo = {
   phase: params.get("update") ?? "available", version: "1.4.2", currentVersion: "0.9.0",
   activity: "Downloading update", error: "The download could not be verified.",
   bytesDownloaded: 12_400_000, bytesTotal: 38_000_000,
+  manual: params.has("manualUpdate")
+    ? "Pangolin was installed from the AUR. Update the pangolin-client-bin package with your AUR helper, for example:"
+    : "",
+  manualCommand: params.has("manualUpdate") ? "yay -Syu pangolin-client-bin" : "",
 };
 const setUpdate = (u: Partial<UpdateInfo>) => {
   update = { ...update, ...u };

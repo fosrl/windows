@@ -1,29 +1,74 @@
 import { useRef, useState } from "react";
 import { PreferencesService, type Settings, type SettingsResult } from "@bindings";
 import { Button, Form, LinkRow, Row, Section, Sheet, Switch, TextField, Value } from "../components/controls";
-import { report, urls } from "../lib";
+import { isLinux, report, urls, useEvent } from "../lib";
 
 const defaultMTU = "1280";
 
 type EditField = "primaryDns" | "secondaryDns" | "mtu";
+type Scope = "global" | "org";
+
+/** The settings that can differ per org. The rest apply to the whole app. */
+const orgFields: (keyof Settings)[] = [
+  "dnsOverride",
+  "dnsTunnel",
+  "primaryDns",
+  "secondaryDns",
+  "mtu",
+  "exitNodeTakesPrecedence",
+];
 
 /** Settings apply as soon as they change, like the macOS app. */
 export function PreferencesTab({ initial }: { initial: Settings }) {
   const [form, setForm] = useState<Settings>(initial);
   const [editing, setEditing] = useState<EditField | null>(null);
+  const [askingScope, setAskingScope] = useState(false);
+  const resolveScope = useRef<(scope: Scope | null) => void>(() => {});
   const formRef = useRef(form);
   formRef.current = form;
   const disabled = form.disabled;
+  // The server's settings are re-fetched each time the window opens.
+  useEvent<Settings>("prefs:settings", setForm);
+
+  /** Whether a setting is read-only, because of an administrator or the org's server. */
+  const locked = (field: keyof Settings) => disabled || (form.managed ?? []).includes(field);
+
+  const askScope = () => {
+    setAskingScope(true);
+    return new Promise<Scope | null>((resolve) => {
+      resolveScope.current = (scope) => {
+        setAskingScope(false);
+        resolve(scope);
+      };
+    });
+  };
+
+  /**
+   * A change to an org's own settings stays there; otherwise the user picks
+   * whether it's global or just for this org. Resolves to null if they cancel.
+   */
+  const scopeFor = async (prev: Settings, patch: Partial<Settings>): Promise<Scope | null> => {
+    const changesOrgField = orgFields.some((field) => field in patch && patch[field] !== prev[field]);
+    if (!changesOrgField || !prev.orgName) return "global";
+    return prev.orgMode ? "org" : askScope();
+  };
 
   /** Saves a change. Resolves to the backend's result so sheets can show validation errors. */
   const apply = async (patch: Partial<Settings>): Promise<SettingsResult> => {
-    const next = { ...formRef.current, ...patch };
+    const prev = formRef.current;
+    const next = { ...prev, ...patch };
     setForm(next);
-    const result = await PreferencesService.Update(next);
+    const scope = await scopeFor(prev, patch);
+    if (scope === null) {
+      setForm(prev);
+      return { settings: prev, field: "", error: "" };
+    }
+    const result = await PreferencesService.Update(next, scope);
     setForm(result.settings);
     return result;
   };
   const toggle = (patch: Partial<Settings>) => report(apply(patch));
+  const resetOrg = () => report(PreferencesService.ResetOrg().then(setForm));
 
   return (
     <>
@@ -33,9 +78,17 @@ export function PreferencesTab({ initial }: { initial: Settings }) {
             These settings are managed by your administrator.
           </div>
         )}
+        {form.orgName && (
+          <div className="rounded-[10px] border border-mac-group-border bg-mac-group px-3 py-2 text-[12px] text-mac-secondary">
+            {form.orgMode
+              ? `${form.orgName} is using its own settings.`
+              : `${form.orgName} is using your global settings.`}
+            {(form.managed ?? []).length > 0 && " Settings set by your organization can't be changed."}
+          </div>
+        )}
 
         <Section header="General">
-          <Row title="Start at Login" description="Starts Pangolin when you sign in to Windows.">
+          <Row title="Start at Login" description={`Starts Pangolin when you sign in${isLinux ? "" : " to Windows"}.`}>
             <Switch
               label="Start at Login"
               checked={form.openAtLogin}
@@ -61,12 +114,15 @@ export function PreferencesTab({ initial }: { initial: Settings }) {
         <Section header="Updates">
           <Row
             title="Automatically Download and Install Updates"
-            description="Downloads updates in the background and installs them the next time Pangolin quits or starts."
+            description={
+              form.autoDownloadUpdatesUnavailable ||
+              "Downloads updates in the background and installs them the next time Pangolin quits or starts."
+            }
           >
             <Switch
               label="Automatically Download and Install Updates"
-              checked={form.autoDownloadUpdates}
-              disabled={disabled}
+              checked={form.autoDownloadUpdates && !form.autoDownloadUpdatesUnavailable}
+              disabled={disabled || !!form.autoDownloadUpdatesUnavailable}
               onChange={(v) => toggle({ autoDownloadUpdates: v })}
             />
           </Row>
@@ -80,7 +136,7 @@ export function PreferencesTab({ initial }: { initial: Settings }) {
             <Switch
               label="Enable Aliases (DNS Override)"
               checked={form.dnsOverride}
-              disabled={disabled}
+              disabled={locked("dnsOverride")}
               onChange={(v) => toggle({ dnsOverride: v })}
             />
           </Row>
@@ -91,19 +147,19 @@ export function PreferencesTab({ initial }: { initial: Settings }) {
             <Switch
               label="DNS Over Tunnel"
               checked={form.dnsTunnel}
-              disabled={disabled}
+              disabled={locked("dnsTunnel")}
               onChange={(v) => toggle({ dnsTunnel: v })}
             />
           </Row>
           <Row title="Primary Upstream DNS Server">
             <Value>{form.primaryDns || "System DNS"}</Value>
-            <Button size="small" disabled={disabled} onClick={() => setEditing("primaryDns")}>
+            <Button size="small" disabled={locked("primaryDns")} onClick={() => setEditing("primaryDns")}>
               Set...
             </Button>
           </Row>
           <Row title="Secondary Upstream DNS Server">
             <Value>{form.secondaryDns || "System DNS"}</Value>
-            <Button size="small" disabled={disabled} onClick={() => setEditing("secondaryDns")}>
+            <Button size="small" disabled={locked("secondaryDns")} onClick={() => setEditing("secondaryDns")}>
               Set...
             </Button>
           </Row>
@@ -117,13 +173,13 @@ export function PreferencesTab({ initial }: { initial: Settings }) {
             <Switch
               label="Exit Node Takes Precedence Over Resources"
               checked={form.exitNodeTakesPrecedence}
-              disabled={disabled}
+              disabled={locked("exitNodeTakesPrecedence")}
               onChange={(v) => toggle({ exitNodeTakesPrecedence: v })}
             />
           </Row>
           <Row title="MTU" description="Your sites must be configured to use the same MTU value.">
             <Value>{form.mtu}</Value>
-            <Button size="small" disabled={disabled} onClick={() => setEditing("mtu")}>
+            <Button size="small" disabled={locked("mtu")} onClick={() => setEditing("mtu")}>
               Set...
             </Button>
           </Row>
@@ -132,6 +188,14 @@ export function PreferencesTab({ initial }: { initial: Settings }) {
         <Section header="Help">
           <LinkRow href={urls.configureClient}>See docs for more info on these settings</LinkRow>
         </Section>
+
+        {form.orgMode && (
+          <div className="flex justify-end">
+            <Button disabled={disabled} onClick={resetOrg}>
+              Use Global Settings for {form.orgName}
+            </Button>
+          </div>
+        )}
       </Form>
 
       {editing === "mtu" && (
@@ -159,7 +223,34 @@ export function PreferencesTab({ initial }: { initial: Settings }) {
           field={editing}
         />
       )}
+      {askingScope && <ScopeSheet orgName={form.orgName} onChoose={(scope) => resolveScope.current(scope)} />}
     </>
+  );
+}
+
+/** Asks whether a change applies everywhere or just to the current org. */
+function ScopeSheet({ orgName, onChoose }: { orgName: string; onChoose: (scope: Scope | null) => void }) {
+  return (
+    <Sheet
+      onCancel={() => onChoose(null)}
+      onSubmit={() => onChoose("global")}
+      footer={
+        <>
+          <Button onClick={() => onChoose(null)}>Cancel</Button>
+          <div className="flex-1" />
+          {/* Long org names would push the default button out of the sheet, so
+              this button shrinks and truncates instead (Button is shrink-0). */}
+          <Button onClick={() => onChoose("org")} title={`Only ${orgName}`} style={{ flexShrink: 1, minWidth: 0 }}>
+            <span className="min-w-0 truncate leading-normal">Only {orgName}</span>
+          </Button>
+          <Button type="submit" variant="prominent">
+            All Organizations
+          </Button>
+        </>
+      }
+    >
+      <div className="text-[13px] break-words">Apply this change to all organizations, or only to {orgName}?</div>
+    </Sheet>
   );
 }
 

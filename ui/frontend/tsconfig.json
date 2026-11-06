@@ -13,8 +13,8 @@
     "noEmit": true,
     "types": ["vite/client"],
     "paths": {
-      "@bindings": ["./src/bindings/github.com/fosrl/windows/ui/index.ts"],
-      "@bindings/*": ["./src/bindings/github.com/fosrl/windows/ui/*"]
+      "@bindings": ["./src/bindings/github.com/fosrl/windows-linux/ui/index.ts"],
+      "@bindings/*": ["./src/bindings/github.com/fosrl/windows-linux/ui/*"]
     }
   },
   "include": ["src"]

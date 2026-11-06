@@ -1,5 +1,3 @@
-//go:build windows
-
 package managers
 
 import (
@@ -8,9 +6,9 @@ import (
 	_ "unsafe"
 
 	"github.com/fosrl/newt/logger"
-	"github.com/fosrl/windows/config"
-	"github.com/fosrl/windows/services"
-	"github.com/fosrl/windows/updater"
+	"github.com/fosrl/windows-linux/config"
+	"github.com/fosrl/windows-linux/services"
+	"github.com/fosrl/windows-linux/updater"
 )
 
 //go:linkname fastrandn runtime.fastrandn
@@ -112,25 +110,30 @@ func stageUpdate(version string) error {
 // autoDownloadUpdatesForSession reports whether the user logged into session has
 // automatic update downloads on in their merged config. Session 0 means no
 // particular user: the machine config or any signed-in user turning it on counts.
+// On Linux a session is a UID.
 func autoDownloadUpdatesForSession(session uint32) bool {
 	if session == 0 {
 		return autoDownloadUpdatesWanted()
 	}
-	localAppData, err := localAppDataForSession(session)
+	enabled, err := sessionAutoDownloadUpdates(session)
 	if err != nil {
 		logger.Error("Automatic update downloads: %v", err)
 	}
-	return config.AutoDownloadUpdatesEnabled(localAppData)
+	return enabled
 }
 
 // autoDownloadUpdatesWanted reports whether updates should be downloaded in the
 // background: the machine config or a signed-in user's config turns it on.
 func autoDownloadUpdatesWanted() bool {
+	// Linux AUR and hand-installed builds can't install updates themselves.
+	if manual, _ := updater.ManualUpdate(); manual != "" {
+		return false
+	}
 	if config.AutoDownloadUpdatesEnabled("") {
 		return true
 	}
 	for _, session := range signedInSessions() {
-		if localAppData, err := localAppDataForSession(session); err == nil && config.AutoDownloadUpdatesEnabled(localAppData) {
+		if enabled, err := sessionAutoDownloadUpdates(session); err == nil && enabled {
 			return true
 		}
 	}
@@ -141,7 +144,7 @@ func autoDownloadUpdatesWanted() bool {
 // Preferences right away, downloading an available update now instead of at the
 // next scheduled check.
 func autoDownloadUpdatesEnabled() {
-	if !config.AutoUpdateChecksEnabled() {
+	if manual, _ := updater.ManualUpdate(); manual != "" || !config.AutoUpdateChecksEnabled() {
 		return
 	}
 	go func() {
@@ -308,4 +311,12 @@ func checkForUpdates() {
 		}
 		jitterSleep(interval-jitter, interval+jitter)
 	}
+}
+
+// stagedUpdateInstalling reports whether a background install started by
+// installStagedUpdate is running.
+func stagedUpdateInstalling() bool {
+	updateLock.Lock()
+	defer updateLock.Unlock()
+	return installingStagedUpdate
 }

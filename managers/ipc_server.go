@@ -1,5 +1,3 @@
-//go:build windows
-
 package managers
 
 import (
@@ -14,12 +12,11 @@ import (
 	"time"
 
 	"github.com/fosrl/newt/logger"
-	"golang.org/x/sys/windows"
 
-	"github.com/fosrl/windows/fingerprint"
-	"github.com/fosrl/windows/managers/secretstore"
-	"github.com/fosrl/windows/tunnel"
-	"github.com/fosrl/windows/updater"
+	"github.com/fosrl/windows-linux/fingerprint"
+	"github.com/fosrl/windows-linux/managers/secretstore"
+	"github.com/fosrl/windows-linux/tunnel"
+	"github.com/fosrl/windows-linux/updater"
 )
 
 // RunTunnelService is exported so main.go can call it
@@ -42,11 +39,13 @@ var (
 )
 
 type ManagerService struct {
-	events           *os.File
-	eventLock        sync.Mutex
-	elevatedToken    windows.Token
-	clientWindowsSID string
-	session          uint32
+	events        *os.File
+	eventLock     sync.Mutex
+	elevatedToken userToken
+	// clientUserKey identifies the connected user: a SID on Windows, a UID on Linux.
+	clientUserKey string
+	// session is the UI's Windows session ID, or its UID on Linux.
+	session uint32
 }
 
 func setUserAlwaysOn(sid string, enabled bool) {
@@ -69,12 +68,12 @@ func userAlwaysOn(sid string) bool {
 }
 
 func (s *ManagerService) SetAlwaysOn(enabled bool) {
-	setUserAlwaysOn(s.clientWindowsSID, enabled)
-	logger.Info("Always-On for %s: %v", s.clientWindowsSID, enabled)
+	setUserAlwaysOn(s.clientUserKey, enabled)
+	logger.Info("Always-On for %s: %v", s.clientUserKey, enabled)
 }
 
 func (s *ManagerService) AlwaysOnEnabled() bool {
-	return userAlwaysOn(s.clientWindowsSID)
+	return userAlwaysOn(s.clientUserKey)
 }
 
 func (s *ManagerService) Quit(stopTunnelsOnQuit bool) (alreadyQuit bool, err error) {
@@ -151,7 +150,9 @@ func (s *ManagerService) AutoDownloadUpdatesTurnedOn() {
 
 func (s *ManagerService) Update() {
 	// Install the silently downloaded update, if any, instead of downloading again.
-	progress := updater.DownloadVerifyAndExecute(uintptr(s.elevatedToken), takeStagedUpdate())
+	staged := takeStagedUpdate()
+	prepareUpdateRestart()
+	progress := updater.DownloadVerifyAndExecute(uintptr(s.elevatedToken), staged)
 	go func() {
 		for {
 			dp := <-progress
@@ -168,10 +169,11 @@ func (s *ManagerService) IsCLIInstalled() bool {
 }
 
 func (s *ManagerService) InstallCLI() error {
-	if s.elevatedToken == 0 {
-		return errors.New("manager is not running with elevated privileges")
+	token, err := authorizeCLIInstall(s)
+	if err != nil {
+		return err
 	}
-	return InstallCLI(uintptr(s.elevatedToken))
+	return InstallCLI(uintptr(token))
 }
 
 func (s *ManagerService) StartTunnel(config tunnel.Config) error {
@@ -182,6 +184,7 @@ func (s *ManagerService) StartTunnel(config tunnel.Config) error {
 		snapshot, ok = fingerprint.CachedDevicePosture()
 	}
 	if ok {
+		snapshot = postureForClient(snapshot, s.clientUserKey)
 		fpBytes, errFP := json.Marshal(snapshot.Fingerprint)
 		postBytes, errPost := json.Marshal(snapshot.Postures)
 		if errFP == nil && errPost == nil && len(fpBytes) > 0 && len(postBytes) > 0 {
@@ -311,11 +314,11 @@ func stopActiveTunnels() {
 }
 
 func (s *ManagerService) GetUserSecrets(userID string) (secretstore.UserSecrets, error) {
-	if s.clientWindowsSID == "" {
-		logger.Error("IPC server: GetUserSecrets() clientWindowsSID empty (userId=%s)", userID)
+	if s.clientUserKey == "" {
+		logger.Error("IPC server: GetUserSecrets() clientUserKey empty (userId=%s)", userID)
 		return secretstore.UserSecrets{}, errors.New("manager IPC client is not bound to a windows user")
 	}
-	secrets, err := secretStore.Load(s.clientWindowsSID, userID)
+	secrets, err := secretStore.Load(s.clientUserKey, userID)
 	if err != nil {
 		logger.Error("IPC server: GetUserSecrets() failed (userId=%s): %v", userID, err)
 		return secrets, err
@@ -326,10 +329,10 @@ func (s *ManagerService) GetUserSecrets(userID string) (secretstore.UserSecrets,
 }
 
 func (s *ManagerService) SaveUserSecrets(userID string, update secretstore.SecretsUpdate) error {
-	if s.clientWindowsSID == "" {
+	if s.clientUserKey == "" {
 		return errors.New("manager IPC client is not bound to a windows user")
 	}
-	err := secretStore.Save(s.clientWindowsSID, userID, update)
+	err := secretStore.Save(s.clientUserKey, userID, update)
 	if err != nil {
 		logger.Error("IPC server: SaveUserSecrets() failed (userId=%s): %v", userID, err)
 	}
@@ -337,10 +340,10 @@ func (s *ManagerService) SaveUserSecrets(userID string, update secretstore.Secre
 }
 
 func (s *ManagerService) DeleteUserSecrets(userID string, flags secretstore.DeleteSecretsFlags) error {
-	if s.clientWindowsSID == "" {
+	if s.clientUserKey == "" {
 		return errors.New("manager IPC client is not bound to a windows user")
 	}
-	err := secretStore.Delete(s.clientWindowsSID, userID, flags)
+	err := secretStore.Delete(s.clientUserKey, userID, flags)
 	return err
 }
 
@@ -519,7 +522,10 @@ func (s *ManagerService) ServeConn(reader io.Reader, writer io.Writer) {
 	}
 }
 
-func IPCServerListen(reader, writer, events *os.File, elevatedToken windows.Token, clientWindowsSID string, session uint32) {
+// IPCServerListen serves one UI's IPC connection in the background. session
+// is the UI's Windows session ID, or its UID on Linux. The returned channel
+// is closed once the UI disconnects.
+func IPCServerListen(reader, writer, events *os.File, elevatedToken userToken, clientUserKey string, session uint32) <-chan struct{} {
 	postureRefresherOnce.Do(func() {
 		go func() {
 			fingerprint.RefreshPostureMemory()
@@ -532,13 +538,15 @@ func IPCServerListen(reader, writer, events *os.File, elevatedToken windows.Toke
 	})
 
 	service := &ManagerService{
-		events:           events,
-		elevatedToken:    elevatedToken,
-		clientWindowsSID: clientWindowsSID,
-		session:          session,
+		events:        events,
+		elevatedToken: elevatedToken,
+		clientUserKey: clientUserKey,
+		session:       session,
 	}
 
+	done := make(chan struct{})
 	go func() {
+		defer close(done)
 		managerServicesLock.Lock()
 		managerServices[service] = true
 		managerServicesLock.Unlock()
@@ -550,6 +558,7 @@ func IPCServerListen(reader, writer, events *os.File, elevatedToken windows.Toke
 		delete(managerServices, service)
 		managerServicesLock.Unlock()
 	}()
+	return done
 }
 
 func notifyAll(notificationType NotificationType, adminOnly bool, ifaces ...any) {

@@ -12,14 +12,14 @@ import (
 	"syscall"
 	"unsafe"
 
-	"github.com/fosrl/windows/config"
+	"github.com/fosrl/windows-linux/config"
 	"golang.org/x/sys/windows"
 )
 
 var (
-	advapi32                                                  = windows.NewLazySystemDLL("advapi32.dll")
+	advapi32                                                 = windows.NewLazySystemDLL("advapi32.dll")
 	procConvertStringSecurityDescriptorToSecurityDescriptorW = advapi32.NewProc("ConvertStringSecurityDescriptorToSecurityDescriptorW")
-	procSetFileSecurityW                                      = advapi32.NewProc("SetFileSecurityW")
+	procSetFileSecurityW                                     = advapi32.NewProc("SetFileSecurityW")
 )
 
 const (

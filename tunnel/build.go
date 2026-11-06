@@ -1,5 +1,3 @@
-//go:build windows
-
 package tunnel
 
 import (
@@ -11,9 +9,17 @@ import (
 	"github.com/fosrl/newt/logger"
 
 	olmpkg "github.com/fosrl/olm/olm"
-	configpkg "github.com/fosrl/windows/config"
-	"github.com/fosrl/windows/version"
+	configpkg "github.com/fosrl/windows-linux/config"
+	"github.com/fosrl/windows-linux/version"
 )
+
+// tunnelService is one running tunnel: a Windows service on Windows, a child
+// process of the daemon on Linux.
+type tunnelService struct {
+	configJSON string
+
+	olm *olmpkg.Olm
+}
 
 // buildTunnel builds the tunnel
 func (s *tunnelService) buildTunnel(config Config) error {
@@ -26,9 +32,9 @@ func (s *tunnelService) buildTunnel(config Config) error {
 	olmInitConfig := olmpkg.OlmConfig{
 		LogLevel:   configpkg.GetSystemLogLevel(),
 		EnableAPI:  true,
-		SocketPath: OLMNamedPipePath,
+		SocketPath: OLMSocketPath,
 		Version:    version.Number,
-		Agent:      "Pangolin Windows",
+		Agent:      "Pangolin " + version.OSDisplayName,
 		OlmVersion: version.OlmVersionOverride,
 		OnConnected: func() {
 			logger.Info("Tunnel: OLM connected")

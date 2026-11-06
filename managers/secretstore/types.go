@@ -1,5 +1,3 @@
-//go:build windows
-
 package secretstore
 
 // UserSecrets holds per-Pangolin-account credentials for one Windows user profile.

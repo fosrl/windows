@@ -1,4 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
+import { Clipboard } from "@wailsio/runtime";
 import { UpdateService, type UpdateInfo } from "@bindings";
 import { Button, ProgressBar, Spinner } from "../components/controls";
 import { DialogMessage as Message, DialogWindow } from "../components/dialog";
@@ -94,6 +95,20 @@ export function UpdateWindow() {
         </>
       );
       break;
+    case "installing":
+      // Linux: Pangolin started while the background service installs a
+      // downloaded update; the new version opens when it is done.
+      title = "Updating Pangolin…";
+      body = (
+        <>
+          <div className="mt-2">
+            <Spinner />
+          </div>
+          <Message>Pangolin will open when the update is installed.</Message>
+        </>
+      );
+      buttons = <Button onClick={close}>Hide</Button>;
+      break;
     case "complete":
       title = "Installing update…";
       body = <Message>Pangolin will restart automatically when the installation finishes.</Message>;
@@ -101,6 +116,20 @@ export function UpdateWindow() {
       break;
     default:
       title = "A new version of Pangolin is available";
+      if (info.manual) {
+        // This install can't update itself (Linux AUR or a hand-installed build).
+        body = (
+          <>
+            <Message>
+              {info.version ? `Pangolin ${info.version} is available — you have ${info.currentVersion}. ` : ""}
+              {info.manual}
+            </Message>
+            {info.manualCommand && <CopyableCommand command={info.manualCommand} />}
+          </>
+        );
+        buttons = ok;
+        break;
+      }
       body = (
         <Message>
           {info.version
@@ -123,5 +152,25 @@ export function UpdateWindow() {
     <DialogWindow title={title} buttons={buttons} onEscape={close}>
       {body}
     </DialogWindow>
+  );
+}
+
+/** A command or link the user is told to run, with a button to copy it. */
+function CopyableCommand({ command }: { command: string }) {
+  const [copied, setCopied] = useState(false);
+  const copy = () =>
+    report(
+      Clipboard.SetText(command).then(() => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 1500);
+      }),
+    );
+  return (
+    <div className="mt-3 flex items-center gap-2">
+      <code className="min-w-0 flex-1 truncate rounded-md border border-mac-group-border bg-mac-group px-2 py-1.5 font-mono text-[12px] select-text">
+        {command}
+      </code>
+      <Button onClick={copy}>{copied ? "Copied" : "Copy"}</Button>
+    </div>
   );
 }

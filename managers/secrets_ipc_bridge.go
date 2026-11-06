@@ -1,10 +1,8 @@
-//go:build windows
-
 package managers
 
 import (
-	"github.com/fosrl/windows/managers/secretstore"
-	"github.com/fosrl/windows/secrets"
+	"github.com/fosrl/windows-linux/managers/secretstore"
+	"github.com/fosrl/windows-linux/secrets"
 )
 
 type secretsIPCBridge struct{}
